@@ -46,11 +46,20 @@ const Branches: React.FC = () => {
     }
     setCreating(true);
     try {
+      // Crear usuario auth (si ya existe, continuar igual)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: form.adminEmail, password: form.adminPassword,
         options: { data: { full_name: form.name } }
       });
-      if (authError) throw authError;
+      if (authError && !authError.message.includes('already registered')) throw authError;
+      // Si ya existe, buscar el user_id existente
+      let userId = authData?.user?.id;
+      if (!userId) {
+        const { data: existingProfile } = await supabase
+          .from('profiles').select('id').eq('email', form.adminEmail).maybeSingle();
+        userId = existingProfile?.id;
+      }
+      if (!userId) throw new Error('No se pudo crear o encontrar el usuario administrador');
 
       const { data: newCompany, error: companyError } = await supabase.from('companies').insert({
         name: form.name, nit: form.nit, email: form.email, phone: form.phone,
@@ -62,14 +71,14 @@ const Branches: React.FC = () => {
       }).select().single();
       if (companyError) throw companyError;
 
-      if (authData.user) {
+      if (userId) {
         await supabase.from('profiles').upsert({
-          id: authData.user.id, company_id: newCompany.id,
+          id: userId, company_id: newCompany.id,
           role: 'ADMIN', full_name: form.name, email: form.adminEmail, is_active: true
-        });
+        }, { onConflict: 'id' });
         const { data: branch } = await supabase.from('branches')
           .insert({ company_id: newCompany.id, name: 'Sede Principal', is_active: true }).select().single();
-        if (branch) await supabase.from('profiles').update({ branch_id: branch.id }).eq('id', authData.user.id);
+        if (branch) await supabase.from('profiles').update({ branch_id: branch.id }).eq('id', userId);
       }
 
       toast.success(`Sucursal "${form.name}" creada exitosamente`);
