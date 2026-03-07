@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast';
 const WHATSAPP_NUMBER = '573204884943';
 const CONTACT_EMAIL = 'diegoferrangel@gmail.com';
 const BOLD_PAYMENT_URL = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
+const BOLD_PAYMENT_PRO_URL = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
 
 // ── LANDING PAGE ─────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void }> = ({ onLogin, onRegister }) => {
@@ -359,6 +360,10 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from('companies').select('*, profiles(email)').order('created_at', { ascending: false });
+    // Cargar notificaciones no leídas
+    const { data: notifs } = await supabase.from('admin_notifications')
+      .select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20);
+    setNotifications(notifs || []);
     setCompanies(data || []);
     setLoading(false);
   };
