@@ -43,8 +43,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, color: '#fff' }}>PM</div>
-          <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: '-0.5px' }}>POSmaster</span>
+          <img src="/logo.png" alt="POSmaster" style={{ height: 36, width: 'auto', filter: 'brightness(0) invert(1)' }} />
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={onLogin} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#f1f5f9', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>Ingresar</button>
@@ -58,6 +57,10 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 780 }}>
           <div style={{ display: 'inline-block', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', padding: '6px 16px', borderRadius: 100, fontSize: 13, fontWeight: 600, marginBottom: 24 }}>
             🇨🇴 Hecho para negocios colombianos
+          </div>
+          {/* Logo centrado sobre el título */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+            <img src="/logo.png" alt="POSmaster" style={{ height: 100, width: 'auto', filter: 'drop-shadow(0 4px 24px rgba(139,92,246,0.4))' }} />
           </div>
           <h1 style={{ fontSize: 'clamp(2.5rem,6vw,4.5rem)', fontWeight: 900, lineHeight: 1.05, marginBottom: 24, letterSpacing: '-2px' }}>
             El POS que{' '}
