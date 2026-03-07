@@ -16,9 +16,9 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
   }, []);
 
   const plans = [
-    { id: 'BASIC', name: 'Básico', price: 'Gratis', period: '', color: '#64748b', features: ['1 Usuario', '1 Sucursal', 'POS Completo', 'Hasta 100 Productos', 'Soporte por Email'], cta: 'Empezar Gratis' },
-    { id: 'PRO', name: 'Profesional', price: '$79.900', period: '/mes', color: '#3b82f6', features: ['5 Usuarios', '3 Sucursales', 'Facturación Electrónica DIAN', 'Productos Ilimitados', 'Reportes Avanzados', 'Soporte Prioritario'], cta: 'Comenzar Ahora', popular: true },
-    { id: 'ENTERPRISE', name: 'Empresarial', price: '$249.900', period: '/mes', color: '#8b5cf6', features: ['Usuarios Ilimitados', 'Sucursales Ilimitadas', 'API Access', 'Gestor Dedicado', 'SLA 99.9%', 'Capacitación Incluida'], cta: 'Contactar Ventas' },
+    { id: 'TRIAL', name: 'Prueba Gratis', price: 'Gratis', period: '7 días', color: '#10b981', badge: '🎁 Sin tarjeta', features: ['Acceso completo 7 días', 'POS Completo', 'Inventario', 'Control de Caja', 'Servicio Técnico', 'Sin compromiso'], cta: 'Probar Gratis' },
+    { id: 'BASIC', name: 'Basic', price: '$65.000', period: '/mes', color: '#64748b', features: ['1 Negocio', 'POS Completo', 'Inventario Ilimitado', 'Control de Caja', 'Servicio Técnico', 'Cartera / CxC', 'Soporte por WhatsApp'], cta: 'Comenzar' },
+    { id: 'PRO', name: 'Pro', price: '$120.000', period: '/mes', color: '#3b82f6', badge: '⭐ Más popular', features: ['Todo lo del Basic', 'Hasta 3 sucursales adicionales', 'Panel de sucursales', 'Cada sucursal con su POS', 'Soporte Prioritario', 'Asesoría personalizada'], cta: 'Comenzar Ahora', popular: true },
   ];
 
   const features = [
@@ -27,7 +27,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
     { icon: '🔧', title: 'Servicio Técnico', desc: 'Gestiona órdenes de reparación con seguimiento de estado y técnico asignado.' },
     { icon: '💰', title: 'Control de Caja', desc: 'Apertura, cierre y arqueo de turnos con historial detallado.' },
     { icon: '📊', title: 'Dashboard', desc: 'Métricas reales de ventas, utilidad y rendimiento de tu negocio.' },
-    { icon: '🧾', title: 'Facturación DIAN', desc: 'Emisión de facturas electrónicas certificadas. Cumple con la normativa colombiana.' },
+    { icon: '🤝', title: 'Cartera / CxC', desc: 'Controla cuentas por cobrar, deudas de clientes y pagos pendientes.' },
   ];
 
   return (
@@ -70,24 +70,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
             <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 0 30px rgba(99,102,241,0.4)' }}>Ya tengo cuenta</button>
             <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Registrarse</button>
           </div>
-          <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>Sin tarjeta de crédito • Planes desde $65.000/mes</p>
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Todo lo que tu negocio necesita</h2>
-        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Una plataforma completa, sin complicaciones</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 20 }}>
-          {features.map((f, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 28, transition: 'all 0.2s', cursor: 'default' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(59,130,246,0.4)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(59,130,246,0.05)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.07)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}>
-              <div style={{ fontSize: 32, marginBottom: 14 }}>{f.icon}</div>
-              <h3 style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>{f.title}</h3>
-              <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6 }}>{f.desc}</p>
-            </div>
-          ))}
+          <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>7 días gratis sin tarjeta • Planes desde $65.000/mes</p>
         </div>
       </section>
 
@@ -123,6 +106,23 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
                 background: (plan as any).popular ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(255,255,255,0.08)',
                 border: 'none', color: '#fff', padding: '12px 24px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 15, width: '100%'
               }}>{plan.cta}</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
+        <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Todo lo que tu negocio necesita</h2>
+        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Una plataforma completa, sin complicaciones</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 20 }}>
+          {features.map((f, i) => (
+            <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 28, transition: 'all 0.2s', cursor: 'default' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(59,130,246,0.4)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(59,130,246,0.05)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.07)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}>
+              <div style={{ fontSize: 32, marginBottom: 14 }}>{f.icon}</div>
+              <h3 style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>{f.title}</h3>
+              <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6 }}>{f.desc}</p>
             </div>
           ))}
         </div>
@@ -500,7 +500,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
     return diff;
   };
 
-  const planColors: Record<string, string> = { BASIC: '#64748b', PRO: '#3b82f6', ENTERPRISE: '#8b5cf6' };
+  const planColors: Record<string, string> = { TRIAL: '#10b981', BASIC: '#64748b', PRO: '#3b82f6', ENTERPRISE: '#8b5cf6' };
   const statusColors: Record<string, { bg: string; color: string; label: string }> = {
     ACTIVE:   { bg: '#dcfce7', color: '#16a34a', label: 'Activo' },
     INACTIVE: { bg: '#fee2e2', color: '#dc2626', label: 'Inactivo' },
@@ -598,7 +598,9 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                       </span>
                     </td>
                     <td style={{ padding: '12px 14px' }}>
-                      <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{c.subscription_plan}</span>
+                      <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                        {c.subscription_plan === 'TRIAL' ? '🎁 TRIAL' : c.subscription_plan === 'BASIC' ? '⚡ BASIC' : c.subscription_plan === 'PRO' ? '⭐ PRO' : c.subscription_plan}
+                      </span>
                     </td>
                     <td style={{ padding: '12px 14px' }}>
                       <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{st.label}</span>
@@ -713,7 +715,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
               </div>
               <div><label style={labelStyle}>Plan</label>
                 <select value={newCompany.plan} onChange={f('plan')} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="BASIC">Básico</option><option value="PRO">Profesional</option><option value="ENTERPRISE">Empresarial</option>
+                  <option value="TRIAL">Prueba (7 días)</option><option value="BASIC">Basic — $65.000/mes</option><option value="PRO">Pro — $120.000/mes</option>
                 </select>
               </div>
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
@@ -752,7 +754,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
               </div>
               <div><label style={labelStyle}>Plan</label>
                 <select value={editForm.plan} onChange={fe('plan')} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="BASIC">Básico</option><option value="PRO">Profesional</option><option value="ENTERPRISE">Empresarial</option>
+                  <option value="TRIAL">Prueba (7 días)</option><option value="BASIC">Basic — $65.000/mes</option><option value="PRO">Pro — $120.000/mes</option>
                 </select>
               </div>
               <div><label style={labelStyle}>Estado</label>
