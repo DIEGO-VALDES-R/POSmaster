@@ -19,6 +19,8 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
+  const isPro = company?.subscription_plan === 'PRO';
+
   const navItems = [
     { label: 'Dashboard',          path: '/',             icon: LayoutDashboard },
     { label: 'Punto de Venta',     path: '/pos',          icon: ShoppingCart },
@@ -27,6 +29,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Historial Facturas', path: '/invoices',     icon: Receipt },
     { label: 'Servicio Técnico',   path: '/repairs',      icon: Wrench },
     { label: 'Cartera / CxC',      path: '/receivables',  icon: FileText },
+    ...(isPro ? [{ label: 'Sucursales', path: '/branches', icon: Building2 }] : []),
     { label: 'Configuración',      path: '/settings',     icon: Settings },
   ];
 

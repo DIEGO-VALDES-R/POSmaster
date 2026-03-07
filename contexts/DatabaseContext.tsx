@@ -36,7 +36,8 @@ interface DatabaseContextType {
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
-export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// ── ACEPTA overrideCompanyId para modo vista previa desde panel admin ──────────
+export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCompanyId?: string }> = ({ children, overrideCompanyId }) => {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [branchId, setBranchId] = useState<string | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
@@ -115,6 +116,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   useEffect(() => {
+    // Si hay overrideCompanyId (modo vista previa), cargar directo ese negocio
+    if (overrideCompanyId) {
+      setCompanyId(overrideCompanyId);
+      setUserRole('ADMIN');
+      loadAllData(overrideCompanyId);
+      return;
+    }
+
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setIsLoading(false); return; }
@@ -144,7 +153,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
     init();
-  }, []);
+  }, [overrideCompanyId]);
 
   const switchCompany = async (cid: string) => {
     setIsLoading(true);
@@ -214,14 +223,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const invoiceNumber = `POS-${timestamp}${random}`;
 
     const { data: invoice, error: invErr } = await supabase.from('invoices').insert({
-      company_id: companyId,
-      branch_id: branchId,
-      invoice_number: invoiceNumber,
+      company_id: companyId, branch_id: branchId, invoice_number: invoiceNumber,
       customer_id: null,
-      subtotal: Math.round(saleData.subtotal),
-      tax_amount: Math.round(saleData.taxAmount),
-      total_amount: saleData.total,
-      status: 'PENDING_ELECTRONIC',
+      subtotal: Math.round(saleData.subtotal), tax_amount: Math.round(saleData.taxAmount),
+      total_amount: saleData.total, status: 'PENDING_ELECTRONIC',
       payment_method: {
         method: 'CASH', amount: saleData.total,
         customer_name: saleData.customer || null,
@@ -235,11 +240,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     await supabase.from('invoice_items').insert(
       saleData.items.map((i: any) => ({
-        invoice_id: invoice.id,
-        product_id: i.product.id,
-        quantity: i.quantity,
-        price: i.product.price,
-        tax_rate: i.product.tax_rate ?? 0,
+        invoice_id: invoice.id, product_id: i.product.id,
+        quantity: i.quantity, price: i.product.price, tax_rate: i.product.tax_rate ?? 0,
       }))
     );
 
@@ -298,9 +300,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const closeSession = async (endAmount: number) => {
     if (!session) return;
     const { error } = await supabase.from('cash_register_sessions').update({
-      end_cash: endAmount,
-      end_time: new Date().toISOString(),
-      status: 'CLOSED'
+      end_cash: endAmount, end_time: new Date().toISOString(), status: 'CLOSED'
     }).eq('id', session.id);
     if (error) { toast.error(error.message); return; }
     if (companyId) await loadSession(companyId);

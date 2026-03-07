@@ -11,12 +11,14 @@ import CashControl from './pages/CashControl';
 import AccountsReceivable from './pages/AccountsReceivable';
 import InvoiceHistory from './pages/InvoiceHistory';
 import Settings from './pages/Settings';
+import Branches from './pages/Branches';
 import { LandingPage, RegisterPage, AdminPanel } from './LandingPage';
 import { Toaster } from 'react-hot-toast';
 
 const SUPER_ADMIN_EMAIL = 'diegofernando@office365tl.onmicrosoft.com';
 const WHATSAPP_NUMBER = '573204884943';
 const BOLD_PAYMENT_URL = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
+const CONTACT_EMAIL = 'diegoferrangel@gmail.com';
 
 // ── PANTALLA CUENTA PENDIENTE ─────────────────────────────────────────────────
 const PendingScreen: React.FC<{ email: string }> = ({ email }) => {
@@ -32,7 +34,6 @@ const PendingScreen: React.FC<{ email: string }> = ({ email }) => {
         <p style={{ color: '#64748b', fontSize: 13, marginBottom: 32 }}>
           Una vez confirmado tu pago, activaremos tu acceso en menos de 24 horas.
         </p>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <a href={BOLD_PAYMENT_URL} target="_blank" rel="noreferrer"
             style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', display: 'block' }}>
@@ -43,10 +44,45 @@ const PendingScreen: React.FC<{ email: string }> = ({ email }) => {
             💬 Confirmar por WhatsApp
           </a>
           <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
-            <p style={{ color: '#93c5fd', fontSize: 13, fontWeight: 600 }}>✉️ diegoferrangel@gmail.com</p>
+            <p style={{ color: '#93c5fd', fontSize: 13, fontWeight: 600 }}>✉️ {CONTACT_EMAIL}</p>
           </div>
         </div>
+        <button onClick={() => supabase.auth.signOut()}
+          style={{ marginTop: 24, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
+};
 
+// ── PANTALLA SUSCRIPCIÓN VENCIDA ──────────────────────────────────────────────
+const PastDueScreen: React.FC<{ email: string }> = ({ email }) => {
+  const waMessage = encodeURIComponent(`Hola, soy ${email}. Mi suscripción de POSmaster venció. Adjunto mi comprobante de pago para renovarla.`);
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+      <div style={{ width: '100%', maxWidth: 460, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 24, padding: 40, textAlign: 'center' }}>
+        <div style={{ width: 64, height: 64, background: 'rgba(239,68,68,0.12)', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 32 }}>🔒</div>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#f1f5f9', marginBottom: 10 }}>Suscripción Vencida</h2>
+        <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+          La suscripción de <strong style={{ color: '#fca5a5' }}>{email}</strong> ha vencido.
+        </p>
+        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 32 }}>
+          Para continuar usando POSmaster realiza el pago y envía tu comprobante por WhatsApp. Activaremos tu cuenta en menos de 24 horas.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <a href={BOLD_PAYMENT_URL} target="_blank" rel="noreferrer"
+            style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', display: 'block' }}>
+            💳 Pagar con Bold
+          </a>
+          <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${waMessage}`} target="_blank" rel="noreferrer"
+            style={{ background: '#25d366', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', display: 'block' }}>
+            💬 Enviar comprobante por WhatsApp
+          </a>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
+            <p style={{ color: '#93c5fd', fontSize: 13, fontWeight: 600 }}>✉️ {CONTACT_EMAIL}</p>
+          </div>
+        </div>
         <button onClick={() => supabase.auth.signOut()}
           style={{ marginTop: 24, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
           Cerrar sesión
@@ -111,7 +147,7 @@ const Login: React.FC<{ onShowLanding: () => void; onShowRegister: () => void }>
 };
 
 // ── APP ───────────────────────────────────────────────────────────────────────
-type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending';
+type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due' | 'preview';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -119,62 +155,93 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
   const [userEmail, setUserEmail] = useState('');
   const [companyStatus, setCompanyStatus] = useState<string | null>(null);
+  const [previewCompanyId, setPreviewCompanyId] = useState<string | null>(null);
 
   const checkCompanyStatus = async (userId: string) => {
     const { data: profile } = await supabase
       .from('profiles').select('company_id').eq('id', userId).single();
     if (!profile?.company_id) return null;
     const { data: company } = await supabase
-      .from('companies').select('subscription_status').eq('id', profile.company_id).single();
-    return company?.subscription_status || null;
+      .from('companies').select('subscription_status, subscription_end_date').eq('id', profile.company_id).single();
+    if (!company) return null;
+    // Auto-vencer si pasó la fecha de vencimiento
+    if (company.subscription_end_date) {
+      const today = new Date().toISOString().split('T')[0];
+      if (company.subscription_end_date < today && company.subscription_status === 'ACTIVE') {
+        await supabase.from('companies').update({ subscription_status: 'PAST_DUE' }).eq('id', profile.company_id);
+        return 'PAST_DUE';
+      }
+    }
+    return company.subscription_status || null;
+  };
+
+  const resolveView = (status: string | null): AppView => {
+    if (status === 'ACTIVE') return 'app';
+    if (status === 'PAST_DUE') return 'past_due';
+    return 'pending';
   };
 
   useEffect(() => {
-    const timeout = setTimeout(() => setChecking(false), 5000);
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      clearTimeout(timeout);
-      setSession(session);
-      if (session) {
-        const email = session.user.email || '';
-        setUserEmail(email);
-        if (email === SUPER_ADMIN_EMAIL) {
-          setView('admin');
-        } else {
-          const status = await checkCompanyStatus(session.user.id);
-          setCompanyStatus(status);
-          setView(status === 'ACTIVE' ? 'app' : 'pending');
-        }
-      }
+    const timeout = setTimeout(() => {
+      console.warn('⏱️ Auth session timeout');
       setChecking(false);
-    }).catch(() => { clearTimeout(timeout); setChecking(false); });
+    }, 10000);
+
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        clearTimeout(timeout);
+        setSession(session);
+        if (session) {
+          const email = session.user.email || '';
+          setUserEmail(email);
+          console.log('👤 Usuario detectado:', email);
+          if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+            console.log('⭐ Super Admin detectado');
+            setView('admin');
+          } else {
+            const status = await checkCompanyStatus(session.user.id);
+            setCompanyStatus(status);
+            setView(resolveView(status));
+          }
+        } else {
+          setView('landing');
+        }
+      } catch (err) {
+        console.error('❌ Auth error:', err);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       if (session) {
         const email = session.user.email || '';
         setUserEmail(email);
-        if (email === SUPER_ADMIN_EMAIL) {
-          setChecking(false);
+        if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
           setView('admin');
+          setChecking(false);
           return;
         }
         try {
           const status = await Promise.race([
             checkCompanyStatus(session.user.id),
-            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 5000))
+            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 8000))
           ]);
           setCompanyStatus(status as string);
-          setView((status as string) === 'ACTIVE' ? 'app' : 'pending');
-        } catch {
+          setView(resolveView(status as string));
+        } catch (err) {
+          console.warn('⚠️ Status check failed or timeout:', err);
           setView('pending');
         }
-        setChecking(false);
       } else {
         setView('landing');
         setCompanyStatus(null);
-        setChecking(false);
       }
+      setChecking(false);
     });
 
     return () => subscription.unsubscribe();
@@ -188,12 +255,53 @@ const App: React.FC = () => {
     );
   }
 
-  // Panel admin completamente separado
   if (view === 'admin') {
     return (
       <>
         <Toaster position="top-right" />
-        <AdminPanel onExit={() => setView('app')} />
+        <AdminPanel
+          onExit={() => { supabase.auth.signOut(); }}
+          onPreview={(companyId: string) => { setPreviewCompanyId(companyId); setView('preview'); }}
+        />
+      </>
+    );
+  }
+
+  if (view === 'preview' && previewCompanyId) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        {/* Barra de modo preview */}
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 14, fontWeight: 600, fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+          <span>👁️ Modo Vista Previa — Estás viendo el panel del cliente (solo lectura)</span>
+          <button onClick={() => { setPreviewCompanyId(null); setView('admin'); }}
+            style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '6px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>
+            ← Volver al Panel Admin
+          </button>
+        </div>
+        <div style={{ paddingTop: 48 }}>
+          <Router>
+            <DatabaseProvider overrideCompanyId={previewCompanyId}>
+              <Routes>
+                <Route path="/*" element={
+                  <Layout onAdminPanel={undefined}>
+                    <Routes>
+                      <Route path="/"             element={<Dashboard />} />
+                      <Route path="/pos"          element={<POS />} />
+                      <Route path="/inventory"    element={<Inventory />} />
+                      <Route path="/repairs"      element={<Repairs />} />
+                      <Route path="/cash-control" element={<CashControl />} />
+                      <Route path="/receivables"  element={<AccountsReceivable />} />
+                      <Route path="/invoices"     element={<InvoiceHistory />} />
+                      <Route path="/settings"     element={<Settings />} />
+                      <Route path="/branches"     element={<Branches />} />
+                    </Routes>
+                  </Layout>
+                } />
+              </Routes>
+            </DatabaseProvider>
+          </Router>
+        </div>
       </>
     );
   }
@@ -212,6 +320,15 @@ const App: React.FC = () => {
       <>
         <Toaster position="top-right" />
         <PendingScreen email={userEmail} />
+      </>
+    );
+  }
+
+  if (view === 'past_due' && session) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        <PastDueScreen email={userEmail} />
       </>
     );
   }
@@ -242,7 +359,7 @@ const App: React.FC = () => {
         <DatabaseProvider>
           <Routes>
             <Route path="/*" element={
-              <Layout onAdminPanel={userEmail === SUPER_ADMIN_EMAIL ? () => setView('admin') : undefined}>
+              <Layout onAdminPanel={undefined}>
                 <Routes>
                   <Route path="/"             element={<Dashboard />} />
                   <Route path="/pos"          element={<POS />} />
@@ -252,6 +369,7 @@ const App: React.FC = () => {
                   <Route path="/receivables"  element={<AccountsReceivable />} />
                   <Route path="/invoices"     element={<InvoiceHistory />} />
                   <Route path="/settings"     element={<Settings />} />
+                  <Route path="/branches"     element={<Branches />} />
                 </Routes>
               </Layout>
             } />

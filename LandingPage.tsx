@@ -328,25 +328,58 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
 };
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
-export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
+export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: string) => void }> = ({ onExit, onPreview }) => {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [newCompany, setNewCompany] = useState({ name: '', nit: '', email: '', phone: '', plan: 'BASIC', adminEmail: '', adminPassword: '' });
+  const [search, setSearch] = useState('');
+
+  // Modales
+  const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [showConfirmPayment, setShowConfirmPayment] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<any>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  const [newCompany, setNewCompany] = useState({
+    name: '', nit: '', email: '', phone: '', plan: 'BASIC',
+    adminEmail: '', adminPassword: '',
+    subscription_start_date: new Date().toISOString().split('T')[0],
+    subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]
+  });
+  const [editForm, setEditForm] = useState({
+    name: '', nit: '', email: '', phone: '', plan: 'BASIC',
+    subscription_status: 'ACTIVE',
+    subscription_start_date: '', subscription_end_date: ''
+  });
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase.from('companies').select('*, profiles(email)').order('created_at', { ascending: false });
     setCompanies(data || []);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
+  // Verificar vencimientos al cargar
+  useEffect(() => {
+    if (companies.length === 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    companies.forEach(async (c) => {
+      if (c.subscription_end_date && c.subscription_end_date < today && c.subscription_status === 'ACTIVE') {
+        await supabase.from('companies').update({ subscription_status: 'PAST_DUE' }).eq('id', c.id);
+      }
+    });
+  }, [companies]);
+
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setNewCompany(prev => ({ ...prev, [k]: e.target.value }));
+  const fe = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setEditForm(prev => ({ ...prev, [k]: e.target.value }));
 
   const handleCreate = async () => {
     if (!newCompany.name || !newCompany.nit || !newCompany.adminEmail || !newCompany.adminPassword) {
@@ -359,14 +392,14 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         options: { data: { full_name: newCompany.name } }
       });
       if (authError) throw authError;
-
       const { data: company, error: companyError } = await supabase.from('companies').insert({
         name: newCompany.name, nit: newCompany.nit, email: newCompany.email, phone: newCompany.phone,
         subscription_plan: newCompany.plan, subscription_status: 'ACTIVE',
+        subscription_start_date: newCompany.subscription_start_date,
+        subscription_end_date: newCompany.subscription_end_date,
         config: { tax_rate: 19, currency_symbol: '$', invoice_prefix: 'POS' }
       }).select().single();
       if (companyError) throw companyError;
-
       if (authData.user) {
         await supabase.from('profiles').upsert({
           id: authData.user.id, company_id: company.id,
@@ -376,22 +409,95 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           .insert({ company_id: company.id, name: 'Sede Principal', is_active: true }).select().single();
         if (branch) await supabase.from('profiles').update({ branch_id: branch.id }).eq('id', authData.user.id);
       }
-
-      toast.success(`Negocio "${newCompany.name}" creado y activado`);
+      toast.success(`Negocio "${newCompany.name}" creado`);
       setShowCreate(false);
-      setNewCompany({ name: '', nit: '', email: '', phone: '', plan: 'BASIC', adminEmail: '', adminPassword: '' });
+      setNewCompany({ name: '', nit: '', email: '', phone: '', plan: 'BASIC', adminEmail: '', adminPassword: '',
+        subscription_start_date: new Date().toISOString().split('T')[0],
+        subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]
+      });
       load();
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setCreating(false);
-    }
+    } catch (err: any) { toast.error(err.message); }
+    finally { setCreating(false); }
+  };
+
+  const handleEdit = async () => {
+    if (!selectedCompany) return;
+    const { error } = await supabase.from('companies').update({
+      name: editForm.name, nit: editForm.nit, email: editForm.email,
+      phone: editForm.phone, subscription_plan: editForm.plan,
+      subscription_status: editForm.subscription_status,
+      subscription_start_date: editForm.subscription_start_date || null,
+      subscription_end_date: editForm.subscription_end_date || null,
+    }).eq('id', selectedCompany.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Negocio actualizado');
+    setShowEdit(false);
+    load();
+  };
+
+  const handleDelete = async () => {
+    if (!selectedCompany) return;
+    try {
+      await supabase.from('profiles').delete().eq('company_id', selectedCompany.id);
+      await supabase.from('branches').delete().eq('company_id', selectedCompany.id);
+      const { error } = await supabase.from('companies').delete().eq('id', selectedCompany.id);
+      if (error) throw error;
+      toast.success(`"${selectedCompany.name}" eliminado`);
+      setShowDelete(false); setSelectedCompany(null); load();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!selectedCompany) return;
+    const newStart = new Date().toISOString().split('T')[0];
+    const newEnd = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    const { error } = await supabase.from('companies').update({
+      subscription_status: 'ACTIVE',
+      subscription_start_date: newStart,
+      subscription_end_date: newEnd,
+    }).eq('id', selectedCompany.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Pago confirmado. Suscripción renovada hasta ${newEnd}`);
+    setShowConfirmPayment(false);
+    load();
+  };
+
+  const handleViewLogs = async (company: any) => {
+    setSelectedCompany(company);
+    const { data: invoices } = await supabase.from('invoices')
+      .select('id, total, status, created_at, payment_method')
+      .eq('company_id', company.id).order('created_at', { ascending: false }).limit(20);
+    const { data: sessions } = await supabase.from('cash_register_sessions')
+      .select('id, status, opening_cash, created_at')
+      .eq('company_id', company.id).order('created_at', { ascending: false }).limit(10);
+    setLogs([
+      ...(invoices || []).map(i => ({ type: 'Factura', detail: `$${i.total?.toLocaleString()} — ${i.payment_method || 'N/A'}`, status: i.status, date: i.created_at })),
+      ...(sessions || []).map(s => ({ type: 'Caja', detail: `Apertura: $${s.opening_cash?.toLocaleString()}`, status: s.status, date: s.created_at })),
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    setShowLogs(true);
   };
 
   const setStatus = async (id: string, status: string) => {
     await supabase.from('companies').update({ subscription_status: status }).eq('id', id);
-    toast.success(status === 'ACTIVE' ? 'Cuenta activada' : status === 'INACTIVE' ? 'Cuenta suspendida' : 'Actualizado');
+    toast.success(status === 'ACTIVE' ? 'Cuenta activada' : 'Cuenta suspendida');
     load();
+  };
+
+  const openEdit = (c: any) => {
+    setSelectedCompany(c);
+    setEditForm({
+      name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '',
+      plan: c.subscription_plan, subscription_status: c.subscription_status,
+      subscription_start_date: c.subscription_start_date || '',
+      subscription_end_date: c.subscription_end_date || ''
+    });
+    setShowEdit(true);
+  };
+
+  const getDaysLeft = (endDate: string) => {
+    if (!endDate) return null;
+    const diff = Math.ceil((new Date(endDate).getTime() - Date.now()) / 86400000);
+    return diff;
   };
 
   const planColors: Record<string, string> = { BASIC: '#64748b', PRO: '#3b82f6', ENTERPRISE: '#8b5cf6' };
@@ -402,9 +508,12 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     PAST_DUE: { bg: '#ffedd5', color: '#ea580c', label: 'Vencido' },
   };
 
-  const filtered = filterStatus === 'ALL' ? companies : companies.filter(c => c.subscription_status === filterStatus);
+  const filtered = companies
+    .filter(c => filterStatus === 'ALL' || c.subscription_status === filterStatus)
+    .filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.nit || '').includes(search) || (c.email || '').toLowerCase().includes(search.toLowerCase()));
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#1e293b' };
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
@@ -415,20 +524,21 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           <span style={{ color: '#fff', fontWeight: 700 }}>POSmaster</span>
           <span style={{ color: '#475569', fontSize: 13, marginLeft: 8 }}>/ Panel Administrador</span>
         </div>
-        <button onClick={onExit} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '6px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          ← Volver a mi negocio
+        <button onClick={async () => { await supabase.auth.signOut(); onExit(); }}
+          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '6px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Cerrar sesión
         </button>
       </div>
 
-      <div style={{ padding: 32, maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ padding: 32, maxWidth: 1400, margin: '0 auto' }}>
         {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 32 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 16, marginBottom: 32 }}>
           {[
             { label: 'Total Negocios', value: companies.length, color: '#3b82f6' },
             { label: 'Activos', value: companies.filter(c => c.subscription_status === 'ACTIVE').length, color: '#22c55e' },
             { label: 'Pendientes', value: companies.filter(c => c.subscription_status === 'PENDING').length, color: '#f59e0b' },
-            { label: 'Plan PRO', value: companies.filter(c => c.subscription_plan === 'PRO').length, color: '#3b82f6' },
-            { label: 'Enterprise', value: companies.filter(c => c.subscription_plan === 'ENTERPRISE').length, color: '#8b5cf6' },
+            { label: 'Vencidos', value: companies.filter(c => c.subscription_status === 'PAST_DUE').length, color: '#ef4444' },
+            { label: 'Por vencer (7d)', value: companies.filter(c => { const d = getDaysLeft(c.subscription_end_date); return d !== null && d >= 0 && d <= 7; }).length, color: '#f97316' },
           ].map((s, i) => (
             <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '18px 22px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
               <p style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>{s.label}</p>
@@ -437,68 +547,116 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           ))}
         </div>
 
-        {/* Header + filtros */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['ALL', 'PENDING', 'ACTIVE', 'INACTIVE'].map(s => (
+        {/* Toolbar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['ALL', 'PENDING', 'ACTIVE', 'PAST_DUE', 'INACTIVE'].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)}
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: filterStatus === s ? '#0f172a' : '#fff', color: filterStatus === s ? '#fff' : '#64748b', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-                {s === 'ALL' ? 'Todos' : s === 'PENDING' ? 'Pendientes' : s === 'ACTIVE' ? 'Activos' : 'Inactivos'}
+                {s === 'ALL' ? 'Todos' : s === 'PENDING' ? 'Pendientes' : s === 'ACTIVE' ? 'Activos' : s === 'PAST_DUE' ? 'Vencidos' : 'Inactivos'}
               </button>
             ))}
           </div>
-          <button onClick={() => setShowCreate(true)} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '10px 20px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
-            + Nuevo Negocio
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Buscar negocio..."
+              style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', width: 200 }} />
+            <button onClick={() => setShowCreate(true)}
+              style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '10px 20px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
+              + Nuevo Negocio
+            </button>
+          </div>
         </div>
 
         {/* Table */}
-        <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1100 }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Negocio', 'NIT', 'Email', 'Plan', 'Estado', 'Creado', 'Acciones'].map(h => (
-                  <th key={h} style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 13 }}>{h}</th>
+                {['Negocio', 'Tipo', 'Plan', 'Estado', 'Inicio', 'Vencimiento', 'Días', 'Acciones'].map(h => (
+                  <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Cargando...</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Cargando...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>No hay registros</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>No hay registros</td></tr>
               ) : filtered.map(c => {
                 const st = statusColors[c.subscription_status] || statusColors['INACTIVE'];
+                const daysLeft = getDaysLeft(c.subscription_end_date);
+                const daysColor = daysLeft === null ? '#94a3b8' : daysLeft < 0 ? '#dc2626' : daysLeft <= 7 ? '#f97316' : '#16a34a';
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '14px 16px', fontWeight: 700, color: '#0f172a' }}>{c.name}</td>
-                    <td style={{ padding: '14px 16px', color: '#64748b', fontFamily: 'monospace', fontSize: 13 }}>{c.nit}</td>
-                    <td style={{ padding: '14px 16px', color: '#64748b', fontSize: 13 }}>{c.email || '—'}</td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>{c.subscription_plan}</span>
+                    <td style={{ padding: '12px 14px' }}>
+                      <p style={{ fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>{c.name}</p>
+                      <p style={{ fontSize: 12, color: '#94a3b8' }}>{c.email || '—'}</p>
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>{st.label}</span>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{ background: c.tipo === 'sucursal' ? '#fdf4ff' : '#eff6ff', color: c.tipo === 'sucursal' ? '#9333ea' : '#2563eb', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                        {c.tipo === 'sucursal' ? '🏪 Sucursal' : '🏢 Principal'}
+                      </span>
                     </td>
-                    <td style={{ padding: '14px 16px', color: '#64748b', fontSize: 13 }}>{new Date(c.created_at).toLocaleDateString()}</td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{c.subscription_plan}</span>
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{c.subscription_start_date || '—'}</td>
+                    <td style={{ padding: '12px 14px', color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{c.subscription_end_date || '—'}</td>
+                    <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                      {daysLeft !== null ? (
+                        <span style={{ fontWeight: 800, color: daysColor, fontSize: 13 }}>
+                          {daysLeft < 0 ? `Venció hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `${daysLeft}d`}
+                        </span>
+                      ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {/* Confirmar pago */}
+                        <button onClick={() => { setSelectedCompany(c); setShowConfirmPayment(true); }}
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>
+                          💰 Pago
+                        </button>
+                        {/* Activar / Suspender */}
                         {c.subscription_status !== 'ACTIVE' && (
                           <button onClick={() => setStatus(c.id, 'ACTIVE')}
-                            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#16a34a' }}>
+                            style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }}>
                             ✓ Activar
                           </button>
                         )}
                         {c.subscription_status === 'ACTIVE' && (
                           <button onClick={() => setStatus(c.id, 'INACTIVE')}
-                            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#dc2626' }}>
+                            style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>
                             Suspender
                           </button>
                         )}
-                        <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola, tu cuenta ${c.name} en POSmaster ha sido activada. Ya puedes ingresar.`} target="_blank" rel="noreferrer"
-                          style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#16a34a', textDecoration: 'none' }}>
+                        {/* Editar */}
+                        <button onClick={() => openEdit(c)}
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e9d5ff', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
+                          ✏️
+                        </button>
+                        {/* Logs */}
+                        <button onClick={() => handleViewLogs(c)}
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
+                          📋
+                        </button>
+                        {/* Ver como cliente */}
+                        <button onClick={() => onPreview(c.id)}
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #ddd6fe', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
+                          👁️ Ver
+                        </button>
+                        {/* WhatsApp */}
+                        <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola ${c.name}, te escribimos desde POSmaster.`} target="_blank" rel="noreferrer"
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#16a34a', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                           💬
                         </a>
+                        {/* Eliminar */}
+                        <button onClick={() => { setSelectedCompany(c); setShowDelete(true); }}
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff1f2', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>
+                          🗑️
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -509,42 +667,60 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         </div>
       </div>
 
-      {/* Modal crear negocio */}
+      {/* ── MODAL CONFIRMAR PAGO ── */}
+      {showConfirmPayment && selectedCompany && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 440, textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>💰</div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Confirmar Pago</h3>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 4 }}>Negocio:</p>
+            <p style={{ fontWeight: 800, color: '#0f172a', fontSize: 16, marginBottom: 16 }}>{selectedCompany.name}</p>
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 16, marginBottom: 24, textAlign: 'left' }}>
+              <p style={{ color: '#16a34a', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>✓ Al confirmar:</p>
+              <p style={{ color: '#64748b', fontSize: 13 }}>• Estado → <strong>Activo</strong></p>
+              <p style={{ color: '#64748b', fontSize: 13 }}>• Inicio: <strong>{new Date().toLocaleDateString()}</strong></p>
+              <p style={{ color: '#64748b', fontSize: 13 }}>• Vencimiento: <strong>{new Date(Date.now() + 30 * 86400000).toLocaleDateString()}</strong></p>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowConfirmPayment(false)}
+                style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>
+                Cancelar
+              </button>
+              <button onClick={handleConfirmPayment}
+                style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 10, background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>
+                ✓ Confirmar Pago
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CREAR ── */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginBottom: 24 }}>Crear Nuevo Negocio</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Crear Nuevo Negocio</h3>
+              <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {[
-                { label: 'Nombre del Negocio *', key: 'name', placeholder: 'IPHONESHOP USA' },
-                { label: 'NIT *', key: 'nit', placeholder: '900123456-7' },
-                { label: 'Email del Negocio', key: 'email', placeholder: 'negocio@email.com' },
-                { label: 'Teléfono', key: 'phone', placeholder: '300 123 4567' },
-              ].map(field => (
-                <div key={field.key}>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>{field.label}</label>
-                  <input value={(newCompany as any)[field.key]} onChange={f(field.key)} placeholder={field.placeholder} style={inputStyle} />
-                </div>
+              {[{ label: 'Nombre *', key: 'name', placeholder: 'IPHONESHOP USA' }, { label: 'NIT *', key: 'nit', placeholder: '900123456-7' }, { label: 'Email', key: 'email', placeholder: 'negocio@email.com' }, { label: 'Teléfono', key: 'phone', placeholder: '300 123 4567' }].map(field => (
+                <div key={field.key}><label style={labelStyle}>{field.label}</label><input value={(newCompany as any)[field.key]} onChange={f(field.key)} placeholder={(field as any).placeholder} style={inputStyle} /></div>
               ))}
-              <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Plan</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div><label style={labelStyle}>Fecha Inicio</label><input type="date" value={newCompany.subscription_start_date} onChange={f('subscription_start_date')} style={inputStyle} /></div>
+                <div><label style={labelStyle}>Fecha Vencimiento</label><input type="date" value={newCompany.subscription_end_date} onChange={f('subscription_end_date')} style={inputStyle} /></div>
+              </div>
+              <div><label style={labelStyle}>Plan</label>
                 <select value={newCompany.plan} onChange={f('plan')} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="BASIC">Básico — Gratis</option>
-                  <option value="PRO">Profesional — $79.900/mes</option>
-                  <option value="ENTERPRISE">Empresarial — $249.900/mes</option>
+                  <option value="BASIC">Básico</option><option value="PRO">Profesional</option><option value="ENTERPRISE">Empresarial</option>
                 </select>
               </div>
               <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#64748b', marginBottom: 12 }}>CREDENCIALES DEL ADMINISTRADOR</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 12, textTransform: 'uppercase' as const }}>Credenciales del Admin</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Email Admin *</label>
-                    <input type="email" value={newCompany.adminEmail} onChange={f('adminEmail')} placeholder="admin@negocio.com" style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 }}>Contraseña *</label>
-                    <input type="password" value={newCompany.adminPassword} onChange={f('adminPassword')} placeholder="Mínimo 6 caracteres" style={inputStyle} />
-                  </div>
+                  <div><label style={labelStyle}>Email Admin *</label><input type="email" value={newCompany.adminEmail} onChange={f('adminEmail')} style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Contraseña *</label><input type="password" value={newCompany.adminPassword} onChange={f('adminPassword')} style={inputStyle} /></div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
@@ -554,6 +730,95 @@ export const AdminPanel: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL EDITAR ── */}
+      {showEdit && selectedCompany && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Editar: {selectedCompany.name}</h3>
+              <button onClick={() => setShowEdit(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[{ label: 'Nombre', key: 'name' }, { label: 'NIT', key: 'nit' }, { label: 'Email', key: 'email' }, { label: 'Teléfono', key: 'phone' }].map(field => (
+                <div key={field.key}><label style={labelStyle}>{field.label}</label><input value={(editForm as any)[field.key]} onChange={fe(field.key)} style={inputStyle} /></div>
+              ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div><label style={labelStyle}>Fecha Inicio</label><input type="date" value={editForm.subscription_start_date} onChange={fe('subscription_start_date')} style={inputStyle} /></div>
+                <div><label style={labelStyle}>Fecha Vencimiento</label><input type="date" value={editForm.subscription_end_date} onChange={fe('subscription_end_date')} style={inputStyle} /></div>
+              </div>
+              <div><label style={labelStyle}>Plan</label>
+                <select value={editForm.plan} onChange={fe('plan')} style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="BASIC">Básico</option><option value="PRO">Profesional</option><option value="ENTERPRISE">Empresarial</option>
+                </select>
+              </div>
+              <div><label style={labelStyle}>Estado</label>
+                <select value={editForm.subscription_status} onChange={fe('subscription_status')} style={{ ...inputStyle, cursor: 'pointer' }}>
+                  <option value="ACTIVE">Activo</option><option value="INACTIVE">Inactivo</option><option value="PENDING">Pendiente</option><option value="PAST_DUE">Vencido</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button onClick={() => setShowEdit(false)} style={{ flex: 1, padding: '11px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancelar</button>
+                <button onClick={handleEdit} style={{ flex: 2, padding: '11px', border: 'none', borderRadius: 10, background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Guardar Cambios</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL ELIMINAR ── */}
+      {showDelete && selectedCompany && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 420, textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>¿Eliminar negocio?</h3>
+            <p style={{ fontWeight: 800, color: '#dc2626', fontSize: 16, marginBottom: 8 }}>{selectedCompany.name}</p>
+            <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 28 }}>Se eliminarán sus perfiles y sucursales. Esta acción no se puede deshacer.</p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowDelete(false)} style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancelar</button>
+              <button onClick={handleDelete} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 10, background: '#dc2626', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Sí, Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL LOGS ── */}
+      {showLogs && selectedCompany && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 640, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Actividad: {selectedCompany.name}</h3>
+                <p style={{ color: '#64748b', fontSize: 13 }}>Últimas facturas y sesiones de caja</p>
+              </div>
+              <button onClick={() => setShowLogs(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+            {logs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Sin actividad registrada</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: '#f8fafc' }}>
+                  {['Tipo', 'Detalle', 'Estado', 'Fecha'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {logs.map((log, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{ background: log.type === 'Factura' ? '#eff6ff' : '#f5f3ff', color: log.type === 'Factura' ? '#2563eb' : '#7c3aed', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{log.type}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>{log.detail}</td>
+                      <td style={{ padding: '10px 12px', color: '#64748b', fontSize: 12 }}>{log.status || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: '#94a3b8', fontSize: 12, whiteSpace: 'nowrap' as const }}>{new Date(log.date).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
