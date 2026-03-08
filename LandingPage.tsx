@@ -347,6 +347,8 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [selectedCompany, setSelectedCompany] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'clients' | 'contracts'>('clients');
 
   const [newCompany, setNewCompany] = useState({
     name: '', nit: '', email: '', phone: '', plan: 'BASIC',
@@ -365,6 +367,13 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
     const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
     // Cargar notificaciones no leídas
     try {
+      // Cargar contratos
+      const { data: contractsData } = await supabase
+        .from('contracts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      setContracts(contractsData || []);
+
       const { data: notifs } = await supabase.from('admin_notifications')
         .select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20);
       setNotifications(notifs || []);
@@ -374,6 +383,29 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   };
 
   useEffect(() => { load(); }, []);
+
+  // Suscripción realtime — contratos firmados
+  useEffect(() => {
+    const channel = supabase
+      .channel('contracts-changes')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'contracts', filter: 'status=eq.SIGNED' },
+        (payload: any) => {
+          // Actualizar lista de contratos
+          setContracts(prev => prev.map(c => c.id === payload.new.id ? payload.new : c));
+          // Agregar notificación visual
+          setNotifications(prev => [{
+            id: payload.new.id,
+            type: 'CONTRACT_SIGNED',
+            title: '✍️ Contrato firmado',
+            message: `${payload.new.client_name} firmó el contrato del plan ${payload.new.plan}`,
+            is_read: false,
+            created_at: payload.new.signed_at,
+          }, ...prev]);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Verificar vencimientos al cargar
   useEffect(() => {
@@ -541,6 +573,18 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 };
 
   const sendContract = async (company: any) => {
+    // Verificar si ya existe un contrato para este cliente
+    const existing = contracts.find(x => x.company_id === company.id);
+    if (existing) {
+      const link = `${window.location.origin}/#/contrato/${existing.token}`;
+      const statusMsg = existing.status === 'SIGNED' ? '✅ Este cliente ya firmó el contrato.' : '⏳ Ya existe un contrato pendiente de firma.';
+      const action = window.confirm(`${statusMsg}\n\n¿Copiar el enlace existente?\n\n(Cancela si quieres crear uno nuevo)`);
+      if (action) {
+        navigator.clipboard.writeText(link).then(() => alert('✅ Enlace copiado')).catch(() => prompt('Copia el enlace:', link));
+        return;
+      }
+      // Si cancela, continúa y crea uno nuevo
+    }
     // Crear registro de contrato con token único
     const { data, error } = await supabase.from('contracts').insert({
       company_id: company.id,
@@ -553,8 +597,9 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       status: 'PENDING',
     }).select().single();
     if (error) { alert('Error: ' + error.message); return; }
+    // Actualizar lista local de contratos
+    setContracts(prev => [data, ...prev]);
     const link = `${window.location.origin}/#/contrato/${data.token}`;
-    // Copiar al portapapeles
     navigator.clipboard.writeText(link).then(() => {
       alert(`✅ Enlace de contrato copiado al portapapeles:\n\n${link}\n\nEnvíalo al cliente por WhatsApp o email.`);
     }).catch(() => {
@@ -579,6 +624,115 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       </div>
 
       <div style={{ padding: 32, maxWidth: 1400, margin: '0 auto' }}>
+
+        {/* ── TABS ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 28, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
+          {[
+            { key: 'clients', label: '🏢 Clientes', count: companies.length },
+            { key: 'contracts', label: '📄 Contratos', count: contracts.filter(c => c.status === 'SIGNED').length },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
+              style={{ padding: '10px 20px', border: 'none', borderBottom: activeTab === tab.key ? '3px solid #3b82f6' : '3px solid transparent',
+                background: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14,
+                color: activeTab === tab.key ? '#3b82f6' : '#64748b', marginBottom: -2 }}>
+              {tab.label}
+              <span style={{ marginLeft: 8, background: activeTab === tab.key ? '#dbeafe' : '#f1f5f9',
+                color: activeTab === tab.key ? '#2563eb' : '#94a3b8',
+                borderRadius: 20, padding: '1px 8px', fontSize: 12 }}>{tab.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── TAB CONTRATOS ── */}
+        {activeTab === 'contracts' && (
+          <div>
+            <h3 style={{ fontWeight: 800, fontSize: 20, color: '#0f172a', marginBottom: 20 }}>Contratos de Licencia</h3>
+            {contracts.length === 0 ? (
+              <div style={{ background: '#fff', borderRadius: 12, padding: 48, textAlign: 'center', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
+                <p style={{ color: '#64748b', fontWeight: 600 }}>No hay contratos generados aún.</p>
+                <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>Usa el botón 📄 Contrato en la pestaña Clientes para generar uno.</p>
+              </div>
+            ) : (
+              <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      {['Estado', 'Cliente', 'Negocio', 'Plan', 'Generado', 'Firmado', 'Acciones'].map(h => (
+                        <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contracts.map(c => (
+                      <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '12px 16px' }}>
+                          {c.status === 'SIGNED'
+                            ? <span style={{ background: '#dcfce7', color: '#16a34a', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>✅ Firmado</span>
+                            : <span style={{ background: '#fef9c3', color: '#b45309', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>⏳ Pendiente</span>
+                          }
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1e293b' }}>{c.client_name || '—'}</td>
+                        <td style={{ padding: '12px 16px', color: '#475569' }}>{c.business_name || '—'}</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{ background: '#dbeafe', color: '#2563eb', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>{c.plan}</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12 }}>
+                          {new Date(c.created_at).toLocaleDateString('es-CO')}
+                        </td>
+                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12 }}>
+                          {c.signed_at ? new Date(c.signed_at).toLocaleDateString('es-CO') + ' ' + new Date(c.signed_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            {/* Copiar enlace */}
+                            <button onClick={() => {
+                              const link = `${window.location.origin}/#/contrato/${c.token}`;
+                              navigator.clipboard.writeText(link).then(() => alert('✅ Enlace copiado')).catch(() => prompt('Copia el enlace:', link));
+                            }} style={{ padding: '4px 10px', background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                              🔗 Enlace
+                            </button>
+                            {/* Ver firma */}
+                            {c.client_signature_url && (
+                              <button onClick={() => window.open(c.client_signature_url, '_blank')}
+                                style={{ padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                                ✍️ Firma
+                              </button>
+                            )}
+                            {/* Ver contrato completo */}
+                            {c.status === 'SIGNED' && (
+                              <button onClick={() => {
+                                const win = window.open('', '_blank');
+                                if (!win) return;
+                                win.document.write(`<!DOCTYPE html><html><head><title>Contrato ${c.client_name}</title></head><body>
+                                  <h2>Contrato firmado — ${c.business_name}</h2>
+                                  <p><strong>Cliente:</strong> ${c.client_name}</p>
+                                  <p><strong>Plan:</strong> ${c.plan}</p>
+                                  <p><strong>Firmado:</strong> ${c.signed_at ? new Date(c.signed_at).toLocaleString('es-CO') : '—'}</p>
+                                  <p><strong>Email:</strong> ${c.client_email}</p>
+                                  ${c.client_signature_url ? `<p><strong>Firma del cliente:</strong><br/><img src="${c.client_signature_url}" style="max-height:80px;border:1px solid #ccc;padding:8px"/></p>` : ''}
+                                  <hr/><p style="color:#888;font-size:12px">Contrato ID: ${c.id}</p>
+                                </body></html>`);
+                                win.document.close();
+                                win.print();
+                              }} style={{ padding: '4px 10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                                📥 Ver PDF
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB CLIENTES (contenido original) ── */}
+        {activeTab === 'clients' && <div>
+
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 16, marginBottom: 32 }}>
           {[
@@ -649,6 +803,14 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                       <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
                         {c.subscription_plan === 'TRIAL' ? '🎁 TRIAL' : c.subscription_plan === 'BASIC' ? '⚡ BASIC' : c.subscription_plan === 'PRO' ? '⭐ PRO' : c.subscription_plan}
                       </span>
+                      {/* Badge contrato */}
+                      {(() => {
+                        const ct = contracts.find((x: any) => x.company_id === c.id);
+                        if (!ct) return null;
+                        return ct.status === 'SIGNED'
+                          ? <span style={{ background: '#dcfce7', color: '#16a34a', padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, marginLeft: 4 }}>✅ Contrato firmado</span>
+                          : <span style={{ background: '#fef9c3', color: '#b45309', padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, marginLeft: 4 }}>⏳ Contrato pendiente</span>;
+                      })()}
                     </td>
                     <td style={{ padding: '12px 14px' }}>
                       <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{st.label}</span>
@@ -692,11 +854,55 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
                           📋
                         </button>
-                        {/* Enviar contrato */}
-                        <button onClick={() => sendContract(c)}
-                          style={{ padding: '4px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                          📄 Contrato
-                        </button>
+                        {/* Botón contrato dinámico */}
+                        {(() => {
+                          const ct = contracts.find((x: any) => x.company_id === c.id && x.status === 'SIGNED');
+                          const ctPending = contracts.find((x: any) => x.company_id === c.id);
+                          if (ct) {
+                            // Ya firmado: mostrar botón para ver PDF
+                            return (
+                              <button onClick={() => {
+                                const win = window.open('', '_blank');
+                                if (!win) return;
+                                win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Contrato firmado</title>
+                                <style>body{font-family:Arial,sans-serif;padding:40px;max-width:700px;margin:0 auto}h1{color:#1e3a8a}hr{margin:24px 0}.sig{display:flex;gap:40px;margin-top:32px}.sig-block{flex:1;text-align:center}.sig-block img{max-height:70px;border:1px solid #ccc;padding:8px}.sig-line{border-top:2px solid #333;margin:8px 0}</style>
+                                </head><body>
+                                <h1>Contrato de Licencia — POSmaster</h1>
+                                <p><strong>Cliente:</strong> ${ct.client_name}</p>
+                                <p><strong>Negocio:</strong> ${ct.business_name}</p>
+                                <p><strong>Plan:</strong> ${ct.plan}</p>
+                                <p><strong>Email:</strong> ${ct.client_email}</p>
+                                <p><strong>Firmado:</strong> ${ct.signed_at ? new Date(ct.signed_at).toLocaleString('es-CO') : '—'}</p>
+                                <hr/>
+                                <div class="sig">
+                                  <div class="sig-block">
+                                    <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/firma_diego.png" crossorigin="anonymous"/>
+                                    <div class="sig-line"></div>
+                                    <strong>DIEGO FERNANDO VALDÉS RANGEL</strong><br/><small>C.C. 1.130.668.648 — Cali</small><br/><small>EL LICENCIANTE</small>
+                                  </div>
+                                  <div class="sig-block">
+                                    ${ct.client_signature_url ? `<img src="${ct.client_signature_url}"/>` : '<p>(sin firma)</p>'}
+                                    <div class="sig-line"></div>
+                                    <strong>${ct.client_name}</strong><br/><small>EL LICENCIATARIO</small>
+                                  </div>
+                                </div>
+                                <hr/><p style="color:#888;font-size:11px">ID contrato: ${ct.id}</p>
+                                </body></html>`);
+                                win.document.close();
+                                setTimeout(() => win.print(), 800);
+                              }} style={{ padding: '4px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                                📥 Ver contrato
+                              </button>
+                            );
+                          }
+                          // Sin contrato o pendiente: botón generar/copiar
+                          return (
+                            <button onClick={() => sendContract(c)}
+                              style={{ padding: '4px 10px', background: ctPending ? '#d97706' : '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                              {ctPending ? '🔗 Copiar enlace' : '📄 Contrato'}
+                            </button>
+                          );
+                        })()}
                         {/* Ver como cliente */}
                         <button onClick={() => onPreview(c.id)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #ddd6fe', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
@@ -720,7 +926,10 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
             </tbody>
           </table>
         </div>
-      </div>
+
+        </div>}{/* fin tab clientes */}
+
+      </div>{/* fin padding 32 */}
 
       {/* ── MODAL CONFIRMAR PAGO ── */}
       {showConfirmPayment && selectedCompany && (

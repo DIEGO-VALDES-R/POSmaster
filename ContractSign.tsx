@@ -231,13 +231,14 @@ export const ContractSign: React.FC<{ token: string }> = ({ token }) => {
       }).eq('id', contract.id);
       if (updateErr) throw updateErr;
 
-      // Generar y descargar PDF
+      // Generar y abrir PDF para imprimir/guardar
       const html = generateContractHTML({ ...contract, client_signature_url: sigUrl }, sigDataUrl);
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank');
+      const win = window.open('', '_blank');
       if (win) {
-        win.onload = () => { win.print(); };
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+        setTimeout(() => { win.print(); }, 1200);
       }
 
       // Notificar al admin
