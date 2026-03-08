@@ -80,7 +80,6 @@ const PERMISSION_LABELS: Record<string, string> = {
   can_view_repairs:     '🔧 Ver reparaciones',
 };
 
-// ── HELPERS ────────────────────────────────────────────────────────────────────
 const getRolesForType = (type: string) => ROLES_BY_TYPE[type] || ROLES_BY_TYPE.default;
 
 const getRoleBadge = (roleId: string, type: string) => {
@@ -119,9 +118,12 @@ const Team: React.FC = () => {
   const [showPin, setShowPin] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Confirmación eliminar
+  const [confirmDelete, setConfirmDelete] = useState<TeamMember | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const roles = getRolesForType(businessType);
 
-  // ── CARGA ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (companyId) {
       loadMembers();
@@ -153,7 +155,6 @@ const Team: React.FC = () => {
     setInvitations((data || []) as any);
   };
 
-  // ── INVITAR ────────────────────────────────────────────────────────────────
   const handleRoleSelect = (roleId: string) => {
     setInviteRole(roleId);
     const found = roles.find(r => r.id === roleId);
@@ -162,9 +163,6 @@ const Team: React.FC = () => {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim()) { toast.error('Ingresa un email'); return; }
-    if (!isEnterprise && !inviteBranch) {
-      // PRO: asignar automáticamente a la primera sucursal (sede principal)
-    }
     setInviting(true);
     try {
       const { data: inv, error } = await supabase.from('user_invitations').insert({
@@ -175,11 +173,9 @@ const Team: React.FC = () => {
         permissions: invitePerms,
       }).select().single();
       if (error) throw error;
-
-      // Copiar enlace al portapapeles
       const link = `${window.location.origin}/#/invitacion/${inv.token}`;
       await navigator.clipboard.writeText(link).catch(() => {});
-      toast.success(`Invitación creada. Enlace copiado al portapapeles.`);
+      toast.success('Invitación creada. Enlace copiado al portapapeles.');
       setShowInviteModal(false);
       setInviteEmail(''); setInviteRole('cajero'); setInviteBranch(''); setInvitePerms({});
       loadInvitations();
@@ -190,7 +186,6 @@ const Team: React.FC = () => {
     }
   };
 
-  // ── EDITAR MIEMBRO ─────────────────────────────────────────────────────────
   const openEdit = (m: TeamMember) => {
     setEditMember(m);
     setEditRole(m.custom_role || m.role);
@@ -228,6 +223,23 @@ const Team: React.FC = () => {
     loadMembers();
   };
 
+  // ── ELIMINAR MIEMBRO ───────────────────────────────────────────────────────
+  const handleDeleteMember = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from('profiles').delete().eq('id', confirmDelete.id);
+      if (error) throw error;
+      toast.success(`${confirmDelete.full_name || confirmDelete.email} eliminado del equipo`);
+      setConfirmDelete(null);
+      loadMembers();
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleCopyInviteLink = async (token: string) => {
     const link = `${window.location.origin}/#/invitacion/${token}`;
     await navigator.clipboard.writeText(link);
@@ -240,7 +252,6 @@ const Team: React.FC = () => {
     toast.success('Invitación eliminada');
   };
 
-  // ── GUARD: solo PRO/ENTERPRISE ────────────────────────────────────────────
   if (!isPro) {
     return (
       <div className="max-w-2xl mx-auto mt-16 text-center">
@@ -265,7 +276,6 @@ const Team: React.FC = () => {
     );
   }
 
-  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -366,8 +376,11 @@ const Team: React.FC = () => {
                           <button onClick={() => openEdit(m)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar">
                             <Edit2 size={14} />
                           </button>
-                          <button onClick={() => handleToggleActive(m)} className={`p-1.5 rounded-lg transition-colors ${m.is_active ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`} title={m.is_active ? 'Desactivar' : 'Activar'}>
+                          <button onClick={() => handleToggleActive(m)} className={`p-1.5 rounded-lg transition-colors ${m.is_active ? 'text-amber-500 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`} title={m.is_active ? 'Desactivar' : 'Activar'}>
                             {m.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
+                          </button>
+                          <button onClick={() => setConfirmDelete(m)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar usuario">
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </td>
@@ -436,6 +449,41 @@ const Team: React.FC = () => {
         </div>
       )}
 
+      {/* ── MODAL CONFIRMAR ELIMINAR ── */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="bg-red-600 p-5 flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">Eliminar usuario</h3>
+                <p className="text-xs text-red-200">Esta acción no se puede deshacer</p>
+              </div>
+            </div>
+            <div className="p-6">
+              <p className="text-slate-700 text-sm mb-1">¿Eliminar permanentemente a:</p>
+              <p className="font-bold text-slate-900 mb-1">{confirmDelete.full_name || '—'}</p>
+              <p className="text-xs text-slate-500 mb-4">{confirmDelete.email}</p>
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-5">
+                <p className="text-xs text-red-700">⚠️ El usuario perderá acceso inmediatamente y no podrá iniciar sesión.</p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmDelete(null)} disabled={deleting}
+                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50 text-sm">
+                  Cancelar
+                </button>
+                <button onClick={handleDeleteMember} disabled={deleting}
+                  className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm">
+                  <Trash2 size={15} /> {deleting ? 'Eliminando...' : 'Sí, eliminar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL INVITAR ── */}
       {showInviteModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -448,15 +496,12 @@ const Team: React.FC = () => {
               <button onClick={() => setShowInviteModal(false)} className="p-2 hover:bg-slate-700 rounded-lg"><X size={18} className="text-slate-300" /></button>
             </div>
             <div className="p-6 space-y-5">
-              {/* Email */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Email del colaborador</label>
                 <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
                   placeholder="colaborador@email.com"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
               </div>
-
-              {/* Rol */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Rol / Función</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -468,8 +513,6 @@ const Team: React.FC = () => {
                   ))}
                 </div>
               </div>
-
-              {/* Sucursal (solo ENTERPRISE) */}
               {isEnterprise && branches.length > 1 && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Asignar a sucursal</label>
@@ -480,8 +523,6 @@ const Team: React.FC = () => {
                   </select>
                 </div>
               )}
-
-              {/* Permisos */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Permisos</label>
                 <div className="space-y-2 bg-slate-50 rounded-lg p-3 border border-slate-100">
@@ -494,7 +535,6 @@ const Team: React.FC = () => {
                   ))}
                 </div>
               </div>
-
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowInviteModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>
                 <button type="button" onClick={handleInvite} disabled={inviting}
@@ -519,7 +559,6 @@ const Team: React.FC = () => {
               <button onClick={() => setEditMember(null)} className="p-2 hover:bg-slate-700 rounded-lg"><X size={18} className="text-slate-300" /></button>
             </div>
             <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-              {/* Rol */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Rol</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -532,8 +571,6 @@ const Team: React.FC = () => {
                   ))}
                 </div>
               </div>
-
-              {/* Sucursal (ENTERPRISE) */}
               {isEnterprise && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Sucursal</label>
@@ -544,8 +581,6 @@ const Team: React.FC = () => {
                   </select>
                 </div>
               )}
-
-              {/* Permisos */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Permisos individuales</label>
                 <div className="space-y-2 bg-slate-50 rounded-lg p-3 border border-slate-100">
@@ -558,8 +593,6 @@ const Team: React.FC = () => {
                   ))}
                 </div>
               </div>
-
-              {/* PIN */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1"><Lock size={13} /> PIN de acceso rápido (4 dígitos)</label>
                 <div className="relative">
@@ -572,7 +605,6 @@ const Team: React.FC = () => {
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">Permite login rápido en caja sin contraseña completa</p>
               </div>
-
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setEditMember(null)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>
                 <button type="button" onClick={handleSaveEdit} disabled={saving}
