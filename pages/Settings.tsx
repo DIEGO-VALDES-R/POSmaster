@@ -2,7 +2,7 @@
 import { 
   Save, Building, Receipt, Shield, X, CreditCard, 
   Upload, Image as ImageIcon, Lock, KeyRound, 
-  FileCode, Check, AlertTriangle, Palette 
+  FileCode, Check, AlertTriangle, Palette, Crown 
 } from 'lucide-react';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { toast } from 'react-hot-toast';
@@ -443,25 +443,41 @@ const Settings: React.FC = () => {
 
         {/* SIDEBAR DERECHO */}
         <div className="space-y-6">
-          <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10"><Shield size={100} /></div>
-            <div className="flex items-center gap-3 mb-4 relative z-10">
-              <div className="p-2 bg-blue-600 rounded-lg"><Shield size={24} /></div>
-              <div>
-                <h4 className="font-bold">{currentPlan.name}</h4>
-                <p className="text-xs text-slate-400">Estado: {safeCompany.subscription_status || 'ACTIVE'}</p>
-              </div>
-            </div>
-            <div className="space-y-2 text-sm text-slate-300 mb-6 relative z-10">
-              <div className="flex gap-2 items-center text-xs"><Check size={12} className="text-green-400" /><span>5 Usuarios</span></div>
-              <div className="flex gap-2 items-center text-xs"><Check size={12} className="text-green-400" /><span>3 Sucursales</span></div>
-              <div className="flex gap-2 items-center text-xs"><Check size={12} className="text-green-400" /><span>Facturacion Electronica</span></div>
-            </div>
-            <button type="button" onClick={() => setIsSecurityCheckOpen(true)}
-              className="w-full py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg font-bold flex items-center justify-center gap-2 relative z-10 transition-colors">
-              <Lock size={16} /> Gestionar Suscripcion
-            </button>
-          </div>
+          {(() => {
+              const PLAN_INFO: Record<string, { label: string; color: string; accent: string; icon: string; features: string[] }> = {
+                TRIAL:      { label: '7 días gratis',   color: 'bg-emerald-600', accent: 'text-emerald-400', icon: '🎁', features: ['Acceso completo 7 días', 'POS y ventas', 'Inventario', 'Control de caja', 'Sin compromiso'] },
+                BASIC:      { label: 'Plan Basic',       color: 'bg-slate-600',   accent: 'text-slate-300',   icon: '📦', features: ['1 sucursal · 1 usuario', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Cartera / CxC', 'Soporte WhatsApp'] },
+                PRO:        { label: 'Plan Pro',         color: 'bg-blue-600',    accent: 'text-blue-400',    icon: '⭐', features: ['Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'Dashboard multi-sucursal', 'Soporte Prioritario'] },
+                ENTERPRISE: { label: 'Plan Enterprise', color: 'bg-purple-600',  accent: 'text-purple-400',  icon: '🏢', features: ['Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación DIAN', 'API + Webhooks', 'Soporte Dedicado · SLA 99.9%'] },
+              };
+              const info = PLAN_INFO[plan] || PLAN_INFO['BASIC'];
+              const statusLabel: Record<string, string> = { ACTIVE: 'Activo', INACTIVE: 'Inactivo', PENDING: 'Pendiente', PAST_DUE: 'Vencido', TRIAL: 'En prueba' };
+              const statusColor: Record<string, string> = { ACTIVE: 'text-green-400', INACTIVE: 'text-red-400', PENDING: 'text-yellow-400', PAST_DUE: 'text-orange-400', TRIAL: 'text-emerald-400' };
+              const st = safeCompany.subscription_status || 'ACTIVE';
+              return (
+                <div className="bg-slate-900 text-white p-5 rounded-xl shadow-lg relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-3 opacity-10"><Shield size={90} /></div>
+                  <div className="flex items-center gap-3 mb-4 relative z-10">
+                    <div className={`p-2 ${info.color} rounded-lg text-lg leading-none`}>{info.icon}</div>
+                    <div>
+                      <h4 className="font-bold text-sm">{info.label}</h4>
+                      <p className={`text-xs font-semibold ${statusColor[st] || 'text-slate-400'}`}>● {statusLabel[st] || st}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 mb-5 relative z-10">
+                    {info.features.map((feat, i) => (
+                      <div key={i} className="flex gap-2 items-center text-xs text-slate-300">
+                        <Check size={11} className={info.accent} /><span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setIsSecurityCheckOpen(true)}
+                    className={`w-full py-2 ${info.color} hover:opacity-90 rounded-lg font-bold text-sm flex items-center justify-center gap-2 relative z-10 transition-all`}>
+                    <Crown size={15} /> Gestionar plan
+                  </button>
+                </div>
+              );
+            })()}
 
           {activeTab !== 'BRANDING' && (
             <button type="submit" disabled={isSaving} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-70">

@@ -83,12 +83,12 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
       <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
         <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Planes y precios</h2>
         <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Empieza gratis, crece cuando lo necesites</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, overflowX: 'auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
           {plans.map(plan => (
             <div key={plan.id} style={{
               background: (plan as any).enterprise ? 'linear-gradient(135deg,rgba(139,92,246,0.15),rgba(109,40,217,0.1))' : (plan as any).popular ? 'linear-gradient(135deg,rgba(59,130,246,0.1),rgba(99,102,241,0.1))' : 'rgba(255,255,255,0.03)',
               border: (plan as any).enterprise ? '2px solid rgba(139,92,246,0.5)' : (plan as any).popular ? '2px solid rgba(59,130,246,0.5)' : '1px solid rgba(255,255,255,0.07)',
-              borderRadius: 20, padding: 32, position: 'relative', display: 'flex', flexDirection: 'column'
+              borderRadius: 20, padding: '24px 20px', position: 'relative', display: 'flex', flexDirection: 'column'
             }}>
               {(plan as any).popular && (
                 <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', padding: '4px 16px', borderRadius: 100, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>MÁS POPULAR</div>
