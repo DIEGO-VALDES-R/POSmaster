@@ -72,9 +72,15 @@ const Settings: React.FC = () => {
   const [formData, setFormData] = useState(safeCompany);
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS'>('GENERAL');
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
-  const [primaryColor, setPrimaryColor] = useState(safeCompany.primary_color || '#3b82f6');
-  const [secondaryColor, setSecondaryColor] = useState(safeCompany.secondary_color || '#6366f1');
-  const [businessType, setBusinessType] = useState(safeCompany.business_type || 'general');
+  const [primaryColor, setPrimaryColor] = useState(
+    safeCompany.primary_color || (safeCompany.config as any)?.primary_color || '#3b82f6'
+  );
+  const [secondaryColor, setSecondaryColor] = useState(
+    safeCompany.secondary_color || (safeCompany.config as any)?.secondary_color || '#6366f1'
+  );
+  const [businessType, setBusinessType] = useState(
+    safeCompany.business_type || (safeCompany.config as any)?.business_type || 'general'
+  );
   const [savingBranding, setSavingBranding] = useState(false);
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
@@ -149,16 +155,22 @@ const Settings: React.FC = () => {
     if (!safeCompany.id) return;
     setSavingBranding(true);
     try {
-      const { error } = await supabase.from('business_settings').update({
+      // Merge colors into the config jsonb column (already exists in companies)
+      const currentConfig = safeCompany.config || {};
+      const newConfig = {
+        ...currentConfig,
         primary_color: primaryColor,
         secondary_color: secondaryColor,
         business_type: businessType,
-      }).eq('id', safeCompany.id);
+      };
+      const { error } = await supabase.from('companies')
+        .update({ config: newConfig })
+        .eq('id', safeCompany.id);
       if (error) throw error;
-      updateCompanyConfig({ primary_color: primaryColor, secondary_color: secondaryColor, business_type: businessType } as any);
+      await updateCompanyConfig({ config: newConfig } as any);
       toast.success('¡Personalización guardada!');
     } catch (err: any) {
-      toast.error('Error: ' + err.message);
+      toast.error('Error al guardar: ' + err.message);
     } finally {
       setSavingBranding(false);
     }

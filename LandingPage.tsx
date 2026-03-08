@@ -69,11 +69,11 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
             {' '}tu negocio
           </h1>
           <p style={{ fontSize: 'clamp(1rem,2vw,1.25rem)', color: '#94a3b8', lineHeight: 1.7, marginBottom: 40, maxWidth: 560, margin: '0 auto 40px' }}>
-            POS, inventario, reparaciones y más en una sola plataforma. Para tiendas de tecnología, misceláneas y más.
+            Más control, más ventas, menos complicaciones. POS, inventario, servicios y caja en una sola plataforma para que administres tu negocio de forma fácil y profesional.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 0 30px rgba(99,102,241,0.4)' }}>Ya tengo cuenta</button>
-            <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Registrarse</button>
+            <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Elegir plan y registrarse →</button>
           </div>
           <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>7 días gratis sin tarjeta • Planes desde $65.000/mes</p>
         </div>
@@ -83,7 +83,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
       <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
         <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Planes y precios</h2>
         <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Empieza gratis, crece cuando lo necesites</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, overflowX: 'auto' }}>
           {plans.map(plan => (
             <div key={plan.id} style={{
               background: (plan as any).enterprise ? 'linear-gradient(135deg,rgba(139,92,246,0.15),rgba(109,40,217,0.1))' : (plan as any).popular ? 'linear-gradient(135deg,rgba(59,130,246,0.1),rgba(99,102,241,0.1))' : 'rgba(255,255,255,0.03)',
@@ -220,7 +220,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
 
 // ── REGISTER PAGE ─────────────────────────────────────────────────────────────
 export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void }> = ({ onBack, onSuccess }) => {
-  const [step, setStep] = useState(1); // 1=cuenta, 2=negocio, 3=pago
+  const [step, setStep] = useState(0); // 0=plan, 1=cuenta, 2=negocio, 3=confirmación
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [form, setForm] = useState({
@@ -290,10 +290,10 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, margin: '0 auto 16px', color: '#fff' }}>PM</div>
           <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 6, letterSpacing: '-0.5px', color: '#f1f5f9' }}>
-            {step === 3 ? '¡Registro exitoso!' : 'Crear cuenta en POSmaster'}
+            {step === 0 ? 'Elige tu plan' : step === 3 ? '¡Registro exitoso!' : 'Crear cuenta en POSmaster'}
           </h1>
-          {step < 3 && <p style={{ color: '#64748b', fontSize: 14 }}>Paso {step} de 2</p>}
-          {step < 3 && (
+          {step > 0 && step < 3 && <p style={{ color: '#64748b', fontSize: 14 }}>Paso {step} de 2</p>}
+          {step > 0 && step < 3 && (
             <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 12 }}>
               {[1, 2].map(s => (
                 <div key={s} style={{ height: 4, width: 60, borderRadius: 2, background: s <= step ? '#3b82f6' : 'rgba(255,255,255,0.1)', transition: 'background 0.3s' }} />
@@ -301,6 +301,40 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
             </div>
           )}
         </div>
+
+        {/* PASO 0 — Elegir Plan */}
+        {step === 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              { id: 'TRIAL',      icon: '🎁', name: '7 días gratis',     price: 'Gratis',          desc: 'Prueba completa sin tarjeta',                  color: '#10b981', border: 'rgba(16,185,129,0.4)' },
+              { id: 'BASIC',      icon: '📦', name: 'Basic',             price: '$65.000/mes',     desc: '1 sucursal · 1 usuario · POS completo',        color: '#64748b', border: 'rgba(100,116,139,0.4)' },
+              { id: 'PRO',        icon: '⭐', name: 'Pro',               price: '$120.000/mes',    desc: 'Hasta 3 sucursales · 5 usuarios · Wompi',      color: '#3b82f6', border: 'rgba(59,130,246,0.5)',  popular: true },
+              { id: 'ENTERPRISE', icon: '🏢', name: 'Enterprise',        price: '$249.900/mes',    desc: 'Ilimitado · DIAN · API · Soporte dedicado',    color: '#8b5cf6', border: 'rgba(139,92,246,0.5)' },
+            ].map(p => (
+              <button key={p.id} onClick={() => { setForm(prev => ({ ...prev, plan: p.id })); setStep(1); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '14px 18px',
+                  background: 'rgba(255,255,255,0.04)', border: `2px solid ${p.border}`,
+                  borderRadius: 14, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                {(p as any).popular && (
+                  <span style={{ position: 'absolute', top: 8, right: 10, background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>MÁS POPULAR</span>
+                )}
+                <span style={{ fontSize: 26 }}>{p.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontWeight: 700, fontSize: 15, color: p.color, margin: 0 }}>{p.name}</p>
+                  <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0' }}>{p.desc}</p>
+                </div>
+                <span style={{ fontWeight: 800, fontSize: 14, color: '#f1f5f9', whiteSpace: 'nowrap' }}>{p.price}</span>
+              </button>
+            ))}
+            <p style={{ textAlign: 'center', fontSize: 12, color: '#475569', marginTop: 4 }}>
+              ¿Ya tienes cuenta?{' '}
+              <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>Ingresar</button>
+            </p>
+          </div>
+        )}
 
         {/* PASO 1 — Credenciales */}
         {step === 1 && (
@@ -378,7 +412,7 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           </div>
         )}
 
-        {step < 3 && (
+        {step > 0 && step < 3 && (
           <p style={{ textAlign: 'center', marginTop: 24, fontSize: 14, color: '#475569' }}>
             ¿Ya tienes cuenta?{' '}
             <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>Ingresar</button>
