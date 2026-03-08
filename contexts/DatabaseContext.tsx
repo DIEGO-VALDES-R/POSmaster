@@ -25,6 +25,7 @@ interface DatabaseContextType {
     customer: string; customerDoc?: string; customerEmail?: string;
     customerPhone?: string; items: any[]; total: number;
     subtotal: number; taxAmount: number; applyIva?: boolean;
+    discountPercent?: number; discountAmount?: number;
   }) => Promise<Sale>;
   updateCompanyConfig: (data: Partial<Company>) => Promise<void>;
   saveDianSettings: (settings: DianSettings) => void;
@@ -196,6 +197,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     toast.success('Producto eliminado');
   };
 
+  const updateRepairStatus = async (id: string, status: RepairStatus) => {
+    const { error } = await supabase.from('repair_orders')
+      .update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) { toast.error(error.message); return; }
+    if (companyId) await loadRepairs(companyId);
+    toast.success(`Estado: ${status}`);
+  };
+
   const addRepair = async (data: Omit<RepairOrder, 'id'>) => {
     if (!companyId) return;
     const resolvedBranchId = branchId || await resolvebranchId(companyId);
@@ -207,18 +216,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     toast.success('Orden creada');
   };
 
-  const updateRepairStatus = async (id: string, status: RepairStatus) => {
-    const { error } = await supabase.from('repair_orders')
-      .update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    if (error) { toast.error(error.message); return; }
-    if (companyId) await loadRepairs(companyId);
-    toast.success(`Estado: ${status}`);
-  };
-
   const processSale = async (saleData: {
     customer: string; customerDoc?: string; customerEmail?: string;
     customerPhone?: string; items: any[]; total: number;
     subtotal: number; taxAmount: number; applyIva?: boolean;
+    discountPercent?: number; discountAmount?: number;
   }): Promise<Sale> => {
     if (!companyId) throw new Error('No company');
     const resolvedBranchId = branchId || await resolvebranchId(companyId);
@@ -228,6 +230,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
     const invoiceNumber = `POS-${timestamp}${random}`;
 
+    // 1️⃣ Crear la factura
     const { data: invoice, error: invErr } = await supabase.from('invoices').insert({
       company_id: companyId, branch_id: resolvedBranchId, invoice_number: invoiceNumber,
       customer_id: null,
@@ -244,6 +247,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
     if (invErr) throw invErr;
 
+    // 2️⃣ Insertar items de la factura
     await supabase.from('invoice_items').insert(
       saleData.items.map((i: any) => ({
         invoice_id: invoice.id, product_id: i.product.id,
@@ -251,25 +255,38 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       }))
     );
 
-    await Promise.all(saleData.items
-      .filter((i: any) => i.product.type !== 'SERVICE')
-      .map(async (i: any) => {
-        const { data: cur } = await supabase.from('products')
-          .select('stock_quantity').eq('id', i.product.id).single();
-        if (!cur) return;
-        await supabase.from('products')
-          .update({ stock_quantity: Math.max(0, (cur.stock_quantity ?? 0) - i.quantity) })
-          .eq('id', i.product.id);
-      })
-    );
+    // 3️⃣ Actualizar stock en Supabase de forma SECUENCIAL (evita race condition)
+    //    Usamos el stock que ya está en memoria (i.product.stock_quantity)
+    //    para no necesitar consultar Supabase por cada item.
+    for (const i of saleData.items.filter((i: any) => i.product.type !== 'SERVICE')) {
+      const currentStock = i.product.stock_quantity ?? 0;
+      const newStock = Math.max(0, currentStock - i.quantity);
+      await supabase.from('products')
+        .update({ stock_quantity: newStock })
+        .eq('id', i.product.id);
+    }
 
+    // 4️⃣ Reflejar el nuevo stock en el estado LOCAL de forma INMEDIATA
+    //    Esto hace que el POS oculte el producto al instante, sin esperar
+    //    el round-trip de loadProducts() a Supabase.
+    setProducts(prev => prev.map(p => {
+      const soldItem = saleData.items.find(
+        (i: any) => i.product.id === p.id && i.product.type !== 'SERVICE'
+      );
+      if (!soldItem) return p;
+      return { ...p, stock_quantity: Math.max(0, (p.stock_quantity ?? 0) - soldItem.quantity) };
+    }));
+
+    // 5️⃣ Actualizar sesión de caja
     if (session?.id) {
       await supabase.from('cash_register_sessions')
         .update({ total_sales_cash: (session.total_sales_cash || 0) + saleData.total })
         .eq('id', session.id);
     }
 
+    // 6️⃣ Sincronizar con Supabase en background para mantener consistencia
     await Promise.all([loadProducts(companyId), loadSales(companyId), loadSession(companyId)]);
+
     toast.success('Venta guardada');
     return invoice as any;
   };
