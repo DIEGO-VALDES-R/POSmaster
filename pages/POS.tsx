@@ -46,48 +46,51 @@ const POS: React.FC = () => {
   const [shoeRepairId, setShoeRepairId]     = useState<string>(''); // id orden zapatería
   const [shoeRepairLabel, setShoeRepairLabel] = useState('');       // label informativo
 
-  // Leer parámetros de URL cuando viene de zapatería: /pos?shoe=ID&cliente=...&cedula=...&tel=...&total=...&abono=...&servicio=...
+  // Leer parámetros de URL cuando viene de zapatería o salón de belleza
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const shoeId = params.get('shoe');
-    if (!shoeId) return;
+    const shoeId  = params.get('shoe');
+    const salonId = params.get('salon');
+    const sourceId = shoeId || salonId;
+    if (!sourceId) return;
 
-    setShoeRepairId(shoeId);
+    const isShoe  = !!shoeId;
+    const isSalon = !!salonId;
+
+    setShoeRepairId(sourceId);
     setCustomerName(params.get('cliente') || '');
     setCustomerDoc(params.get('cedula') || '');
     setCustomerPhone(params.get('tel') || '');
-    setShoeRepairLabel(`Orden ${params.get('ticket') || shoeId} — ${params.get('servicio') || 'Reparación'}`);
+    const servicioNombre = params.get('servicio') || (isShoe ? 'Reparación de calzado' : 'Servicio de salón');
+    setShoeRepairLabel(`${isShoe ? '🔧' : '✂️'} ${params.get('ticket') || sourceId.slice(0,8).toUpperCase()} — ${servicioNombre}`);
 
-    const total  = parseFloat(params.get('total')  || '0');
-    const abono  = parseFloat(params.get('abono')  || '0');
-    const saldo  = total - abono;
+    const total = parseFloat(params.get('total') || '0');
+    const abono = parseFloat(params.get('abono') || '0');
 
     // Agregar como producto de servicio virtual al carrito
     const virtualService: any = {
       product: {
-        id: `shoe-${shoeId}`,
-        name: params.get('servicio') || 'Reparación de calzado',
+        id: `${isShoe ? 'shoe' : 'salon'}-${sourceId}`,
+        name: servicioNombre,
         price: total,
         type: 'SERVICE',
-        sku: `ZAP-${shoeId.slice(0, 6)}`,
+        sku: `${isShoe ? 'ZAP' : 'SAL'}-${sourceId.slice(0, 6)}`,
         stock_quantity: 999,
         tax_rate: 0,
       },
       quantity: 1,
-      price: total,      // ← requerido por CartItem para calcular totales
-      tax_rate: 0,       // sin IVA para servicios de zapatería
+      price: total,
+      tax_rate: 0,
       discount: 0,
     };
     setCart([virtualService]);
     setApplyIva(false);
 
-    // Si ya hay abono, pre-registrar el abono pagado y activar modo parcial con saldo
     if (abono > 0) {
       setIsPartialMode(true);
       setPayments([{ method: PaymentMethod.CASH, amount: abono }]);
     }
 
-    // Abrir modal de pago automáticamente
     setTimeout(() => setIsPaymentModalOpen(true), 700);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
@@ -103,14 +106,19 @@ const POS: React.FC = () => {
     }
   });
 
+  // Para zapatería: mostrar solo servicios (no insumos del inventario)
+  const businessTypes: string[] = Array.isArray((company?.config as any)?.business_types)
+    ? (company?.config as any).business_types
+    : (company?.config as any)?.business_type ? [(company?.config as any).business_type] : ['general'];
+  const isZapateria = businessTypes.includes('zapateria');
+
   const filteredProducts = useMemo(() =>
-    products.filter(p =>
-      ((p.stock_quantity ?? 0) > 0 || p.type === 'SERVICE') &&
-      (
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    ), [searchTerm, products]);
+    products.filter(p => {
+      if (isZapateria && p.type !== 'SERVICE') return false; // Zapatería: solo servicios
+      return ((p.stock_quantity ?? 0) > 0 || p.type === 'SERVICE') &&
+        (p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         p.sku.toLowerCase().includes(searchTerm.toLowerCase()));
+    }), [searchTerm, products, isZapateria]);
 
   const totals = useMemo(() => {
     const subtotalBruto = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -85,6 +86,7 @@ const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', c
 // ══════════════════════════════════════════════════════════════════════════════
 const BeautySalon: React.FC = () => {
   const { company } = useDatabase();
+  const navigate = useNavigate();
   const companyId = company?.id;
   const brandColor = (company?.config as any)?.primary_color || '#8b5cf6';
 
@@ -669,7 +671,20 @@ const BeautySalon: React.FC = () => {
                 </button>
               )}
               {detailOrder.status === 'DONE' && (
-                <button onClick={() => { toast.success('Ir al POS para cobrar: ' + detailOrder.client_name); setDetailOrder(null); }}
+                <button onClick={() => {
+                  const params = new URLSearchParams({
+                    salon:    detailOrder.id,
+                    ticket:   detailOrder.id.slice(0, 8).toUpperCase(),
+                    cliente:  detailOrder.client_name,
+                    cedula:   '',
+                    tel:      '',
+                    total:    String(detailOrder.service_price),
+                    abono:    '0',
+                    servicio: detailOrder.service_name,
+                  });
+                  setDetailOrder(null);
+                  navigate(`/pos?${params.toString()}`);
+                }}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
                   <ShoppingCart size={14} /> Cobrar en POS
                 </button>

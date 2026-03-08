@@ -259,7 +259,6 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       customer_id: null,
       subtotal: Math.round(saleData.subtotal), tax_amount: Math.round(saleData.taxAmount),
       total_amount: Math.round(saleData.total), status: 'PENDING_ELECTRONIC',
-      notes: saleData.notes || null,
       // Guardar toda la info del cliente y pago en el campo jsonb payment_method
       payment_method: {
         method: 'CASH', amount: amountPaid,
@@ -283,8 +282,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
     if (invErr) throw invErr;
 
-    // Solo insertar items con product_id real (UUID válido, no ids virtuales de zapatería)
-    const realItems = saleData.items.filter((i: any) => !String(i.product.id).startsWith('shoe-'));
+    // Solo insertar items con product_id real (UUID válido, no ids virtuales de zapatería/salón)
+    const realItems = saleData.items.filter((i: any) =>
+      !String(i.product.id).startsWith('shoe-') && !String(i.product.id).startsWith('salon-')
+    );
     if (realItems.length > 0) {
       const itemsToInsert = realItems.map((i: any) => ({
         invoice_id:    invoice.id,

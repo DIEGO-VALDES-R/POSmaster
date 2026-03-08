@@ -111,6 +111,16 @@ const Dashboard: React.FC = () => {
   const [period, setPeriod] = useState<Period>('week');
   const [chartReady, setChartReady] = useState(false);
 
+  // Tipo de negocio
+  const cfg = (company?.config as any) || {};
+  const businessTypes: string[] = Array.isArray(cfg.business_types)
+    ? cfg.business_types
+    : cfg.business_type ? [cfg.business_type] : ['general'];
+  const isZapateria  = businessTypes.includes('zapateria');
+  const isSalon      = businessTypes.includes('salon');
+  const isRestaurant = businessTypes.includes('restaurante');
+  const showRepairs  = !isZapateria && !isSalon && !isRestaurant;
+
   useEffect(() => {
     const t = setTimeout(() => setChartReady(true), 80);
     return () => clearTimeout(t);
@@ -255,18 +265,38 @@ const Dashboard: React.FC = () => {
           subtext={`Margen ~${(avgMarginRate * 100).toFixed(0)}% sobre ventas`}
           icon={TrendingUp} color="green"
         />
-        <StatCard
-          title="Inventario (precio venta)"
-          value={formatMoney(inventoryValuePrecio)}
-          subtext={`${totalUnidades} uds · ${products.length} referencias`}
-          icon={Package} color="purple"
-        />
-        <StatCard
-          title="Reparaciones activas"
-          value={activeRepairs.toString()}
-          subtext={`${readyRepairs} listas para entregar`}
-          icon={Wrench} color="orange"
-        />
+        {!isZapateria && (
+          <StatCard
+            title="Inventario (precio venta)"
+            value={formatMoney(inventoryValuePrecio)}
+            subtext={`${totalUnidades} uds · ${products.length} referencias`}
+            icon={Package} color="purple"
+          />
+        )}
+        {showRepairs && (
+          <StatCard
+            title="Reparaciones activas"
+            value={activeRepairs.toString()}
+            subtext={`${readyRepairs} listas para entregar`}
+            icon={Wrench} color="orange"
+          />
+        )}
+        {isZapateria && (
+          <StatCard
+            title="Órdenes activas"
+            value={activeRepairs.toString()}
+            subtext={`${readyRepairs} pendientes de entrega`}
+            icon={ShoppingCart} color="orange"
+          />
+        )}
+        {isSalon && (
+          <StatCard
+            title="Servicios del período"
+            value={currentSales.length.toString()}
+            subtext="Atenciones realizadas"
+            icon={ShoppingCart} color="purple"
+          />
+        )}
       </div>
 
       {/* ── FILA INVENTARIO ── */}
@@ -371,7 +401,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* ── GRÁFICAS FILA 2 ── */}
-      {repairs.length > 0 && (
+      {showRepairs && repairs.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           {/* Tendencia de ventas - LineChart */}

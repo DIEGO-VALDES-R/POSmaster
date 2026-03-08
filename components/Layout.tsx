@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Hammer
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -29,25 +29,30 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const businessTypes: string[] = Array.isArray(cfg.business_types)
     ? cfg.business_types
     : cfg.business_type ? [cfg.business_type] : ['general'];
-  const isRestaurant = businessTypes.includes('restaurante');
-  const isSalon      = businessTypes.includes('salon');
-  const isZapateria  = businessTypes.includes('zapateria');
+  const isRestaurant  = businessTypes.includes('restaurante');
+  const isSalon       = businessTypes.includes('salon');
+  const isZapateria   = businessTypes.includes('zapateria');
+  // Servicio Técnico solo para negocios de tecnología/reparación electrónica
+  const hasRepairs    = businessTypes.includes('tienda_tecnologia') ||
+                        businessTypes.includes('reparacion') ||
+                        businessTypes.includes('general') ||
+                        businessTypes.length === 0;
 
   const navItems = [
-    { label: 'Dashboard',          path: '/',             icon: LayoutDashboard, show: true },
-    { label: 'Punto de Venta',     path: '/pos',          icon: ShoppingCart,    show: hasPermission('can_sell') || isAdminOrMaster },
-    { label: 'Control de Caja',    path: '/cash-control', icon: Landmark,        show: hasPermission('can_open_cash') || isAdminOrMaster },
-    { label: 'Inventario',         path: '/inventory',    icon: Package,         show: hasPermission('can_manage_inventory') || isAdminOrMaster },
-    { label: 'Historial Facturas', path: '/invoices',     icon: Receipt,         show: hasPermission('can_view_reports') || isAdminOrMaster },
-    { label: 'Servicio Técnico',   path: '/repairs',      icon: Wrench,          show: hasPermission('can_view_repairs') || isAdminOrMaster },
-    { label: 'Cartera / CxC',      path: '/receivables',  icon: FileText,        show: hasPermission('can_view_reports') || isAdminOrMaster },
-    { label: 'Mesas / Restaurante', path: '/tables',      icon: Utensils,        show: isRestaurant && isAdminOrMaster },
-    { label: 'Display de Cocina',  path: '/kitchen',      icon: ChefHat,         show: isRestaurant && isAdminOrMaster },
-    { label: 'Salón de Belleza',          path: '/salon',        icon: Scissors,   show: isSalon      && isAdminOrMaster },
-    { label: 'Zapatería / Marroquinería', path: '/shoe-repair',  icon: Hammer,     show: isZapateria  && isAdminOrMaster },
-    { label: 'Sucursales',         path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
-    { label: 'Equipo',             path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
-    { label: 'Configuración',      path: '/settings',     icon: Settings,        show: isAdminOrMaster },
+    { label: 'Dashboard',           path: '/',             icon: LayoutDashboard, show: true },
+    { label: 'Punto de Venta',      path: '/pos',          icon: ShoppingCart,    show: hasPermission('can_sell') || isAdminOrMaster },
+    { label: 'Control de Caja',     path: '/cash-control', icon: Landmark,        show: hasPermission('can_open_cash') || isAdminOrMaster },
+    { label: 'Inventario',          path: '/inventory',    icon: Package,         show: !isZapateria && (hasPermission('can_manage_inventory') || isAdminOrMaster) },
+    { label: 'Historial Facturas',  path: '/invoices',     icon: Receipt,         show: hasPermission('can_view_reports') || isAdminOrMaster },
+    { label: 'Servicio Técnico',    path: '/repairs',      icon: Wrench,          show: hasRepairs && !isZapateria && !isSalon && !isRestaurant && (hasPermission('can_view_repairs') || isAdminOrMaster) },
+    { label: 'Zapatería',           path: '/shoe-repair',  icon: Wrench,          show: isZapateria && isAdminOrMaster },
+    { label: 'Cartera / CxC',       path: '/receivables',  icon: FileText,        show: hasPermission('can_view_reports') || isAdminOrMaster },
+    { label: 'Mesas / Restaurante', path: '/tables',       icon: Utensils,        show: isRestaurant && isAdminOrMaster },
+    { label: 'Display de Cocina',   path: '/kitchen',      icon: ChefHat,         show: isRestaurant && isAdminOrMaster },
+    { label: 'Salón de Belleza',    path: '/salon',        icon: Scissors,        show: isSalon && isAdminOrMaster },
+    { label: 'Sucursales',          path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
+    { label: 'Equipo',              path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
+    { label: 'Configuración',       path: '/settings',     icon: Settings,        show: isAdminOrMaster },
   ].filter(item => item.show);
 
   const isActive = (path: string) => location.pathname === path;

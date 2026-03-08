@@ -20,11 +20,11 @@ const BUSINESS_TYPES = [
   { id: 'tienda_tecnologia', label: '📱 Tecnología / Celulares' },
   { id: 'restaurante',       label: '🍽️ Restaurante / Cafetería' },
   { id: 'ropa',              label: '👗 Ropa / Calzado' },
+  { id: 'zapateria',         label: '👟 Zapatería / Marroquinería' },
   { id: 'ferreteria',        label: '🔧 Ferretería / Construcción' },
   { id: 'farmacia',          label: '💊 Farmacia / Droguería' },
   { id: 'supermercado',      label: '🛒 Supermercado / Abarrotes' },
   { id: 'salon',             label: '💇 Salón de Belleza / Spa' },
-  { id: 'zapateria',         label: '👟 Zapatería / Marroquinería' },
   { id: 'otro',              label: '📦 Otro' },
 ];
 
