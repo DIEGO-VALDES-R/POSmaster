@@ -34,6 +34,7 @@ interface DatabaseContextType {
   openSession: (amount: number) => Promise<void>;
   closeSession: (endAmount: number) => Promise<void>;
   refreshProducts: () => Promise<void>;
+  refreshCompany: () => Promise<void>;
   switchCompany: (cid: string) => Promise<void>;
   hasPermission: (key: string) => boolean;
 }
@@ -187,6 +188,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     if (companyId) await loadProducts(companyId);
   }, [companyId]);
 
+  const refreshCompany = useCallback(async () => {
+    if (companyId) await loadCompany(companyId);
+  }, [companyId]);
+
   const addProduct = async (data: Omit<Product, 'id' | 'company_id'>) => {
     if (!companyId) return;
     const { error } = await supabase.from('products').insert({ ...data, company_id: companyId, is_active: true });
@@ -337,7 +342,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       session, sessionsHistory, isLoading, userRole, customRole, permissions,
       availableCompanies, addProduct, updateProduct, deleteProduct, addRepair,
       updateRepairStatus, processSale, updateCompanyConfig, saveDianSettings,
-      openSession, closeSession, refreshProducts, switchCompany, hasPermission,
+      openSession, closeSession, refreshProducts, refreshCompany, switchCompany, hasPermission,
     }}>
       {children}
     </DatabaseContext.Provider>

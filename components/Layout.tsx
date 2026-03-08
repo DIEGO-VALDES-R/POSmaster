@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -24,6 +24,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const isEnterprise = plan === 'ENTERPRISE';
   const isAdminOrMaster = userRole === 'MASTER' || userRole === 'ADMIN';
 
+  // Tipo de negocio configurado en Ajustes > Marca (se guarda en config jsonb)
+  const businessType: string = (company?.config as any)?.business_type || 'general';
+  const isRestaurant = businessType === 'restaurante';
+
   const navItems = [
     { label: 'Dashboard',          path: '/',             icon: LayoutDashboard, show: true },
     { label: 'Punto de Venta',     path: '/pos',          icon: ShoppingCart,    show: hasPermission('can_sell') || isAdminOrMaster },
@@ -31,9 +35,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Inventario',         path: '/inventory',    icon: Package,         show: hasPermission('can_manage_inventory') || isAdminOrMaster },
     { label: 'Historial Facturas', path: '/invoices',     icon: Receipt,         show: hasPermission('can_view_reports') || isAdminOrMaster },
     { label: 'Servicio Técnico',   path: '/repairs',      icon: Wrench,          show: hasPermission('can_view_repairs') || isAdminOrMaster },
-    { label: 'Cartera / CxC',      path: '/receivables',  icon: FileText,    show: hasPermission('can_view_reports') || isAdminOrMaster },
-    { label: 'Mesas / Restaurante', path: '/tables',       icon: Utensils,    show: isAdminOrMaster },
-    { label: 'Sucursales',          path: '/branches',     icon: Building2,   show: isPro && isAdminOrMaster },
+    { label: 'Cartera / CxC',      path: '/receivables',  icon: FileText,        show: hasPermission('can_view_reports') || isAdminOrMaster },
+    { label: 'Mesas / Restaurante', path: '/tables',      icon: Utensils,        show: isRestaurant && isAdminOrMaster },
+    { label: 'Display de Cocina',  path: '/kitchen',      icon: ChefHat,         show: isRestaurant && isAdminOrMaster },
+    { label: 'Sucursales',         path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
     { label: 'Equipo',             path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
     { label: 'Configuración',      path: '/settings',     icon: Settings,        show: isAdminOrMaster },
   ].filter(item => item.show);

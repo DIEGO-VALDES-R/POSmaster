@@ -50,7 +50,7 @@ const FONT_PRESETS = [
 const MASTER_KEY = 'admin123';
 
 const Settings: React.FC = () => {
-  const { company, updateCompanyConfig, saveDianSettings } = useDatabase();
+  const { company, updateCompanyConfig, saveDianSettings, refreshCompany } = useDatabase();
 
   // Mantenemos el ID que aparece en tu captura de Supabase
   const safeCompany = company || {
@@ -91,9 +91,19 @@ const Settings: React.FC = () => {
     (safeCompany.config as any)?.font_color || '#ffffff'
   );
   const [businessType, setBusinessType] = useState(
-    safeCompany.business_type || (safeCompany.config as any)?.business_type || 'general'
+    (safeCompany.config as any)?.business_type || 'general'
   );
   const [savingBranding, setSavingBranding] = useState(false);
+
+  // Sincronizar estados de branding cuando el contexto actualiza company (ej: tras guardar)
+  useEffect(() => {
+    if (!company) return;
+    const cfg = (company.config as any) || {};
+    setPrimaryColor(cfg.primary_color || '#3b82f6');
+    setSecondaryColor(cfg.secondary_color || '#6366f1');
+    setFontColor(cfg.font_color || '#ffffff');
+    setBusinessType(cfg.business_type || 'general');
+  }, [company]);
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
     dataphone: { enabled: false, label: 'Datáfono físico',      icon: '📟', acquirer: 'redeban', note: '' },
@@ -180,7 +190,8 @@ const Settings: React.FC = () => {
         .update({ config: newConfig })
         .eq('id', safeCompany.id);
       if (error) throw error;
-      await updateCompanyConfig({ config: newConfig } as any);
+      // Refrescar el company en contexto para que Layout refleje cambios al instante
+      await refreshCompany();
       toast.success('¡Personalización guardada!');
     } catch (err: any) {
       toast.error('Error al guardar: ' + err.message);
