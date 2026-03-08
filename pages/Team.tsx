@@ -6,9 +6,9 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
+import { useAccessControl } from '../hooks/useAccessControl';
 import { toast } from 'react-hot-toast';
 
-// ── TIPOS ──────────────────────────────────────────────────────────────────────
 interface TeamMember {
   id: string;
   full_name: string;
@@ -23,10 +23,7 @@ interface TeamMember {
   created_at: string;
 }
 
-interface Branch {
-  id: string;
-  name: string;
-}
+interface Branch { id: string; name: string; }
 
 interface Invitation {
   id: string;
@@ -39,7 +36,6 @@ interface Invitation {
   token: string;
 }
 
-// ── ROLES POR TIPO DE NEGOCIO ──────────────────────────────────────────────────
 const ROLES_BY_TYPE: Record<string, { id: string; label: string; icon: string; defaultPerms: Record<string, boolean> }[]> = {
   default: [
     { id: 'cajero',      label: 'Cajero',       icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
@@ -56,18 +52,18 @@ const ROLES_BY_TYPE: Record<string, { id: string; label: string; icon: string; d
     { id: 'admin',            label: 'Administrador',     icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: true  } },
   ],
   restaurante: [
-    { id: 'cajero',    label: 'Cajero',     icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'mesero',    label: 'Mesero',     icon: '🍽️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'cocina',    label: 'Cocina',     icon: '👨‍🍳', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',label: 'Supervisor', icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true, can_refund: true, can_view_reports: true, can_manage_inventory: true, can_manage_team: true, can_open_cash: true, can_view_repairs: false } },
+    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
+    { id: 'mesero',    label: 'Mesero',        icon: '🍽️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
+    { id: 'cocina',    label: 'Cocina',        icon: '👨‍🍳', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
+    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
+    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false } },
   ],
   ropa: [
-    { id: 'cajero',    label: 'Cajero',     icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'vendedor',  label: 'Vendedor',   icon: '👗', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'bodeguero', label: 'Bodeguero',  icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',label: 'Supervisor', icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true, can_refund: true, can_view_reports: true, can_manage_inventory: true, can_manage_team: true, can_open_cash: true, can_view_repairs: false } },
+    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
+    { id: 'vendedor',  label: 'Vendedor',      icon: '👗', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
+    { id: 'bodeguero', label: 'Bodeguero',     icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
+    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
+    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false } },
   ],
 };
 
@@ -82,22 +78,20 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 const getRolesForType = (type: string) => ROLES_BY_TYPE[type] || ROLES_BY_TYPE.default;
-
 const getRoleBadge = (roleId: string, type: string) => {
   const roles = getRolesForType(type);
   return roles.find(r => r.id === roleId) || { id: roleId, label: roleId, icon: '👤', defaultPerms: {} };
 };
 
-// ── HELPER — Hashear PIN via función SQL SECURITY DEFINER ─────────────────────
 const hashPin = async (pin: string): Promise<string> => {
   const { data, error } = await supabase.rpc('hash_pin', { input_pin: pin });
   if (error) throw new Error('Error al hashear PIN: ' + error.message);
   return data as string;
 };
 
-// ── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────────
 const Team: React.FC = () => {
   const { company, companyId, userRole } = useDatabase();
+  const { checkAccess } = useAccessControl();
   const businessType = (company as any)?.business_type || 'default';
   const plan = company?.subscription_plan || 'BASIC';
   const isEnterprise = plan === 'ENTERPRISE';
@@ -109,7 +103,6 @@ const Team: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
 
-  // Modal invitar
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('cajero');
@@ -117,7 +110,6 @@ const Team: React.FC = () => {
   const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({});
   const [inviting, setInviting] = useState(false);
 
-  // Modal editar
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [editRole, setEditRole] = useState('');
   const [editBranch, setEditBranch] = useState('');
@@ -126,27 +118,18 @@ const Team: React.FC = () => {
   const [showPin, setShowPin] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Confirmación eliminar
   const [confirmDelete, setConfirmDelete] = useState<TeamMember | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const roles = getRolesForType(businessType);
 
   useEffect(() => {
-    if (companyId) {
-      loadMembers();
-      loadBranches();
-      loadInvitations();
-    }
+    if (companyId) { loadMembers(); loadBranches(); loadInvitations(); }
   }, [companyId]);
 
   const loadMembers = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('created_at');
+    const { data, error } = await supabase.from('profiles').select('*').eq('company_id', companyId).order('created_at');
     if (error) toast.error('Error cargando equipo');
     setMembers((data || []) as any);
     setLoading(false);
@@ -158,8 +141,7 @@ const Team: React.FC = () => {
   };
 
   const loadInvitations = async () => {
-    const { data } = await supabase.from('user_invitations')
-      .select('*').eq('company_id', companyId).order('created_at', { ascending: false });
+    const { data } = await supabase.from('user_invitations').select('*').eq('company_id', companyId).order('created_at', { ascending: false });
     setInvitations((data || []) as any);
   };
 
@@ -171,6 +153,7 @@ const Team: React.FC = () => {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim()) { toast.error('Ingresa un email'); return; }
+    if (!await checkAccess('team.invite')) return;
     setInviting(true);
     try {
       const { data: inv, error } = await supabase.from('user_invitations').insert({
@@ -199,43 +182,31 @@ const Team: React.FC = () => {
     setEditRole(m.custom_role || m.role);
     setEditBranch(m.branch_id || '');
     setEditPerms(m.permissions || {});
-    // No mostrar el PIN actual — siempre vacío por seguridad
     setEditPin('');
     setShowPin(false);
   };
 
   const handleSaveEdit = async () => {
     if (!editMember) return;
-
-    // Validar PIN si se ingresó uno nuevo
+    if (!await checkAccess('team.edit')) return;
     if (editPin && (editPin.length !== 4 || !/^\d{4}$/.test(editPin))) {
-      toast.error('El PIN debe ser exactamente 4 dígitos numéricos');
-      return;
+      toast.error('El PIN debe ser exactamente 4 dígitos numéricos'); return;
     }
-
     setSaving(true);
     try {
-      // ── CORRECCIÓN SUP-04 — Hashear PIN antes de guardar ──────────────────
       let updateData: Record<string, any> = {
         custom_role: editRole,
         branch_id: editBranch || null,
         permissions: editPerms,
       };
-
       if (editPin) {
-        // PIN nuevo ingresado — hashear y guardar
         const pinHash = await hashPin(editPin);
         updateData.pin_hash = pinHash;
-        updateData.pin = null; // Limpiar texto plano si existía
-      } else if (!editPin && editMember.pin_hash) {
-        // No se ingresó PIN nuevo — mantener el hash existente
-        // No modificar pin_hash
+        updateData.pin = null;
       } else if (!editPin && !editMember.pin_hash) {
-        // Se dejó vacío y no tenía PIN — remover
         updateData.pin_hash = null;
         updateData.pin = null;
       }
-
       const { error } = await supabase.from('profiles').update(updateData).eq('id', editMember.id);
       if (error) throw error;
       toast.success('Miembro actualizado');
@@ -257,6 +228,7 @@ const Team: React.FC = () => {
 
   const handleDeleteMember = async () => {
     if (!confirmDelete) return;
+    if (!await checkAccess('team.delete')) return;
     setDeleting(true);
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', confirmDelete.id);
@@ -309,7 +281,6 @@ const Team: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Gestión de Equipo</h2>
@@ -328,7 +299,6 @@ const Team: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex bg-white rounded-lg p-1 border border-slate-200 w-fit">
         <button onClick={() => setActiveTab('members')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'members' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -340,7 +310,6 @@ const Team: React.FC = () => {
         </button>
       </div>
 
-      {/* ── TAB MIEMBROS ── */}
       {activeTab === 'members' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           {loading ? (
@@ -424,7 +393,6 @@ const Team: React.FC = () => {
         </div>
       )}
 
-      {/* ── TAB INVITACIONES ── */}
       {activeTab === 'invitations' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           {invitations.length === 0 ? (
@@ -630,14 +598,11 @@ const Team: React.FC = () => {
                   {editMember.pin_hash && <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded ml-1">🔒 PIN configurado</span>}
                 </label>
                 <div className="relative">
-                  <input
-                    type={showPin ? 'text' : 'password'}
-                    value={editPin}
+                  <input type={showPin ? 'text' : 'password'} value={editPin}
                     onChange={e => setEditPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
                     placeholder={editMember.pin_hash ? 'Dejar vacío para mantener el actual' : 'Nuevo PIN (opcional)'}
                     maxLength={4}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono tracking-widest"
-                  />
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono tracking-widest" />
                   <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                     {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
