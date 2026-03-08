@@ -1,6 +1,6 @@
 {
-  "name": "IPHONESHOP USA",
-  "description": "Sistema ERP y POS especializado en retail de productos Apple. Multi-sucursal, control de IMEI y gestión financiera.",
+  "name": "POSmaster",
+  "description": "Plataforma SaaS de punto de venta (POS) inteligente. Gestión de inventario, facturación electrónica, control de caja y análisis de ventas para pequeñas y medianas empresas.",
   "requestFramePermissions": [
     "camera"
   ]
