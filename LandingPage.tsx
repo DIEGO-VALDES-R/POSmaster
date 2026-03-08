@@ -540,6 +540,29 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', color: '#1e293b' };
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 };
 
+  const sendContract = async (company: any) => {
+    // Crear registro de contrato con token único
+    const { data, error } = await supabase.from('contracts').insert({
+      company_id: company.id,
+      client_name: company.profiles?.[0]?.full_name || company.name,
+      client_doc: '',
+      client_email: company.profiles?.[0]?.email || '',
+      client_phone: '',
+      business_name: company.name,
+      plan: company.subscription_plan || 'BASIC',
+      status: 'PENDING',
+    }).select().single();
+    if (error) { alert('Error: ' + error.message); return; }
+    const link = `${window.location.origin}/#/contrato/${data.token}`;
+    // Copiar al portapapeles
+    navigator.clipboard.writeText(link).then(() => {
+      alert(`✅ Enlace de contrato copiado al portapapeles:\n\n${link}\n\nEnvíalo al cliente por WhatsApp o email.`);
+    }).catch(() => {
+      prompt('Copia este enlace y envíalo al cliente:', link);
+    });
+  };
+
+
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
       {/* Top bar */}
@@ -668,6 +691,11 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                         <button onClick={() => handleViewLogs(c)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
                           📋
+                        </button>
+                        {/* Enviar contrato */}
+                        <button onClick={() => sendContract(c)}
+                          style={{ padding: '4px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                          📄 Contrato
                         </button>
                         {/* Ver como cliente */}
                         <button onClick={() => onPreview(c.id)}

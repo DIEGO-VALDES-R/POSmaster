@@ -13,6 +13,7 @@ import InvoiceHistory from './pages/InvoiceHistory';
 import Settings from './pages/Settings';
 import Branches from './pages/Branches';
 import { LandingPage, RegisterPage, AdminPanel } from './LandingPage';
+import { ContractSign } from './ContractSign';
 import { Toaster } from 'react-hot-toast';
 
 const SUPER_ADMIN_EMAIL = 'diegofernando@office365tl.onmicrosoft.com';
@@ -44,7 +45,6 @@ const PendingScreen: React.FC<{ email: string; onRetry: () => void }> = ({ email
           Una vez confirmado tu pago, activaremos tu acceso en menos de 24 horas.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Botón verificar estado */}
           <button onClick={handleRetry} disabled={checking}
             style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: checking ? 0.7 : 1 }}>
             {checking ? '🔄 Verificando...' : '✓ Ya pagué — Verificar acceso'}
@@ -167,7 +167,7 @@ const Login: React.FC<{ onShowLanding: () => void; onShowRegister: () => void }>
 };
 
 // ── APP ───────────────────────────────────────────────────────────────────────
-type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due';
+type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due' | 'preview';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -177,23 +177,9 @@ const App: React.FC = () => {
   const [companyStatus, setCompanyStatus] = useState<string | null>(null);
   const [previewCompanyId, setPreviewCompanyId] = useState<string | null>(null);
 
-  const checkCompanyStatus = async (userId: string) => {
-    const { data: profile } = await supabase
-      .from('profiles').select('company_id').eq('id', userId).maybeSingle();
-    if (!profile?.company_id) return null;
-    const { data: company } = await supabase
-      .from('companies').select('subscription_status, subscription_end_date').eq('id', profile.company_id).maybeSingle();
-    if (!company) return null;
-    // Auto-vencer si pasó la fecha de vencimiento
-    if (company.subscription_end_date) {
-      const today = new Date().toISOString().split('T')[0];
-      if (company.subscription_end_date < today && company.subscription_status === 'ACTIVE') {
-        await supabase.from('companies').update({ subscription_status: 'PAST_DUE' }).eq('id', profile.company_id);
-        return 'PAST_DUE';
-      }
-    }
-    return company.subscription_status || null;
-  };
+  // ── Detectar enlace de contrato en la URL ──────────────────────────────────
+  const contractTokenMatch = window.location.hash.match(/^#\/contrato\/([a-f0-9]{64})$/);
+  const contractToken = contractTokenMatch ? contractTokenMatch[1] : null;
 
   const retryCheck = async () => {
     const { data: { session: s } } = await supabase.auth.getSession();
@@ -231,7 +217,6 @@ const App: React.FC = () => {
           .from('companies').select('subscription_status, subscription_end_date')
           .eq('id', profile.company_id).maybeSingle();
         if (!company) { setView('pending'); setChecking(false); return; }
-        // Auto-vencer
         let status = company.subscription_status;
         if (company.subscription_end_date) {
           const today = new Date().toISOString().split('T')[0];
@@ -249,12 +234,10 @@ const App: React.FC = () => {
       setChecking(false);
     };
 
-    // Verificar sesión existente inmediatamente
     supabase.auth.getSession().then(({ data: { session } }) => {
       handleSession(session);
     });
 
-    // Escuchar cambios — solo SIGNED_IN y SIGNED_OUT
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN') handleSession(session);
       if (event === 'SIGNED_OUT') { setSession(null); setView('landing'); setChecking(false); }
@@ -262,6 +245,11 @@ const App: React.FC = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // ── Si la URL tiene token de contrato, mostrar página de firma ──────────────
+  if (contractToken) {
+    return <ContractSign token={contractToken} />;
+  }
 
   if (checking) {
     return (
