@@ -1,116 +1,191 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ── FRO-04: CORS restringido a dominio POSmaster ───────────────────────────────
-const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') ?? 'https://posmaster.vercel.app';
-
-const getCorsHeaders = (origin: string | null) => ({
-  'Access-Control-Allow-Origin': origin === ALLOWED_ORIGIN ? ALLOWED_ORIGIN : '',
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Vary': 'Origin',
-});
+};
+
+// ── Planes y sus permisos ─────────────────────────────────────────
+const PLAN_FEATURES: Record<string, string[]> = {
+  TRIAL:      ['pos', 'inventory', 'cash'],
+  BASIC:      ['pos', 'inventory', 'cash', 'repairs', 'receivables', 'invoices'],
+  PRO:        ['pos', 'inventory', 'cash', 'repairs', 'receivables', 'invoices', 'team', 'branches'],
+  ENTERPRISE: ['pos', 'inventory', 'cash', 'repairs', 'receivables', 'invoices', 'team', 'branches', 'multi_branch', 'dian', 'api', 'payment_providers'],
+};
+
+// ── Operaciones que requieren validación ──────────────────────────
+const OPERATION_REQUIREMENTS: Record<string, {
+  plans?: string[];
+  permission?: string;
+  roles?: string[];
+}> = {
+  // Equipo
+  'team.invite':        { plans: ['PRO', 'ENTERPRISE'], permission: 'can_manage_team' },
+  'team.edit':          { plans: ['PRO', 'ENTERPRISE'], permission: 'can_manage_team' },
+  'team.delete':        { plans: ['PRO', 'ENTERPRISE'], permission: 'can_manage_team' },
+  // Sucursales
+  'branch.create':      { plans: ['PRO', 'ENTERPRISE'] },
+  'branch.edit':        { plans: ['PRO', 'ENTERPRISE'], roles: ['ADMIN', 'MASTER'] },
+  // Ventas
+  'sale.create':        { permission: 'can_sell' },
+  'sale.refund':        { permission: 'can_refund' },
+  // Inventario
+  'inventory.edit':     { permission: 'can_manage_inventory' },
+  'inventory.delete':   { roles: ['ADMIN', 'MASTER'], permission: 'can_manage_inventory' },
+  // Caja
+  'cash.open':          { permission: 'can_open_cash' },
+  'cash.close':         { permission: 'can_open_cash' },
+  // Reportes
+  'reports.view':       { permission: 'can_view_reports' },
+  // Configuración
+  'settings.edit':      { roles: ['ADMIN', 'MASTER'] },
+  'settings.branding':  { roles: ['ADMIN', 'MASTER'] },
+  'settings.dian':      { plans: ['ENTERPRISE'], roles: ['ADMIN', 'MASTER'] },
+  'settings.api':       { plans: ['ENTERPRISE'], roles: ['ADMIN', 'MASTER'] },
+  'settings.payments':  { roles: ['ADMIN', 'MASTER'] },
+  'branch.create':      { plans: ['PRO', 'ENTERPRISE'] },
+};
 
 serve(async (req) => {
-  const origin = req.headers.get('origin');
-  const corsHeaders = getCorsHeaders(origin);
-
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
+    // ── Obtener JWT del usuario ───────────────────────────────────
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ allowed: false, reason: 'No autenticado' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
 
-    const { invoice_id } = await req.json()
+    // ── Verificar sesión ──────────────────────────────────────────
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ allowed: false, reason: 'Sesión inválida' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    const { data: inv, error: invError } = await supabase
-      .from('invoices')
-      .select(`*, invoice_items(*)`)
-      .eq('id', invoice_id)
-      .single()
+    // ── Obtener operación solicitada ──────────────────────────────
+    const { operation } = await req.json();
+    if (!operation) {
+      return new Response(JSON.stringify({ allowed: false, reason: 'Operación no especificada' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    if (invError || !inv) throw new Error("Factura no encontrada en la base de datos.")
-
-    const TOKEN = Deno.env.get('FACTUS_TOKEN')
-
-    if (!TOKEN || TOKEN === "esperando_token") {
-      const mockResponse = {
-        success: true,
-        data: {
-          bill: {
-            cufe: "MOCK-CUFE-" + Math.random().toString(36).substring(7),
-            public_url: "https://disenante.com/demo.pdf",
-            qr: "MOCK-QR-DATA"
-          }
-        }
-      }
-      await supabase.from('invoices').update({
-        dian_status: 'exitoso_demo',
-        dian_cufe: mockResponse.data.bill.cufe,
-        dian_pdf_url: mockResponse.data.bill.public_url
-      }).eq('id', invoice_id)
-      return new Response(JSON.stringify(mockResponse), {
+    // ── Super admin tiene acceso total ────────────────────────────
+    const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
+    if (isSuperAdmin) {
+      return new Response(JSON.stringify({ allowed: true, role: 'SUPER_ADMIN' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+      });
     }
 
-    const payload = {
-      "number": 0,
-      "type_document_id": 1,
-      "customer": {
-        "identification": inv.customer_nit || "222222222222",
-        "names": inv.customer_name || "Consumidor Final",
-        "email": inv.customer_email || "cliente@tienda.com",
-        "type_document_identification_id": 6,
-        "type_organization_id": 1,
-        "municipality_id": 985,
-        "type_regime_id": 1
-      },
-      "items": inv.invoice_items.map((item: any) => ({
-        "name": "Producto ID: " + (item.product_id || "Gral"),
-        "quantity": item.quantity,
-        "price": item.price,
-        "tax_id": 1,
-        "discount_value": item.discount || 0
-      })),
-      "payment_form_id": 1,
-      "payment_method_id": 10
+    // ── Obtener perfil y empresa del usuario ──────────────────────
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role, custom_role, permissions, company_id, is_active')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return new Response(JSON.stringify({ allowed: false, reason: 'Perfil no encontrado' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
-    const response = await fetch("https://api-sandbox.factus.com.co/v1/bills/auth", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    })
-
-    const result = await response.json()
-
-    if (result.success) {
-      await supabase.from('invoices').update({
-        dian_status: 'exitoso',
-        dian_cufe: result.data.bill.cufe,
-        dian_pdf_url: result.data.bill.public_url,
-        dian_qr_data: result.data.bill.qr
-      }).eq('id', invoice_id)
-    } else {
-      await supabase.from('invoices').update({
-        dian_status: 'error',
-        dian_error_log: JSON.stringify(result.errors || result.message)
-      }).eq('id', invoice_id)
+    if (!profile.is_active) {
+      return new Response(JSON.stringify({ allowed: false, reason: 'Usuario desactivado' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
-    return new Response(JSON.stringify(result), {
+    const { data: company } = await supabase
+      .from('companies')
+      .select('subscription_plan, subscription_status')
+      .eq('id', profile.company_id)
+      .single();
+
+    if (!company || company.subscription_status !== 'ACTIVE') {
+      return new Response(JSON.stringify({ allowed: false, reason: 'Suscripción inactiva' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ── MASTER y ADMIN tienen acceso total dentro de su empresa ───
+    const isAdminOrMaster = ['MASTER', 'ADMIN'].includes(profile.role);
+    if (isAdminOrMaster) {
+      // Solo verificar plan para operaciones que lo requieren
+      const req_plan = OPERATION_REQUIREMENTS[operation]?.plans;
+      if (req_plan && !req_plan.includes(company.subscription_plan)) {
+        return new Response(JSON.stringify({
+          allowed: false,
+          reason: `Esta operación requiere plan ${req_plan.join(' o ')}`,
+          current_plan: company.subscription_plan,
+          required_plans: req_plan,
+        }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ allowed: true, role: profile.role }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ── Verificar requisitos de la operación para STAFF ───────────
+    const requirements = OPERATION_REQUIREMENTS[operation];
+    if (!requirements) {
+      // Operación no registrada = permitir si está autenticado
+      return new Response(JSON.stringify({ allowed: true, role: profile.role }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Verificar plan
+    if (requirements.plans && !requirements.plans.includes(company.subscription_plan)) {
+      return new Response(JSON.stringify({
+        allowed: false,
+        reason: `Esta función requiere plan ${requirements.plans.join(' o ')}`,
+        current_plan: company.subscription_plan,
+        required_plans: requirements.plans,
+      }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Verificar rol
+    if (requirements.roles && !requirements.roles.includes(profile.role)) {
+      return new Response(JSON.stringify({
+        allowed: false,
+        reason: 'Tu rol no permite esta operación',
+      }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Verificar permiso específico
+    if (requirements.permission) {
+      const perms = profile.permissions || {};
+      if (!perms[requirements.permission]) {
+        return new Response(JSON.stringify({
+          allowed: false,
+          reason: 'No tienes permiso para esta operación',
+          missing_permission: requirements.permission,
+        }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
+    return new Response(JSON.stringify({ allowed: true, role: profile.role }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
+    });
 
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 400,
-      headers: getCorsHeaders(req.headers.get('origin'))
-    })
+  } catch (err) {
+    return new Response(JSON.stringify({ allowed: false, reason: 'Error interno', detail: err.message }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
-})
+});
