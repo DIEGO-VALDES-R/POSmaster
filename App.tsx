@@ -163,15 +163,12 @@ const Login: React.FC<{ onShowLanding: () => void; onShowRegister: () => void }>
     setLoading(true); setError('');
 
     try {
-      const { data: profiles, error: pErr } = await supabase
-        .from('profiles')
-        .select('email, id')
-        .eq('pin', fullPin)
-        .eq('is_active', true)
-        .limit(5);
+      // ── CORRECCIÓN SUP-04 — Verificar PIN con hash via función SQL ──
+      const { data, error: pErr } = await supabase
+        .rpc('verify_pin', { input_pin: fullPin });
 
-      if (pErr || !profiles || profiles.length === 0) {
-        registerFailedAttempt(); // ← Registrar intento fallido
+      if (pErr || !data || data.length === 0) {
+        registerFailedAttempt();
         const left = remainingAttempts() - 1;
         setError(left > 0
           ? `PIN incorrecto. ${left} intento(s) restantes.`
@@ -181,14 +178,8 @@ const Login: React.FC<{ onShowLanding: () => void; onShowRegister: () => void }>
         return;
       }
 
-      if (profiles.length > 1) {
-        setError('PIN duplicado — usa login normal');
-        setLoading(false);
-        return;
-      }
-
-      registerSuccess(); // ← PIN válido, resetear contador
-      setEmail(profiles[0].email || '');
+      registerSuccess();
+      setEmail(data[0].user_email || '');
       setMode('pin-found');
     } catch (err: any) {
       setError(err.message);

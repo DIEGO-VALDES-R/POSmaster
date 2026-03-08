@@ -19,6 +19,7 @@ interface TeamMember {
   branch_id: string | null;
   is_active: boolean;
   pin: string | null;
+  pin_hash: string | null;
   created_at: string;
 }
 
@@ -85,6 +86,13 @@ const getRolesForType = (type: string) => ROLES_BY_TYPE[type] || ROLES_BY_TYPE.d
 const getRoleBadge = (roleId: string, type: string) => {
   const roles = getRolesForType(type);
   return roles.find(r => r.id === roleId) || { id: roleId, label: roleId, icon: '👤', defaultPerms: {} };
+};
+
+// ── HELPER — Hashear PIN via función SQL SECURITY DEFINER ─────────────────────
+const hashPin = async (pin: string): Promise<string> => {
+  const { data, error } = await supabase.rpc('hash_pin', { input_pin: pin });
+  if (error) throw new Error('Error al hashear PIN: ' + error.message);
+  return data as string;
 };
 
 // ── COMPONENTE PRINCIPAL ───────────────────────────────────────────────────────
@@ -191,20 +199,44 @@ const Team: React.FC = () => {
     setEditRole(m.custom_role || m.role);
     setEditBranch(m.branch_id || '');
     setEditPerms(m.permissions || {});
-    setEditPin(m.pin || '');
+    // No mostrar el PIN actual — siempre vacío por seguridad
+    setEditPin('');
     setShowPin(false);
   };
 
   const handleSaveEdit = async () => {
     if (!editMember) return;
+
+    // Validar PIN si se ingresó uno nuevo
+    if (editPin && (editPin.length !== 4 || !/^\d{4}$/.test(editPin))) {
+      toast.error('El PIN debe ser exactamente 4 dígitos numéricos');
+      return;
+    }
+
     setSaving(true);
     try {
-      const { error } = await supabase.from('profiles').update({
+      // ── CORRECCIÓN SUP-04 — Hashear PIN antes de guardar ──────────────────
+      let updateData: Record<string, any> = {
         custom_role: editRole,
         branch_id: editBranch || null,
         permissions: editPerms,
-        pin: editPin || null,
-      }).eq('id', editMember.id);
+      };
+
+      if (editPin) {
+        // PIN nuevo ingresado — hashear y guardar
+        const pinHash = await hashPin(editPin);
+        updateData.pin_hash = pinHash;
+        updateData.pin = null; // Limpiar texto plano si existía
+      } else if (!editPin && editMember.pin_hash) {
+        // No se ingresó PIN nuevo — mantener el hash existente
+        // No modificar pin_hash
+      } else if (!editPin && !editMember.pin_hash) {
+        // Se dejó vacío y no tenía PIN — remover
+        updateData.pin_hash = null;
+        updateData.pin = null;
+      }
+
+      const { error } = await supabase.from('profiles').update(updateData).eq('id', editMember.id);
       if (error) throw error;
       toast.success('Miembro actualizado');
       setEditMember(null);
@@ -223,7 +255,6 @@ const Team: React.FC = () => {
     loadMembers();
   };
 
-  // ── ELIMINAR MIEMBRO ───────────────────────────────────────────────────────
   const handleDeleteMember = async () => {
     if (!confirmDelete) return;
     setDeleting(true);
@@ -594,16 +625,28 @@ const Team: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1"><Lock size={13} /> PIN de acceso rápido (4 dígitos)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
+                  <Lock size={13} /> PIN de acceso rápido (4 dígitos)
+                  {editMember.pin_hash && <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded ml-1">🔒 PIN configurado</span>}
+                </label>
                 <div className="relative">
-                  <input type={showPin ? 'text' : 'password'} value={editPin} onChange={e => setEditPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
-                    placeholder="••••" maxLength={4}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono tracking-widest" />
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    value={editPin}
+                    onChange={e => setEditPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
+                    placeholder={editMember.pin_hash ? 'Dejar vacío para mantener el actual' : 'Nuevo PIN (opcional)'}
+                    maxLength={4}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono tracking-widest"
+                  />
                   <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                     {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">Permite login rápido en caja sin contraseña completa</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {editMember.pin_hash
+                    ? 'Ingresa un nuevo PIN para cambiarlo, o déjalo vacío para mantener el actual.'
+                    : 'Permite login rápido en caja sin contraseña completa.'}
+                </p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setEditMember(null)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>
