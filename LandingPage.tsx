@@ -60,7 +60,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
           </div>
           {/* Logo centrado sobre el título */}
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-            <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 100, width: 'auto', filter: 'drop-shadow(0 4px 24px rgba(139,92,246,0.4))' }} />
+            <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 250, width: 'auto', filter: 'drop-shadow(0 4px 24px rgba(139,92,246,0.4))' }} />
           </div>
           <h1 style={{ fontSize: 'clamp(2.5rem,6vw,4.5rem)', fontWeight: 900, lineHeight: 1.05, marginBottom: 24, letterSpacing: '-2px' }}>
             El POS que{' '}
