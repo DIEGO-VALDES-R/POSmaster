@@ -10,6 +10,7 @@ const BOLD_PAYMENT_PRO_URL = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
 // ── LANDING PAGE ─────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void; onClientPortal?: () => void }> = ({ onLogin, onRegister, onClientPortal }) => {
   const [scrolled, setScrolled] = useState(false);
+
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 40);
     window.addEventListener('scroll', fn);
@@ -48,9 +49,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
           {onClientPortal && (
-            <button onClick={onClientPortal} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
-              👤 Cliente
-            </button>
+            <button onClick={onClientPortal} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>👤 Mis facturas</button>
           )}
           <button onClick={onLogin} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#f1f5f9', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>Ingresar</button>
           <button onClick={onRegister} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Registrarse</button>
@@ -79,6 +78,9 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 0 30px rgba(99,102,241,0.4)' }}>Ya tengo cuenta</button>
             <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Elegir plan y registrarse →</button>
+            {onClientPortal && (
+              <button onClick={onClientPortal} style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>🔍 Consultar mis facturas</button>
+            )}
           </div>
           <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>7 días gratis sin tarjeta • Planes desde $65.000/mes</p>
         </div>
@@ -428,213 +430,6 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
   );
 };
 
-// ── SUPPORT CLIENT MODAL ──────────────────────────────────────────────────────
-const BUSINESS_TYPES_LIST = [
-  { id: 'general',           label: '🏪 Tienda General' },
-  { id: 'tienda_tecnologia', label: '📱 Tecnología / Celulares' },
-  { id: 'restaurante',       label: '🍽️ Restaurante / Cafetería' },
-  { id: 'ropa',              label: '👗 Ropa / Calzado' },
-  { id: 'ferreteria',        label: '🔧 Ferretería / Construcción' },
-  { id: 'farmacia',          label: '💊 Farmacia / Droguería' },
-  { id: 'supermercado',      label: '🛒 Supermercado / Abarrotes' },
-  { id: 'salon',             label: '💇 Salón de Belleza / Spa' },
-  { id: 'zapateria',         label: '👟 Zapatería / Marroquinería' },
-  { id: 'otro',              label: '📦 Otro' },
-];
-const PAYMENT_METHODS_LIST = [
-  { id: 'cash',      label: 'Efectivo',            icon: '💵', plans: ['BASIC','PRO','ENTERPRISE','TRIAL'] },
-  { id: 'transfer',  label: 'Transferencia / PSE',  icon: '🏛️', plans: ['BASIC','PRO','ENTERPRISE','TRIAL'] },
-  { id: 'wompi',     label: 'Wompi',               icon: '🏦', plans: ['PRO','ENTERPRISE'] },
-  { id: 'bold',      label: 'Bold',                icon: '⚡', plans: ['ENTERPRISE'] },
-  { id: 'payu',      label: 'PayU',                icon: '💳', plans: ['ENTERPRISE'] },
-  { id: 'dataphone', label: 'Datáfono físico',      icon: '📟', plans: ['ENTERPRISE'] },
-];
-
-const SupportClientModal: React.FC<{ company: any; onClose: () => void; onSaved: () => void }> = ({ company, onClose, onSaved }) => {
-  const plan = company.subscription_plan || 'BASIC';
-  const cfg  = company.config || {};
-  const maxTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1;
-
-  const parseTypes = (c: any): string[] => {
-    if (Array.isArray(c?.business_types)) return c.business_types;
-    if (c?.business_type) return [c.business_type];
-    return ['general'];
-  };
-  const [businessTypes, setBusinessTypes] = React.useState<string[]>(parseTypes(cfg));
-  const [activeTab, setActiveTab] = React.useState<'tipos' | 'pagos'>('tipos');
-  const [saving, setSaving] = React.useState(false);
-
-  const defaultProviders: Record<string, any> = {
-    cash: { enabled: true }, transfer: { enabled: false, bank_name: '', account_number: '', account_type: 'ahorros' },
-    wompi: { enabled: false, pub_key: '', env: 'prod' }, bold: { enabled: false, api_key: '' },
-    payu: { enabled: false, merchant_id: '', api_key: '', api_login: '' }, dataphone: { enabled: false, acquirer: 'redeban', note: '' },
-  };
-  const [providers, setProviders] = React.useState<Record<string, any>>(
-    cfg.payment_providers ? { ...defaultProviders, ...cfg.payment_providers } : defaultProviders
-  );
-
-  const toggleType = (id: string) => {
-    setBusinessTypes(prev => {
-      if (prev.includes(id)) return prev.length === 1 ? prev : prev.filter(t => t !== id);
-      if (plan === 'BASIC') return [id];
-      if (prev.length >= maxTypes) { toast.error(`Plan ${plan}: máximo ${maxTypes} tipos`); return prev; }
-      return [...prev, id];
-    });
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    const newConfig = { ...cfg, business_type: businessTypes[0] || 'general', business_types: businessTypes, payment_providers: providers };
-    const { error } = await supabase.from('companies').update({ config: newConfig }).eq('id', company.id);
-    setSaving(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success(`✅ "${company.name}" configurado`);
-    onSaved(); onClose();
-  };
-
-  const planColors: Record<string, string> = { BASIC: '#64748b', PRO: '#3b82f6', ENTERPRISE: '#8b5cf6', TRIAL: '#10b981' };
-  const pc = planColors[plan] || '#64748b';
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
-      <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 600, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' }}>
-        {/* Header */}
-        <div style={{ background: 'linear-gradient(135deg,#1e293b,#334155)', padding: '20px 24px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <div>
-            <p style={{ color: '#f97316', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>🔧 Soporte al cliente</p>
-            <h3 style={{ color: '#fff', fontSize: 18, fontWeight: 800, margin: 0 }}>{company.name}</h3>
-            <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
-              <span style={{ background: pc, color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{plan}</span>
-              {'  '}NIT: {company.nit}
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: '6px 10px', fontSize: 16 }}>✕</button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 8, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-          {([['tipos', '🏷️ Tipo de negocio'], ['pagos', '💳 Métodos de pago']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setActiveTab(id)}
-              style={{ padding: '8px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13,
-                background: activeTab === id ? '#1e293b' : 'transparent', color: activeTab === id ? '#fff' : '#64748b' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-
-          {activeTab === 'tipos' && (
-            <div>
-              <p style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>
-                {plan === 'BASIC' ? '⚠️ Plan BASIC: 1 tipo (swap automático)' :
-                 plan === 'PRO'   ? `Plan PRO: hasta 3 tipos · ${businessTypes.length}/3` : 'Plan ENTERPRISE: sin límite'}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginTop: 12 }}>
-                {BUSINESS_TYPES_LIST.map(bt => {
-                  const sel = businessTypes.includes(bt.id);
-                  const locked = plan === 'PRO' && !sel && businessTypes.length >= 3;
-                  return (
-                    <button key={bt.id} onClick={() => !locked && toggleType(bt.id)}
-                      style={{ padding: '10px 12px', borderRadius: 10, border: `2px solid ${sel ? '#3b82f6' : '#e2e8f0'}`,
-                        background: sel ? '#eff6ff' : locked ? '#f8fafc' : '#fff',
-                        color: sel ? '#1d4ed8' : locked ? '#cbd5e1' : '#475569',
-                        cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', fontWeight: 600, fontSize: 13,
-                        position: 'relative' }}>
-                      {bt.label}
-                      {sel && <span style={{ position: 'absolute', top: 6, right: 8, background: '#3b82f6', color: '#fff', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }}>✓</span>}
-                      {locked && <span style={{ position: 'absolute', top: 6, right: 8, fontSize: 12 }}>🔒</span>}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 12, padding: 10, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 12, color: '#92400e' }}>
-                ⚙️ El menú del cliente cambiará inmediatamente al guardar.
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'pagos' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {PAYMENT_METHODS_LIST.map(pm => {
-                const allowed  = pm.plans.includes(plan);
-                const pData    = providers[pm.id] || {};
-                const enabled  = allowed && !!pData.enabled;
-                return (
-                  <div key={pm.id} style={{ border: `1px solid ${enabled ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 12, padding: 14, background: enabled ? '#eff6ff' : '#fff', opacity: allowed ? 1 : 0.5 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 20 }}>{pm.icon}</span>
-                        <div>
-                          <p style={{ fontWeight: 700, color: '#1e293b', fontSize: 14, margin: 0 }}>{pm.label}</p>
-                          {!allowed && <p style={{ color: '#94a3b8', fontSize: 11, margin: 0 }}>🔒 Requiere plan {pm.plans[pm.plans.length-1]}</p>}
-                        </div>
-                      </div>
-                      <button disabled={!allowed} onClick={() => setProviders(p => ({ ...p, [pm.id]: { ...p[pm.id], enabled: !p[pm.id]?.enabled } }))}
-                        style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: allowed ? 'pointer' : 'not-allowed',
-                          background: enabled ? '#3b82f6' : '#e2e8f0', position: 'relative', transition: 'background 0.2s' }}>
-                        <span style={{ position: 'absolute', top: 2, left: enabled ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-                      </button>
-                    </div>
-                    {enabled && pm.id === 'transfer' && (
-                      <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                        <input placeholder="Banco" value={pData.bank_name || ''} onChange={e => setProviders(p => ({ ...p, transfer: { ...p.transfer, bank_name: e.target.value } }))}
-                          style={{ gridColumn: '1/-1', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                        <input placeholder="N° cuenta" value={pData.account_number || ''} onChange={e => setProviders(p => ({ ...p, transfer: { ...p.transfer, account_number: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                        <select value={pData.account_type || 'ahorros'} onChange={e => setProviders(p => ({ ...p, transfer: { ...p.transfer, account_type: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff' }}>
-                          <option value="ahorros">Ahorros</option><option value="corriente">Corriente</option>
-                        </select>
-                      </div>
-                    )}
-                    {enabled && pm.id === 'wompi' && (
-                      <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
-                        <input placeholder="Public key" value={pData.pub_key || ''} onChange={e => setProviders(p => ({ ...p, wompi: { ...p.wompi, pub_key: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                        <select value={pData.env || 'prod'} onChange={e => setProviders(p => ({ ...p, wompi: { ...p.wompi, env: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff' }}>
-                          <option value="prod">Producción</option><option value="sandbox">Sandbox</option>
-                        </select>
-                      </div>
-                    )}
-                    {enabled && pm.id === 'bold' && (
-                      <input placeholder="API Key Bold" value={pData.api_key || ''} onChange={e => setProviders(p => ({ ...p, bold: { ...p.bold, api_key: e.target.value } }))}
-                        style={{ marginTop: 10, width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
-                    )}
-                    {enabled && pm.id === 'payu' && (
-                      <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                        <input placeholder="Merchant ID" value={pData.merchant_id || ''} onChange={e => setProviders(p => ({ ...p, payu: { ...p.payu, merchant_id: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                        <input placeholder="API Login" value={pData.api_login || ''} onChange={e => setProviders(p => ({ ...p, payu: { ...p.payu, api_login: e.target.value } }))}
-                          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                        <input placeholder="API Key" value={pData.api_key || ''} onChange={e => setProviders(p => ({ ...p, payu: { ...p.payu, api_key: e.target.value } }))}
-                          style={{ gridColumn: '1/-1', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 10, background: '#f8fafc' }}>
-          <button onClick={onClose} style={{ flex: 1, padding: '10px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 700, color: '#64748b', fontSize: 14 }}>
-            Cancelar
-          </button>
-          <button onClick={handleSave} disabled={saving}
-            style={{ flex: 2, padding: '10px', border: 'none', borderRadius: 10, background: saving ? '#94a3b8' : '#1e293b', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14 }}>
-            {saving ? 'Guardando...' : '💾 Guardar configuración'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: string) => void }> = ({ onExit, onPreview }) => {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -648,7 +443,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [showDelete, setShowDelete] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showConfirmPayment, setShowConfirmPayment] = useState(false);
-  const [showSupport, setShowSupport] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
@@ -1149,11 +943,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                             Suspender
                           </button>
                         )}
-                        {/* Soporte */}
-                        <button onClick={() => { setSelectedCompany(c); setShowSupport(true); }}
-                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#ea580c', whiteSpace: 'nowrap' }}>
-                          🔧 Soporte
-                        </button>
                         {/* Editar */}
                         <button onClick={() => openEdit(c)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e9d5ff', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
@@ -1399,104 +1188,122 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         </div>
       )}
-
-      {/* ── MODAL SOPORTE AL CLIENTE ── */}
-      {showSupport && selectedCompany && (
-        <SupportClientModal
-          company={selectedCompany}
-          onClose={() => { setShowSupport(false); setSelectedCompany(null); }}
-          onSaved={load}
-        />
-      )}
     </div>
   );
 };
-
 // ── PORTAL DE CLIENTE ─────────────────────────────────────────────────────────
 export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [cedula,   setCedula]   = React.useState('');
   const [results,  setResults]  = React.useState<any[] | null>(null);
   const [loading,  setLoading]  = React.useState(false);
   const [detail,   setDetail]   = React.useState<any>(null);
-  const [payments, setPayments] = React.useState<any[]>([]);
 
   const search = async () => {
     if (!cedula.trim()) { toast.error('Ingresa tu número de cédula'); return; }
     setLoading(true); setResults(null);
 
-    // Buscar en facturas POS
-    const { data: invoiceData } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('client_id', cedula.trim())
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.rpc('buscar_por_cedula', { p_cedula: cedula.trim() });
 
-    // Buscar en órdenes de zapatería
-    const { data: shoeData } = await supabase
-      .from('shoe_repair_orders')
-      .select('*')
-      .eq('client_id', cedula.trim())
-      .order('created_at', { ascending: false });
+    if (error) {
+      toast.error('Error: ' + error.message);
+      setResults([]);
+      setLoading(false);
+      return;
+    }
 
-    const invoices = (invoiceData || []).map((r: any) => ({ ...r, _type: 'invoice', _label: 'Factura POS' }));
-    const shoes    = (shoeData    || []).map((r: any) => ({ ...r, _type: 'shoe',    _label: 'Reparación Calzado',
-      invoice_number: r.ticket_number,
-      total: r.estimated_price,
-      amount_paid: r.deposit_amount,
-      balance_due: r.estimated_price - r.deposit_amount,
-      payment_status: r.status === 'DELIVERED' ? 'PAID' : r.deposit_amount > 0 ? 'PARTIAL' : 'PENDING',
-      service: r.service_type,
-      client_name: r.client_name,
+    // La función SQL retorna JSON — Supabase puede devolverlo como string o como objeto
+    let parsed = data;
+    if (typeof data === 'string') {
+      try { parsed = JSON.parse(data); } catch { parsed = {}; }
+    }
+
+    const invoices = Array.isArray(parsed?.invoices) ? parsed.invoices : [];
+    const shoes    = Array.isArray(parsed?.shoes)    ? parsed.shoes    : [];
+
+    buildResults(invoices, shoes);
+  };
+
+  const buildResults = (invoiceData: any[], shoeData: any[]) => {
+    const invoices = invoiceData.map((r: any) => ({
+      ...r,
+      _type:  'invoice',
+      _label: 'Factura POS',
+      client_name:    r.customer_name || r.payment_method?.customer_name || '—',
+      total:          r.total_amount,
+      amount_paid:    parseFloat(r.amount_paid_str || r.payment_method?.amount || '0'),
+      balance_due:    Math.max(0, (r.total_amount || 0) - parseFloat(r.amount_paid_str || r.payment_method?.amount || '0')),
+      payment_status: r.payment_status || r.payment_method?.payment_status || 'PENDING_ELECTRONIC',
+      service:        (r.virtual_items || r.payment_method?.virtual_items || []).map((v: any) => v.name).join(', ') || '—',
     }));
 
-    setResults([...invoices, ...shoes]);
+    const shoeMap = new Map(shoeData.map((r: any) => [r.id, r]));
+    const shoeItems = Array.from(shoeMap.values()).map((r: any) => ({
+      ...r,
+      _type:          'shoe',
+      _label:         'Reparación Calzado',
+      invoice_number: r.ticket_number || r.id?.slice(0, 8).toUpperCase(),
+      total:          r.estimated_price || 0,
+      amount_paid:    r.deposit_amount  || 0,
+      balance_due:    Math.max(0, (r.estimated_price || 0) - (r.deposit_amount || 0)),
+      payment_status: r.status === 'DELIVERED' ? 'PAID' : (r.deposit_amount > 0) ? 'PARTIAL' : 'PENDING',
+      service:        r.service_type || '—',
+      client_name:    r.client_name  || '—',
+    }));
+
+    const all = [...invoices, ...shoeItems].sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    setResults(all);
     setLoading(false);
   };
 
-  const openDetail = async (row: any) => {
-    setDetail(row);
-    if (row._type === 'invoice') {
-      const { data } = await supabase.from('invoice_payments').select('*').eq('invoice_id', row.id).order('created_at', { ascending: false });
-      setPayments(data || []);
-    } else {
-      setPayments([]);
-    }
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+
+  const statusLabel = (s: string) =>
+    s === 'PAID'             ? '✅ Pagado'          :
+    s === 'PARTIAL'          ? '⏳ Pago parcial'    :
+    s === 'DELIVERED'        ? '✅ Entregado'        :
+    s === 'IN_PROGRESS'      ? '🔧 En proceso'       :
+    s === 'PENDING_DELIVERY' ? '📦 Listo p/ entregar':
+    s === 'RECEIVED'         ? '📥 Recibido'         :
+    s === 'PENDING_ELECTRONIC'?'🧾 Pendiente'        : '⏳ Pendiente';
+
+  const statusColor = (s: string) =>
+    (s === 'PAID' || s === 'DELIVERED')      ? '#059669' :
+    (s === 'PARTIAL' || s === 'PENDING_DELIVERY') ? '#d97706' : '#3b82f6';
+
+  const containerStyle: React.CSSProperties = {
+    minHeight: '100vh', background: 'linear-gradient(135deg,#0f172a,#1e293b)',
+    fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', padding: '40px 16px'
   };
-
-  const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
-
-  const statusLabel = (s: string) => s === 'PAID' ? '✅ Pagado' : s === 'PARTIAL' ? '⏳ Parcial' : s === 'DELIVERED' ? '✅ Entregado' : s === 'IN_REPAIR' ? '🔧 En reparación' : s === 'PENDING_DELIVERY' ? '📦 Listo' : s === 'RECEIVED' ? '📥 Recibido' : '⏳ Pendiente';
-  const statusColor = (s: string) => s === 'PAID' || s === 'DELIVERED' ? '#059669' : s === 'PARTIAL' || s === 'PENDING_DELIVERY' ? '#d97706' : '#3b82f6';
-
-  const containerStyle: React.CSSProperties = { minHeight: '100vh', background: 'linear-gradient(135deg,#0f172a,#1e293b)', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px' };
-  const cardStyle: React.CSSProperties    = { background: '#fff', borderRadius: 20, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', width: '100%', maxWidth: 640, overflow: 'hidden' };
-  const inputStyle: React.CSSProperties  = { width: '100%', border: '2px solid #e2e8f0', borderRadius: 12, padding: '12px 16px', fontSize: 18, outline: 'none', boxSizing: 'border-box' as const, letterSpacing: 2, textAlign: 'center' as const };
+  const cardStyle: React.CSSProperties   = { background: '#fff', borderRadius: 20, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', width: '100%', maxWidth: 640, overflow: 'hidden' };
+  const inputStyle: React.CSSProperties = { width: '100%', border: '2px solid #e2e8f0', borderRadius: 12, padding: '12px 16px', fontSize: 18, outline: 'none', boxSizing: 'border-box' as const, letterSpacing: 2, textAlign: 'center' as const };
 
   return (
     <div style={containerStyle}>
       {/* Header */}
       <div style={{ width: '100%', maxWidth: 640, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 32, filter: 'brightness(0) invert(1)' }} />
-        </div>
+        <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 32, filter: 'brightness(0) invert(1)' }} />
         <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
           ← Volver
         </button>
       </div>
 
       <div style={cardStyle}>
-        {/* Búsqueda */}
+        {/* Header card */}
         <div style={{ background: 'linear-gradient(135deg,#1e293b,#334155)', padding: '32px 32px 28px' }}>
           <p style={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Portal de consulta</p>
-          <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, margin: '0 0 4px' }}>Mis facturas y reparaciones</h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Ingresa tu número de cédula para consultar tu historial</p>
+          <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, margin: '0 0 4px' }}>Mis facturas y servicios</h1>
+          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Ingresa tu número de cédula o NIT para consultar tu historial</p>
         </div>
 
         <div style={{ padding: 32 }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
             <input
               type="number"
-              placeholder="Número de cédula"
+              placeholder="Número de cédula o NIT"
               value={cedula}
               onChange={e => setCedula(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && search()}
@@ -1513,7 +1320,7 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             results.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
-                <p style={{ fontWeight: 700, fontSize: 16, color: '#475569', marginBottom: 4 }}>Usted no tiene datos registrados en el sistema.</p>
+                <p style={{ fontWeight: 700, fontSize: 16, color: '#475569', marginBottom: 4 }}>No se encontraron registros.</p>
                 <p style={{ fontSize: 13 }}>Verifica que el número de cédula sea correcto.</p>
               </div>
             ) : (
@@ -1523,28 +1330,30 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {results.map((row, i) => {
-                    const balance = row.balance_due ?? (row.estimated_price - row.deposit_amount);
-                    const status  = row.payment_status || row.status;
+                    const status = row.payment_status || row.status;
                     return (
-                      <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'all 0.15s', background: '#fafafa' }}
-                        onClick={() => openDetail(row)}
+                      <div key={i}
+                        style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, cursor: 'pointer', background: '#fafafa', transition: 'border-color 0.15s' }}
+                        onClick={() => setDetail(row)}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = '#3b82f6')}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                              <span style={{ background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{row._label}</span>
+                              <span style={{ background: row._type === 'invoice' ? '#eff6ff' : '#f5f3ff', color: row._type === 'invoice' ? '#2563eb' : '#7c3aed', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{row._label}</span>
                               <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#475569', fontSize: 13 }}>#{row.invoice_number || row.ticket_number}</span>
                             </div>
-                            <p style={{ margin: '2px 0', color: '#1e293b', fontWeight: 600, fontSize: 14 }}>{row.service_type || row.service || row.items?.[0]?.name || 'Ver detalle'}</p>
+                            <p style={{ margin: '2px 0', color: '#1e293b', fontWeight: 600, fontSize: 14 }}>{row.service || row.client_name || 'Ver detalle'}</p>
                             <p style={{ margin: 0, color: '#94a3b8', fontSize: 12 }}>{new Date(row.created_at).toLocaleDateString('es-CO')}</p>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: '#1e293b' }}>{fmt(row.total || row.estimated_price)}</p>
+                            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: '#1e293b' }}>{fmt(row.total)}</p>
                             <span style={{ background: statusColor(status) + '18', color: statusColor(status), padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
                               {statusLabel(status)}
                             </span>
-                            {balance > 0 && <p style={{ margin: '4px 0 0', color: '#dc2626', fontSize: 12, fontWeight: 600 }}>Saldo: {fmt(balance)}</p>}
+                            {row.balance_due > 0 && (
+                              <p style={{ margin: '4px 0 0', color: '#dc2626', fontSize: 12, fontWeight: 600 }}>Saldo: {fmt(row.balance_due)}</p>
+                            )}
                           </div>
                         </div>
                         <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1571,62 +1380,30 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               </div>
               <button onClick={() => setDetail(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 16 }}>✕</button>
             </div>
-
             <div style={{ padding: 24 }}>
-              {detail._type === 'shoe' ? (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {[
-                    ['Cliente',     detail.client_name],
-                    ['Cédula',      detail.client_id || '—'],
-                    ['Teléfono',    detail.client_phone || '—'],
-                    ['Producto',    detail.product_description],
-                    ['Servicio',    detail.service_type],
-                    ['Daño',        detail.damage_description || '—'],
-                    ['Técnico',     detail.technician_name || 'Sin asignar'],
-                    ['Fecha recib.', new Date(detail.received_at).toLocaleDateString('es-CO')],
-                    ['Entrega est.', detail.estimated_delivery ? new Date(detail.estimated_delivery).toLocaleDateString('es-CO') : '—'],
-                    ['Precio',      fmt(detail.estimated_price)],
-                    ['Abono pagado', fmt(detail.deposit_amount)],
-                    ['Saldo pendiente', fmt(detail.estimated_price - detail.deposit_amount)],
-                    ['Estado',      statusLabel(detail.status)],
-                  ].map(([l, v]) => (
-                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-                      <span style={{ color: '#64748b', fontSize: 13 }}>{l}</span>
-                      <span style={{ color: '#1e293b', fontWeight: 600, fontSize: 13, textAlign: 'right', maxWidth: '60%' }}>{v}</span>
+              {[
+                ['Cliente',          detail.client_name],
+                ['Servicio / Items', detail.service || '—'],
+                ['Fecha',            new Date(detail.created_at).toLocaleDateString('es-CO', { dateStyle: 'long' })],
+                ['Total',            fmt(detail.total)],
+                ['Abono pagado',     fmt(detail.amount_paid)],
+                ['Saldo pendiente',  fmt(detail.balance_due)],
+                ['Estado',           statusLabel(detail.payment_status || detail.status)],
+              ].map(([l, v]) => (
+                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b', fontSize: 13 }}>{l}</span>
+                  <span style={{ color: '#1e293b', fontWeight: 600, fontSize: 13, textAlign: 'right', maxWidth: '65%' }}>{v}</span>
+                </div>
+              ))}
+              {detail.payment_method?.virtual_items?.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ fontWeight: 700, color: '#475569', fontSize: 13, marginBottom: 8 }}>Servicios incluidos</p>
+                  {detail.payment_method.virtual_items.map((vi: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: '#475569' }}>{vi.name} × {vi.quantity || 1}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{fmt(vi.price)}</span>
                     </div>
                   ))}
-                </div>
-              ) : (
-                <div>
-                  <div style={{ display: 'grid', gap: 8, marginBottom: 20 }}>
-                    {[
-                      ['Cliente',   detail.client_name],
-                      ['Fecha',     new Date(detail.created_at).toLocaleDateString('es-CO')],
-                      ['Total',     fmt(detail.total)],
-                      ['Pagado',    fmt(detail.amount_paid)],
-                      ['Saldo',     fmt(detail.balance_due)],
-                      ['Estado',    statusLabel(detail.payment_status)],
-                    ].map(([l, v]) => (
-                      <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-                        <span style={{ color: '#64748b', fontSize: 13 }}>{l}</span>
-                        <span style={{ color: '#1e293b', fontWeight: 600, fontSize: 13 }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {payments.length > 0 && (
-                    <div>
-                      <p style={{ fontWeight: 700, color: '#475569', fontSize: 13, marginBottom: 8 }}>Historial de pagos</p>
-                      {payments.map((p, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 10, padding: '10px 14px', marginBottom: 6 }}>
-                          <div>
-                            <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{fmt(p.amount)}</p>
-                            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>{p.payment_method} · {new Date(p.created_at).toLocaleDateString('es-CO')}</p>
-                          </div>
-                          <span style={{ fontSize: 11, color: '#059669', fontWeight: 700 }}>✅ Registrado</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
