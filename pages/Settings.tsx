@@ -93,7 +93,7 @@ const Settings: React.FC = () => {
     (safeCompany.config as any)?.font_color || '#ffffff'
   );
   // businessTypes es ahora un array — BASIC: 1, PRO: hasta 3, ENTERPRISE: ilimitado
-  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1;
+  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1; // BASIC y TRIAL = 1
   const parseBusinessTypes = (cfg: any): string[] => {
     if (Array.isArray(cfg?.business_types)) return cfg.business_types;
     if (cfg?.business_type) return [cfg.business_type]; // migración de dato antiguo
@@ -109,8 +109,8 @@ const Settings: React.FC = () => {
         if (prev.length === 1) return prev;
         return prev.filter(t => t !== id);
       }
-      // BASIC: swap directo — reemplaza el único seleccionado
-      if (plan === 'BASIC') return [id];
+      // BASIC y TRIAL: swap directo — reemplaza el único seleccionado
+      if (plan === 'BASIC' || plan === 'TRIAL') return [id];
       // PRO: hasta 3
       if (prev.length >= maxBusinessTypes) {
         toast.error('El plan PRO permite hasta 3 tipos. Actualiza a ENTERPRISE para tener todos.');
@@ -406,12 +406,13 @@ const Settings: React.FC = () => {
                   }`}>
                     {plan === 'ENTERPRISE' ? '✨ Todos disponibles' :
                      plan === 'PRO'        ? `${businessTypes.length}/3 seleccionados` :
+                     plan === 'TRIAL'      ? `${businessTypes.length}/1 · Prueba` :
                                             `${businessTypes.length}/1 seleccionado`}
                   </span>
                 </div>
-                {plan === 'BASIC' && (
+                {(plan === 'BASIC' || plan === 'TRIAL') && (
                   <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-                    ⚠️ Plan BASIC: solo puedes tener <strong>1 tipo de negocio</strong>. Al seleccionar uno nuevo el anterior se reemplaza automáticamente. Actualiza a <strong>PRO</strong> para hasta 3, o <strong>ENTERPRISE</strong> para todos.
+                    ⚠️ {plan === 'TRIAL' ? 'Plan de prueba' : 'Plan BASIC'}: solo puedes tener <strong>1 tipo de negocio</strong>. Al seleccionar uno nuevo el anterior se reemplaza automáticamente. Actualiza a <strong>PRO</strong> para hasta 3, o <strong>ENTERPRISE</strong> para todos.
                   </p>
                 )}
                 {plan === 'PRO' && (
