@@ -322,27 +322,39 @@ const Veterinaria: React.FC = () => {
   const [formPOS, setFormPOS]                   = useState({ mascota_id: '', servicio: '', total: '' });
 
   // ── LOCAL STORAGE FALLBACK ──
-  const KEY = (k: string) => `vet_${companyId}_${k}`;
-  const save = (k: string, v: any) => { try { localStorage.setItem(KEY(k), JSON.stringify(v)); } catch {} };
-  const load = <T,>(k: string, def: T): T => { try { const r = localStorage.getItem(KEY(k)); return r ? JSON.parse(r) : def; } catch { return def; } };
+  // ── CARGA DESDE SUPABASE ─────────────────────────────────────────────────
+  const loadTable = useCallback(async (table: string, setter: React.Dispatch<any>, extra?: Record<string,any>) => {
+    if (!companyId) return;
+    let q = supabase.from(table).select('*').eq('company_id', companyId).order('created_at', { ascending: false });
+    if (extra) Object.entries(extra).forEach(([k,v]) => { q = q.eq(k, v); });
+    const { data, error } = await q;
+    if (error) { console.error(`❌ ${table}:`, error.message); return; }
+    setter(data || []);
+  }, [companyId]);
 
-  // ── INIT ──
   useEffect(() => {
     if (!companyId) return;
-    setPropietarios(load('propietarios', []));
-    setMascotas(load('mascotas', []));
-    setPersonal(load('personal', []));
-    setConsultorios(load('consultorios', []));
-    setCitas(load('citas', []));
-    setHistorias(load('historias', []));
-    setVacunas(load('vacunas', []));
-    setPesos(load('pesos', []));
-    setHospitalizaciones(load('hospitalizaciones', []));
-    setMedicamentos(load('medicamentos', seedMedicamentos()));
-    setServicios(load('servicios', seedServicios()));
-    setPlanes(load('planes', seedPlanes()));
-    setFacturas(load('facturas', []));
-  }, [companyId]);
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadTable('vet_propietarios',    setPropietarios),
+        loadTable('vet_mascotas',        setMascotas),
+        loadTable('vet_personal',        setPersonal),
+        loadTable('vet_consultorios',    setConsultorios),
+        loadTable('vet_citas',           setCitas),
+        loadTable('vet_historias_clinicas', setHistorias),
+        loadTable('vet_vacunas',         setVacunas),
+        loadTable('vet_control_peso',    setPesos),
+        loadTable('vet_hospitalizaciones', setHospitalizaciones),
+        loadTable('vet_medicamentos',    setMedicamentos),
+        loadTable('vet_servicios',       setServicios),
+        loadTable('vet_planes',          setPlanes),
+        loadTable('vet_facturas',        setFacturas),
+      ]);
+      setLoading(false);
+    };
+    init();
+  }, [companyId, loadTable]);
 
   // ── SEED DATA ──
   const seedServicios = (): Servicio[] => [
@@ -365,210 +377,195 @@ const Veterinaria: React.FC = () => {
     { id: uid(), nombre: 'Plan Premium',           precio: 500000, servicios_incluidos: '4 consultas, vacunas completas, baño mensual, laboratorio', descuento: 20, estado: 'ACTIVO' },
   ];
 
-  // ── PERSIST HELPERS ──
-  const persist = (key: string, data: any[]) => save(key, data);
+  // ── SUPABASE CRUD HELPERS ─────────────────────────────────────────────────
+  const TABLE: Record<string, string> = {
+    propietarios:    'vet_propietarios',
+    mascotas:        'vet_mascotas',
+    personal:        'vet_personal',
+    consultorios:    'vet_consultorios',
+    citas:           'vet_citas',
+    historias:       'vet_historias_clinicas',
+    vacunas:         'vet_vacunas',
+    pesos:           'vet_control_peso',
+    hospitalizaciones: 'vet_hospitalizaciones',
+    medicamentos:    'vet_medicamentos',
+    servicios:       'vet_servicios',
+    planes:          'vet_planes',
+    facturas:        'vet_facturas',
+  };
+
+  const upsertDB = async (key: string, row: any) => {
+    const table = TABLE[key];
+    if (!table) return;
+    const { error } = await supabase.from(table).upsert({ ...row, company_id: companyId });
+    if (error) { console.error(`❌ upsert ${table}:`, error.message); toast.error('Error al guardar: ' + error.message); }
+  };
+
+  const deleteDB = async (key: string, id: string) => {
+    const table = TABLE[key];
+    if (!table) return;
+    const { error } = await supabase.from(table).delete().eq('id', id);
+    if (error) { console.error(`❌ delete ${table}:`, error.message); toast.error('Error al eliminar: ' + error.message); }
+  };
 
   // ─── CRUD HELPERS ────────────────────────────────────────────────────────
 
-  const savePropietario = () => {
+  const savePropietario = async () => {
     if (!formPropietario.nombre.trim()) return toast.error('El nombre es requerido');
-    let updated: Propietario[];
-    if (editing?.id) {
-      updated = propietarios.map(p => p.id === editing.id ? { ...formPropietario, id: editing.id, company_id: companyId } : p);
-    } else {
-      updated = [...propietarios, { ...formPropietario, id: uid(), company_id: companyId }];
-    }
-    setPropietarios(updated); persist('propietarios', updated);
+    const row = { ...formPropietario, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('propietarios', row);
+    await loadTable('vet_propietarios', setPropietarios);
     toast.success(editing?.id ? 'Propietario actualizado' : 'Propietario registrado');
     closeModal();
   };
 
-  const saveMascota = () => {
+  const saveMascota = async () => {
     if (!formMascota.nombre.trim() || !formMascota.propietario_id) return toast.error('Nombre y propietario son requeridos');
     const prop = propietarios.find(p => p.id === formMascota.propietario_id);
-    let updated: Mascota[];
-    if (editing?.id) {
-      updated = mascotas.map(m => m.id === editing.id ? { ...formMascota, id: editing.id, company_id: companyId, propietario_nombre: prop?.nombre } : m);
-    } else {
-      updated = [...mascotas, { ...formMascota, id: uid(), company_id: companyId, propietario_nombre: prop?.nombre }];
-    }
-    setMascotas(updated); persist('mascotas', updated);
+    const row = { ...formMascota, id: editing?.id || uid(), company_id: companyId, propietario_nombre: prop?.nombre };
+    await upsertDB('mascotas', row);
+    await loadTable('vet_mascotas', setMascotas);
     toast.success(editing?.id ? 'Mascota actualizada' : 'Mascota registrada');
     closeModal();
   };
 
-  const savePersonal = () => {
+  const savePersonal = async () => {
     if (!formPersonal.nombre.trim()) return toast.error('El nombre es requerido');
-    let updated: Personal[];
-    if (editing?.id) {
-      updated = personal.map(p => p.id === editing.id ? { ...formPersonal, id: editing.id, company_id: companyId } : p);
-    } else {
-      updated = [...personal, { ...formPersonal, id: uid(), company_id: companyId }];
-    }
-    setPersonal(updated); persist('personal', updated);
+    const row = { ...formPersonal, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('personal', row);
+    await loadTable('vet_personal', setPersonal);
     toast.success('Personal guardado'); closeModal();
   };
 
-  const saveConsultorio = () => {
+  const saveConsultorio = async () => {
     if (!formConsultorio.nombre.trim()) return toast.error('El nombre es requerido');
-    let updated: Consultorio[];
-    if (editing?.id) {
-      updated = consultorios.map(c => c.id === editing.id ? { ...formConsultorio, id: editing.id, company_id: companyId } : c);
-    } else {
-      updated = [...consultorios, { ...formConsultorio, id: uid(), company_id: companyId }];
-    }
-    setConsultorios(updated); persist('consultorios', updated);
+    const row = { ...formConsultorio, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('consultorios', row);
+    await loadTable('vet_consultorios', setConsultorios);
     toast.success('Consultorio guardado'); closeModal();
   };
 
-  const saveCita = () => {
+  const saveCita = async () => {
     if (!formCita.mascota_id || !formCita.fecha) return toast.error('Mascota y fecha son requeridos');
     const mascota = mascotas.find(m => m.id === formCita.mascota_id);
     const prop = propietarios.find(p => p.id === formCita.propietario_id);
     const vet  = personal.find(p => p.id === formCita.veterinario_id);
-    let updated: Cita[];
-    const base = { ...formCita, mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre, veterinario_nombre: vet?.nombre, company_id: companyId };
-    if (editing?.id) {
-      updated = citas.map(c => c.id === editing.id ? { ...base, id: editing.id } : c);
-    } else {
-      updated = [...citas, { ...base, id: uid() }];
-    }
-    setCitas(updated); persist('citas', updated);
+    const row = { ...formCita, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre, veterinario_nombre: vet?.nombre, company_id: companyId };
+    await upsertDB('citas', row);
+    await loadTable('vet_citas', setCitas);
     toast.success('Cita guardada'); closeModal();
   };
 
-  const saveHistoria = () => {
+  const saveHistoria = async () => {
     if (!formHistoria.mascota_id || !formHistoria.diagnostico.trim()) return toast.error('Mascota y diagnóstico requeridos');
     const mascota = mascotas.find(m => m.id === formHistoria.mascota_id);
-    let updated: HistoriaClinica[];
-    const base = { ...formHistoria, mascota_nombre: mascota?.nombre, company_id: companyId };
-    if (editing?.id) {
-      updated = historias.map(h => h.id === editing.id ? { ...base, id: editing.id } : h);
-    } else {
-      updated = [...historias, { ...base, id: uid() }];
+    const row = { ...formHistoria, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
+    await upsertDB('historias', row);
+    if (formHistoria.peso > 0 && !editing?.id) {
+      const pesoRow = { id: uid(), company_id: companyId, mascota_id: formHistoria.mascota_id, fecha: formHistoria.fecha, peso: formHistoria.peso, observaciones: 'Registrado desde historia clínica' };
+      await upsertDB('pesos', pesoRow);
+      await loadTable('vet_control_peso', setPesos);
     }
-    // Register weight automatically
-    if (formHistoria.peso > 0) {
-      const wp: ControlPeso[] = [...pesos, { id: uid(), company_id: companyId, mascota_id: formHistoria.mascota_id, fecha: formHistoria.fecha, peso: formHistoria.peso, observaciones: 'Registrado desde historia clínica' }];
-      setPesos(wp); persist('pesos', wp);
-    }
-    setHistorias(updated); persist('historias', updated);
+    await loadTable('vet_historias_clinicas', setHistorias);
     toast.success('Historia clínica guardada'); closeModal();
   };
 
-  const saveVacuna = () => {
+  const saveVacuna = async () => {
     if (!formVacuna.mascota_id || !formVacuna.nombre_vacuna.trim()) return toast.error('Mascota y vacuna requeridos');
     const mascota = mascotas.find(m => m.id === formVacuna.mascota_id);
-    let updated: Vacuna[];
-    const base = { ...formVacuna, mascota_nombre: mascota?.nombre, company_id: companyId };
-    if (editing?.id) {
-      updated = vacunas.map(v => v.id === editing.id ? { ...base, id: editing.id } : v);
-    } else {
-      updated = [...vacunas, { ...base, id: uid() }];
-    }
-    setVacunas(updated); persist('vacunas', updated);
+    const row = { ...formVacuna, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
+    await upsertDB('vacunas', row);
+    await loadTable('vet_vacunas', setVacunas);
     toast.success('Vacuna registrada'); closeModal();
   };
 
-  const savePeso = () => {
+  const savePeso = async () => {
     if (!formPeso.mascota_id || formPeso.peso <= 0) return toast.error('Mascota y peso requeridos');
-    const updated = [...pesos, { ...formPeso, id: uid(), company_id: companyId }];
-    setPesos(updated); persist('pesos', updated);
+    const row = { ...formPeso, id: uid(), company_id: companyId };
+    await upsertDB('pesos', row);
+    await loadTable('vet_control_peso', setPesos);
     toast.success('Peso registrado'); closeModal();
   };
 
-  const saveHospitalizacion = () => {
+  const saveHospitalizacion = async () => {
     if (!formHospitalizacion.mascota_id || !formHospitalizacion.motivo.trim()) return toast.error('Mascota y motivo requeridos');
     const mascota = mascotas.find(m => m.id === formHospitalizacion.mascota_id);
-    let updated: Hospitalizacion[];
-    const base = { ...formHospitalizacion, mascota_nombre: mascota?.nombre, company_id: companyId };
-    if (editing?.id) {
-      updated = hospitalizaciones.map(h => h.id === editing.id ? { ...base, id: editing.id } : h);
-    } else {
-      updated = [...hospitalizaciones, { ...base, id: uid(), monitoreos: [] }];
-    }
-    setHospitalizaciones(updated); persist('hospitalizaciones', updated);
+    const row = { ...formHospitalizacion, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
+    await upsertDB('hospitalizaciones', row);
+    await loadTable('vet_hospitalizaciones', setHospitalizaciones);
     toast.success('Hospitalización guardada'); closeModal();
   };
 
-  const saveMedicamento = () => {
+  const saveMedicamento = async () => {
     if (!formMedicamento.nombre.trim()) return toast.error('Nombre requerido');
-    let updated: Medicamento[];
-    if (editing?.id) {
-      updated = medicamentos.map(m => m.id === editing.id ? { ...formMedicamento, id: editing.id, company_id: companyId } : m);
-    } else {
-      updated = [...medicamentos, { ...formMedicamento, id: uid(), company_id: companyId }];
-    }
-    setMedicamentos(updated); persist('medicamentos', updated);
+    const row = { ...formMedicamento, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('medicamentos', row);
+    await loadTable('vet_medicamentos', setMedicamentos);
     toast.success('Medicamento guardado'); closeModal();
   };
 
-  const saveServicio = () => {
+  const saveServicio = async () => {
     if (!formServicio.nombre.trim()) return toast.error('Nombre requerido');
-    let updated: Servicio[];
-    if (editing?.id) {
-      updated = servicios.map(s => s.id === editing.id ? { ...formServicio, id: editing.id, company_id: companyId } : s);
-    } else {
-      updated = [...servicios, { ...formServicio, id: uid(), company_id: companyId }];
-    }
-    setServicios(updated); persist('servicios', updated);
+    const row = { ...formServicio, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('servicios', row);
+    await loadTable('vet_servicios', setServicios);
     toast.success('Servicio guardado'); closeModal();
   };
 
-  const savePlan = () => {
+  const savePlan = async () => {
     if (!formPlan.nombre.trim()) return toast.error('Nombre requerido');
-    let updated: Plan[];
-    if (editing?.id) {
-      updated = planes.map(p => p.id === editing.id ? { ...formPlan, id: editing.id, company_id: companyId } : p);
-    } else {
-      updated = [...planes, { ...formPlan, id: uid(), company_id: companyId }];
-    }
-    setPlanes(updated); persist('planes', updated);
+    const row = { ...formPlan, id: editing?.id || uid(), company_id: companyId };
+    await upsertDB('planes', row);
+    await loadTable('vet_planes', setPlanes);
     toast.success('Plan guardado'); closeModal();
   };
 
-  const saveFactura = () => {
+  const saveFactura = async () => {
     if (!formFactura.mascota_id || formFactura.total <= 0) return toast.error('Mascota y total requeridos');
     const mascota = mascotas.find(m => m.id === formFactura.mascota_id);
     const prop = propietarios.find(p => p.id === mascota?.propietario_id);
     const saldo = formFactura.total - formFactura.abonado;
     const estado: FacturaStatus = formFactura.abonado >= formFactura.total ? 'PAGADA' : formFactura.abonado > 0 ? 'ABONO' : 'PENDIENTE';
-    const updated = [...facturas, { ...formFactura, id: uid(), company_id: companyId, saldo, estado, mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre }];
-    setFacturas(updated); persist('facturas', updated);
+    const row = { ...formFactura, id: uid(), company_id: companyId, saldo, estado, mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre };
+    await upsertDB('facturas', row);
+    await loadTable('vet_facturas', setFacturas);
     toast.success('Factura generada'); closeModal();
   };
 
-  const registrarAbono = (facturaId: string) => {
+  const registrarAbono = async (facturaId: string) => {
     if (formAbono <= 0) return toast.error('Ingresa un abono válido');
-    const updated = facturas.map(f => {
-      if (f.id !== facturaId) return f;
-      const nuevoAbonado = (f.abonado || 0) + formAbono;
-      const nuevoSaldo = f.total - nuevoAbonado;
-      const nuevoEstado: FacturaStatus = nuevoSaldo <= 0 ? 'PAGADA' : 'ABONO';
-      return { ...f, abonado: nuevoAbonado, saldo: Math.max(0, nuevoSaldo), estado: nuevoEstado };
-    });
-    setFacturas(updated); persist('facturas', updated);
+    const f = facturas.find(x => x.id === facturaId);
+    if (!f) return;
+    const nuevoAbonado = (f.abonado || 0) + formAbono;
+    const nuevoSaldo = f.total - nuevoAbonado;
+    const nuevoEstado: FacturaStatus = nuevoSaldo <= 0 ? 'PAGADA' : 'ABONO';
+    const row = { ...f, abonado: nuevoAbonado, saldo: Math.max(0, nuevoSaldo), estado: nuevoEstado };
+    await upsertDB('facturas', row);
+    await loadTable('vet_facturas', setFacturas);
     toast.success('Abono registrado'); setModal(null); setFormAbono(0);
   };
 
-  const deleteItem = (collection: string, id: string) => {
-    const map: Record<string, [any[], React.Dispatch<any>]> = {
-      propietarios: [propietarios, setPropietarios],
-      mascotas:     [mascotas,     setMascotas],
-      personal:     [personal,     setPersonal],
-      consultorios: [consultorios, setConsultorios],
-      citas:        [citas,        setCitas],
-      historias:    [historias,    setHistorias],
-      vacunas:      [vacunas,      setVacunas],
-      medicamentos: [medicamentos, setMedicamentos],
-      servicios:    [servicios,    setServicios],
-      planes:       [planes,       setPlanes],
-      facturas:     [facturas,     setFacturas],
-    };
-    const [arr, setter] = map[collection] || [];
-    if (!arr) return;
-    const updated = arr.filter((x: any) => x.id !== id);
-    setter(updated); persist(collection, updated);
+  const SETTER_MAP: Record<string, [any[], React.Dispatch<any>, string]> = {
+    propietarios: [propietarios, setPropietarios, 'vet_propietarios'],
+    mascotas:     [mascotas,     setMascotas,     'vet_mascotas'],
+    personal:     [personal,     setPersonal,     'vet_personal'],
+    consultorios: [consultorios, setConsultorios, 'vet_consultorios'],
+    citas:        [citas,        setCitas,        'vet_citas'],
+    historias:    [historias,    setHistorias,    'vet_historias_clinicas'],
+    vacunas:      [vacunas,      setVacunas,      'vet_vacunas'],
+    medicamentos: [medicamentos, setMedicamentos, 'vet_medicamentos'],
+    servicios:    [servicios,    setServicios,    'vet_servicios'],
+    planes:       [planes,       setPlanes,       'vet_planes'],
+    facturas:     [facturas,     setFacturas,     'vet_facturas'],
+  };
+
+  const deleteItem = async (collection: string, id: string) => {
+    const entry = SETTER_MAP[collection];
+    if (!entry) return;
+    const [, setter, table] = entry;
+    const { error } = await supabase.from(table).delete().eq('id', id);
+    if (error) { toast.error('Error al eliminar'); return; }
+    setter((prev: any[]) => prev.filter(x => x.id !== id));
     toast.success('Eliminado');
   };
 

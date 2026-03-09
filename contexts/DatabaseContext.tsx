@@ -270,7 +270,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
         payment_status:    paymentStatus,
         // Items de servicios virtuales (zapatería, etc.) que no tienen product_id real
         virtual_items: saleData.items
-          .filter((i: any) => String(i.product.id).startsWith('shoe-'))
+          .filter((i: any) => ['shoe-','salon-','vet-'].some(p => String(i.product.id).startsWith(p)))
           .map((i: any) => ({
             name:     i.product.name,
             price:    i.price ?? i.product.price,
@@ -284,7 +284,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
     // Solo insertar items con product_id real (UUID válido, no ids virtuales de zapatería/salón)
     const realItems = saleData.items.filter((i: any) =>
-      !String(i.product.id).startsWith('shoe-') && !String(i.product.id).startsWith('salon-')
+      !String(i.product.id).startsWith('shoe-') &&
+      !String(i.product.id).startsWith('salon-') &&
+      !String(i.product.id).startsWith('vet-')
     );
     if (realItems.length > 0) {
       const itemsToInsert = realItems.map((i: any) => ({
