@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope, FlaskConical, PawPrint, Pill
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -47,6 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Control de Caja',     path: '/cash-control', icon: Landmark,        show: hasPermission('can_open_cash') || isAdminOrMaster },
     { label: 'Inventario',          path: '/inventory',    icon: Package,         show: !isZapateria && (hasPermission('can_manage_inventory') || isAdminOrMaster) },
     { label: 'Historial Facturas',  path: '/invoices',     icon: Receipt,         show: hasPermission('can_view_reports') || isAdminOrMaster },
+    { label: 'Clientes',            path: '/customers',    icon: UserRound,       show: hasPermission('can_view_reports') || isAdminOrMaster },
     { label: 'Servicio Técnico',    path: '/repairs',      icon: Wrench,          show: hasRepairs && !isZapateria && !isSalon && !isRestaurant && (hasPermission('can_view_repairs') || isAdminOrMaster) },
     { label: 'Zapatería',           path: '/shoe-repair',  icon: Wrench,          show: isZapateria && isAdminOrMaster },
     { label: 'Cartera / CxC',       path: '/receivables',  icon: FileText,        show: hasPermission('can_view_reports') || isAdminOrMaster },
