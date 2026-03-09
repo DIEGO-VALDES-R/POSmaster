@@ -18,6 +18,7 @@ import KitchenDisplay from './pages/KitchenDisplay';
 import BeautySalon from './pages/BeautySalon';
 import ShoeRepair from './pages/ShoeRepair';
 import Odontologia from './pages/Odontologia';
+import Supplies from './pages/Supplies';
 import { LandingPage, RegisterPage, AdminPanel, ClientPortal } from './LandingPage';
 import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
@@ -318,6 +319,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/salon"        element={<BeautySalon />} />
     <Route path="/shoe-repair"  element={<ShoeRepair />} />
     <Route path="/dentistry"    element={<Odontologia />} />
+    <Route path="/supplies"     element={<Supplies />} />
   </Routes>
 );
 

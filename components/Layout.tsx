@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope, FlaskConical
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -52,6 +52,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Display de Cocina',   path: '/kitchen',      icon: ChefHat,         show: isRestaurant && isAdminOrMaster },
     { label: 'Salón de Belleza',    path: '/salon',        icon: Scissors,        show: isSalon && isAdminOrMaster },
     { label: 'Odontología',         path: '/dentistry',    icon: Stethoscope,     show: isDentistry && isAdminOrMaster },
+    { label: 'Insumos',               path: '/supplies',     icon: FlaskConical,    show: isAdminOrMaster },
     { label: 'Sucursales',          path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
     { label: 'Equipo',              path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
     { label: 'Configuración',       path: '/settings',     icon: Settings,        show: isAdminOrMaster },
