@@ -78,9 +78,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 0 30px rgba(99,102,241,0.4)' }}>Ya tengo cuenta</button>
             <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Elegir plan y registrarse →</button>
-            {onClientPortal && (
-              <button onClick={onClientPortal} style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>🔍 Consultar mis facturas</button>
-            )}
+
           </div>
           <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>7 días gratis sin tarjeta • Planes desde $65.000/mes</p>
         </div>

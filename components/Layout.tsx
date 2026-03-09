@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -32,6 +32,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const isRestaurant  = businessTypes.includes('restaurante');
   const isSalon       = businessTypes.includes('salon');
   const isZapateria   = businessTypes.includes('zapateria');
+  const isDentistry   = businessTypes.includes('odontologia');
   // Servicio Técnico solo para negocios de tecnología/reparación electrónica
   const hasRepairs    = businessTypes.includes('tienda_tecnologia') ||
                         businessTypes.includes('reparacion') ||
@@ -50,6 +51,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Mesas / Restaurante', path: '/tables',       icon: Utensils,        show: isRestaurant && isAdminOrMaster },
     { label: 'Display de Cocina',   path: '/kitchen',      icon: ChefHat,         show: isRestaurant && isAdminOrMaster },
     { label: 'Salón de Belleza',    path: '/salon',        icon: Scissors,        show: isSalon && isAdminOrMaster },
+    { label: 'Odontología',         path: '/dentistry',    icon: Stethoscope,     show: isDentistry && isAdminOrMaster },
     { label: 'Sucursales',          path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
     { label: 'Equipo',              path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
     { label: 'Configuración',       path: '/settings',     icon: Settings,        show: isAdminOrMaster },

@@ -25,6 +25,7 @@ const BUSINESS_TYPES = [
   { id: 'farmacia',          label: '💊 Farmacia / Droguería' },
   { id: 'supermercado',      label: '🛒 Supermercado / Abarrotes' },
   { id: 'salon',             label: '💇 Salón de Belleza / Spa' },
+  { id: 'odontologia',       label: '🦷 Consultorio Odontológico' },
   { id: 'otro',              label: '📦 Otro' },
 ];
 
@@ -121,13 +122,17 @@ const Settings: React.FC = () => {
 
   const [savingBranding, setSavingBranding] = useState(false);
 
-  // Sincronizar estados de branding cuando el contexto actualiza company (ej: tras guardar)
+  // Sincronizar TODOS los estados cuando el contexto carga/actualiza company
+  // Resuelve el caso donde company llega null en el primer render (async)
   useEffect(() => {
     if (!company) return;
     const cfg = (company.config as any) || {};
+    setFormData(company as any);
+    setTaxRate(cfg.tax_rate ?? 0);
     setPrimaryColor(cfg.primary_color || '#3b82f6');
     setSecondaryColor(cfg.secondary_color || '#6366f1');
     setFontColor(cfg.font_color || '#ffffff');
+    // Resuelve el bug donde Odontologia (y otros tipos) no aparecian seleccionados
     setBusinessTypes(parseBusinessTypes(cfg));
   }, [company]);
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
