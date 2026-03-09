@@ -3,7 +3,7 @@ import {
   Users, Search, Plus, X, Edit2, Trash2, Phone, Mail,
   MapPin, FileText, ShoppingBag, TrendingUp, Star,
   ChevronDown, ChevronUp, Calendar, CreditCard, RefreshCw,
-  UserCheck, AlertCircle, Download, MessageCircle
+  UserCheck, AlertCircle, Download, MessageCircle, Zap
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -53,7 +53,7 @@ const getRankLabel = (spent: number): { label: string; color: string } => {
 
 // ── COMPONENT ─────────────────────────────────────────────────────────────────
 const Customers: React.FC = () => {
-  const { companyId, sales } = useDatabase();
+  const { companyId } = useDatabase();
   const { formatMoney } = useCurrency();
 
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
@@ -70,6 +70,85 @@ const Customers: React.FC = () => {
   const [customerSales, setCustomerSales] = useState<SaleRecord[]>([]);
   const [loadingSales, setLoadingSales] = useState(false);
   const [filterRank, setFilterRank] = useState<string>('all');
+  const [allInvoices, setAllInvoices] = useState<any[]>([]);
+
+  // Load ALL invoices for proper enrichment (context only has last 50)
+  useEffect(() => {
+    if (!companyId) return;
+    supabase
+      .from('invoices')
+      .select('id, invoice_number, total_amount, created_at, payment_method, status')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setAllInvoices(data || []));
+  }, [companyId]);
+
+  // ── Sync customers from invoices JSONB ──────────────────────────────────
+  const syncFromInvoices = useCallback(async () => {
+    if (!companyId) return 0;
+    // Load ALL invoices with customer data in payment_method
+    const { data: invoices, error } = await supabase
+      .from('invoices')
+      .select('id, payment_method, created_at, total_amount')
+      .eq('company_id', companyId)
+      .not('payment_method->customer_name', 'is', null);
+    if (error || !invoices) return 0;
+
+    // Build unique customer map keyed by document (or name if no doc)
+    const map = new Map<string, {
+      name: string; document_number: string; phone: string;
+      email: string; invoiceCount: number; lastDate: string;
+    }>();
+
+    for (const inv of invoices) {
+      const pm = inv.payment_method || {};
+      const name = (pm.customer_name || '').trim();
+      if (!name || name.toLowerCase() === 'consumidor final') continue;
+      const doc  = (pm.customer_document || '').trim();
+      const key  = doc || name.toLowerCase();
+      if (map.has(key)) {
+        const existing = map.get(key)!;
+        existing.invoiceCount++;
+        if (inv.created_at > existing.lastDate) existing.lastDate = inv.created_at;
+      } else {
+        map.set(key, {
+          name,
+          document_number: doc,
+          phone: (pm.customer_phone || '').trim(),
+          email: (pm.customer_email || '').trim(),
+          invoiceCount: 1,
+          lastDate: inv.created_at,
+        });
+      }
+    }
+    if (map.size === 0) return 0;
+
+    // Load existing customers to avoid duplicates
+    const { data: existing } = await supabase
+      .from('customers').select('name, document_number').eq('company_id', companyId);
+    const existingDocs  = new Set((existing || []).map((c: any) => c.document_number).filter(Boolean));
+    const existingNames = new Set((existing || []).map((c: any) => c.name.toLowerCase()));
+
+    const toInsert: any[] = [];
+    for (const [, c] of map) {
+      const alreadyExists = (c.document_number && existingDocs.has(c.document_number))
+        || existingNames.has(c.name.toLowerCase());
+      if (!alreadyExists) {
+        toInsert.push({
+          company_id:      companyId,
+          name:            c.name,
+          document_number: c.document_number || null,
+          phone:           c.phone || null,
+          email:           c.email || null,
+        });
+      }
+    }
+
+    if (toInsert.length > 0) {
+      await supabase.from('customers').insert(toInsert);
+    }
+    return toInsert.length;
+  }, [companyId]);
 
   // ── Load customers from DB ─────────────────────────────────────────────────
   const loadCustomers = useCallback(async () => {
@@ -90,33 +169,44 @@ const Customers: React.FC = () => {
     }
   }, [companyId]);
 
-  useEffect(() => { loadCustomers(); }, [loadCustomers]);
+  // On mount: sync from invoices first, then load
+  useEffect(() => {
+    if (!companyId) return;
+    const init = async () => {
+      setLoading(true);
+      await syncFromInvoices();
+      await loadCustomers();
+    };
+    init();
+  }, [companyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Enrich customers with sales data from context ─────────────────────────
+  const handleSyncNow = async () => {
+    setLoading(true);
+    const added = await syncFromInvoices();
+    await loadCustomers();
+    if (added > 0) toast.success(`✅ ${added} cliente(s) importados desde facturas`);
+    else toast.success('Todo al día — no hay clientes nuevos por importar');
+  };
+
+  // ── Enrich customers with ALL invoices (not just last 50 from context) ───
   const enriched = useMemo(() => {
     return customers.map(c => {
-      // Match by document or name from sales JSONB
-      const cSales = sales.filter((s: any) => {
+      const cSales = allInvoices.filter((s: any) => {
         const pm = s.payment_method || {};
-        const docMatch = c.document_number && (
-          pm.customer_document === c.document_number ||
-          s.customer_document === c.document_number
-        );
-        const nameMatch = c.name && (
-          (pm.customer_name || '').toLowerCase() === c.name.toLowerCase() ||
-          (s.customer_name || '').toLowerCase() === c.name.toLowerCase()
-        );
+        const docMatch = c.document_number && pm.customer_document === c.document_number;
+        const nameMatch = !docMatch && c.name &&
+          (pm.customer_name || '').toLowerCase() === c.name.toLowerCase();
         return docMatch || nameMatch;
       });
       const total_spent = cSales.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
       const purchase_count = cSales.length;
       const last_purchase = cSales.length
-        ? cSales.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.created_at
+        ? [...cSales].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.created_at
         : undefined;
       const avg_ticket = purchase_count > 0 ? total_spent / purchase_count : 0;
       return { ...c, total_spent, purchase_count, last_purchase, avg_ticket };
     });
-  }, [customers, sales]);
+  }, [customers, allInvoices]);
 
   // ── Filtered + sorted ────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -211,35 +301,19 @@ const Customers: React.FC = () => {
     }
   };
 
-  // ── Load detail sales for expanded row ───────────────────────────────────
-  const loadCustomerSales = useCallback(async (customer: CustomerRecord) => {
+  // ── Load detail sales for expanded row (uses allInvoices already loaded) ─
+  const loadCustomerSales = useCallback((customer: CustomerRecord) => {
     setLoadingSales(true);
-    try {
-      const { data, error } = await supabase
-        .from('invoices')
-        .select('id, invoice_number, total_amount, created_at, payment_method, status')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      // filter by customer name/doc
-      const relevant = (data || []).filter((s: any) => {
-        const pm = s.payment_method || {};
-        const docMatch = customer.document_number && (
-          pm.customer_document === customer.document_number
-        );
-        const nameMatch = customer.name && (
-          (pm.customer_name || '').toLowerCase() === customer.name.toLowerCase()
-        );
-        return docMatch || nameMatch;
-      });
-      setCustomerSales(relevant as SaleRecord[]);
-    } catch (e: any) {
-      toast.error('Error cargando compras');
-    } finally {
-      setLoadingSales(false);
-    }
-  }, [companyId]);
+    const relevant = allInvoices.filter((s: any) => {
+      const pm = s.payment_method || {};
+      const docMatch = customer.document_number && pm.customer_document === customer.document_number;
+      const nameMatch = !docMatch && customer.name &&
+        (pm.customer_name || '').toLowerCase() === customer.name.toLowerCase();
+      return docMatch || nameMatch;
+    });
+    setCustomerSales(relevant as SaleRecord[]);
+    setLoadingSales(false);
+  }, [allInvoices]);
 
   const toggleExpand = (customer: CustomerRecord) => {
     if (expandedId === customer.id) {
@@ -275,6 +349,11 @@ const Customers: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <RefreshButton onRefresh={loadCustomers} />
+          <button onClick={handleSyncNow} disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm disabled:opacity-60"
+            title="Importar clientes desde facturas existentes">
+            <Zap size={16} /> Sincronizar facturas
+          </button>
           <button onClick={openNew}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold text-sm shadow-sm">
             <Plus size={16} /> Nuevo Cliente
