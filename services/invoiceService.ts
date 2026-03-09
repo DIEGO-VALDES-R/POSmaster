@@ -59,6 +59,15 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
   if (!isOpen || !sale) return null;
 
   // Normalizar items — compatibilidad con datos Supabase y datos mock
+  const rawVirtualItems = (sale.payment_method?.virtual_items || []).map((item: any) => ({
+    product_name: item.name || 'Servicio',
+    quantity: item.quantity || 1,
+    price: item.price || 0,
+    tax_rate: 0,
+    serial_number: undefined,
+    discount: 0,
+  }));
+
   const items: SaleItem[] = (
     sale._cartItems ||
     sale.items ||
@@ -73,11 +82,14 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
     discount: item.discount || 0,
   }));
 
+  // Si no hay items reales, usar virtual_items del salón/zapatería
+  const displayItems = items.length > 0 ? items : rawVirtualItems;
+
   const subtotal = sale.subtotal
-    ?? items.reduce((acc, i) => acc + i.price * i.quantity, 0);
+    ?? displayItems.reduce((acc, i) => acc + i.price * i.quantity, 0);
 
   const taxAmount = sale.tax_amount
-    ?? items.reduce((acc, i) => acc + (i.price * (i.tax_rate / 100)) * i.quantity, 0);
+    ?? displayItems.reduce((acc, i) => acc + (i.price * (i.tax_rate / 100)) * i.quantity, 0);
 
   const companyName = company?.name ?? 'IPHONESHOP USA';
 
@@ -192,9 +204,9 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 ? (
-                <tr><td colSpan={3} className="text-center text-slate-400 py-4">Sin items</td></tr>
-              ) : items.map((item, idx) => (
+              {displayItems.length === 0 ? (
+                <tr><td colSpan={3} className="text-center text-slate-400 py-4">Sin items registrados</td></tr>
+              ) : displayItems.map((item, idx) => (
                 <tr key={idx} className="border-b border-slate-100">
                   <td className="py-2 align-top">{item.quantity}</td>
                   <td className="py-2 align-top">
