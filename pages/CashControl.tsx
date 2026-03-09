@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Lock, Unlock, History, AlertTriangle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { DollarSign, Lock, Unlock, History, AlertTriangle, FileText, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
+import RefreshButton from '../components/RefreshButton';
 
 interface TurnInvoice {
   id: string;
@@ -15,7 +16,7 @@ interface TurnInvoice {
 }
 
 const CashControl: React.FC = () => {
-  const { session, openSession, closeSession, sessionsHistory, companyId } = useDatabase();
+  const { session, openSession, closeSession, sessionsHistory, companyId, refreshAll } = useDatabase();
   const [openAmount, setOpenAmount] = useState('');
   const [closeAmount, setCloseAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -74,9 +75,12 @@ const CashControl: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Control de Caja</h2>
           <p className="text-slate-500">Apertura, cierre y arqueo de turnos</p>
         </div>
-        <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${session?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-          {session?.status === 'OPEN' ? <Unlock size={20} /> : <Lock size={20} />}
-          {session?.status === 'OPEN' ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
+        <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={refreshAll} />
+          <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${session?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {session?.status === 'OPEN' ? <Unlock size={20} /> : <Lock size={20} />}
+            {session?.status === 'OPEN' ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
+          </div>
         </div>
       </div>
 

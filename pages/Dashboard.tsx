@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
+import RefreshButton from '../components/RefreshButton';
 
 // ── TIPOS DE PERÍODO ──────────────────────────────────────────────────────────
 type Period = 'week' | 'month' | 'year';
@@ -106,7 +107,7 @@ const REPAIR_LABELS: Record<string, string> = {
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────────────────
 const Dashboard: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { products, repairs, sales, isLoading, company } = useDatabase();
+  const { products, repairs, sales, isLoading, company, refreshAll } = useDatabase();
 
   const [period, setPeriod] = useState<Period>('week');
   const [chartReady, setChartReady] = useState(false);
@@ -234,6 +235,7 @@ const Dashboard: React.FC = () => {
           <p className="text-slate-500 text-sm">{company?.name || 'POSmaster'}</p>
         </div>
         <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={refreshAll} />
           <Calendar size={16} className="text-slate-400" />
           <div className="flex bg-white border border-slate-200 rounded-lg p-1 gap-1">
             {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (

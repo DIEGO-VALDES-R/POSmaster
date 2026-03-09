@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
+import RefreshButton from '../components/RefreshButton';
 import { useAccessControl } from '../hooks/useAccessControl';
 import { toast } from 'react-hot-toast';
 
@@ -38,32 +39,32 @@ interface Invitation {
 
 const ROLES_BY_TYPE: Record<string, { id: string; label: string; icon: string; defaultPerms: Record<string, boolean> }[]> = {
   default: [
-    { id: 'cajero',      label: 'Cajero',       icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'vendedor',    label: 'Vendedor',      icon: '🛍️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',  label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: true  } },
-    { id: 'bodeguero',   label: 'Bodeguero',     icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'admin',       label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: true  } },
+    { id: 'cajero',      label: 'Cajero',       icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'vendedor',    label: 'Vendedor',      icon: '🛍️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'supervisor',  label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: true,  can_delete_invoices: false } },
+    { id: 'bodeguero',   label: 'Bodeguero',     icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'admin',       label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: true,  can_delete_invoices: true  } },
   ],
   tienda_tecnologia: [
-    { id: 'cajero',           label: 'Cajero',            icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'tecnico_reparador',label: 'Técnico Reparador', icon: '🔧', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: true  } },
-    { id: 'vendedor',         label: 'Vendedor',          icon: '📱', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',       label: 'Supervisor',        icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: true  } },
-    { id: 'admin',            label: 'Administrador',     icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: true  } },
+    { id: 'cajero',           label: 'Cajero',            icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'tecnico_reparador',label: 'Técnico Reparador', icon: '🔧', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: true,  can_delete_invoices: false } },
+    { id: 'vendedor',         label: 'Vendedor',          icon: '📱', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'supervisor',       label: 'Supervisor',        icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: true,  can_delete_invoices: false } },
+    { id: 'admin',            label: 'Administrador',     icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: true,  can_delete_invoices: true  } },
   ],
   restaurante: [
-    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'mesero',    label: 'Mesero',        icon: '🍽️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'cocina',    label: 'Cocina',        icon: '👨‍🍳', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false } },
+    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'mesero',    label: 'Mesero',        icon: '🍽️', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'cocina',    label: 'Cocina',        icon: '👨‍🍳', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false, can_delete_invoices: true  } },
   ],
   ropa: [
-    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'vendedor',  label: 'Vendedor',      icon: '👗', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'bodeguero', label: 'Bodeguero',     icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false } },
-    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false } },
-    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false } },
+    { id: 'cajero',    label: 'Cajero',        icon: '🧾', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'vendedor',  label: 'Vendedor',      icon: '👗', defaultPerms: { can_sell: true,  can_refund: false, can_view_reports: false, can_manage_inventory: false, can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'bodeguero', label: 'Bodeguero',     icon: '📦', defaultPerms: { can_sell: false, can_refund: false, can_view_reports: false, can_manage_inventory: true,  can_manage_team: false, can_open_cash: false, can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'supervisor',label: 'Supervisor',    icon: '👁️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: false, can_open_cash: true,  can_view_repairs: false, can_delete_invoices: false } },
+    { id: 'admin',     label: 'Administrador', icon: '⚙️', defaultPerms: { can_sell: true,  can_refund: true,  can_view_reports: true,  can_manage_inventory: true,  can_manage_team: true,  can_open_cash: true,  can_view_repairs: false, can_delete_invoices: true  } },
   ],
 };
 
@@ -75,6 +76,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   can_manage_team:      '👥 Gestionar equipo',
   can_open_cash:        '💰 Abrir/cerrar caja',
   can_view_repairs:     '🔧 Ver reparaciones',
+  can_delete_invoices:  '🗑️ Eliminar facturas',
 };
 
 const getRolesForType = (type: string) => ROLES_BY_TYPE[type] || ROLES_BY_TYPE.default;
@@ -152,26 +154,53 @@ const Team: React.FC = () => {
   };
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim()) { toast.error('Ingresa un email'); return; }
-    if (!await checkAccess('team.invite')) return;
+    if (!inviteEmail.trim()) { toast.error('Ingresa un email válido'); return; }
+
+    // Validación local — evita depender de la Edge Function para una operación crítica
+    if (!isPro) {
+      toast.error('La gestión de equipo requiere plan PRO o ENTERPRISE 🔒');
+      return;
+    }
+    if (!companyId) { toast.error('Error: empresa no cargada'); return; }
+
     setInviting(true);
     try {
+      // Generar token seguro de 32 chars hex en el cliente
+      // (por si la BD no tiene trigger que lo genere automáticamente)
+      const tokenArray = new Uint8Array(16);
+      crypto.getRandomValues(tokenArray);
+      const token = Array.from(tokenArray).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Expiración: 7 días
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
       const { data: inv, error } = await supabase.from('user_invitations').insert({
         company_id: companyId,
         branch_id: inviteBranch || branches[0]?.id || null,
         email: inviteEmail.trim().toLowerCase(),
         custom_role: inviteRole,
         permissions: invitePerms,
+        token,
+        expires_at: expiresAt,
+        status: 'PENDING',
       }).select().single();
       if (error) throw error;
       const link = `${window.location.origin}/#/invitacion/${inv.token}`;
       await navigator.clipboard.writeText(link).catch(() => {});
-      toast.success('Invitación creada. Enlace copiado al portapapeles.');
+      toast.success('✅ Invitación creada. Enlace copiado al portapapeles.');
       setShowInviteModal(false);
       setInviteEmail(''); setInviteRole('cajero'); setInviteBranch(''); setInvitePerms({});
       loadInvitations();
     } catch (err: any) {
-      toast.error('Error: ' + err.message);
+      console.error('Error creando invitación:', err);
+      // Mensaje de error más descriptivo
+      if (err.message?.includes('user_invitations')) {
+        toast.error('Error: la tabla de invitaciones no existe en la BD. Ejecuta el SQL de user_invitations.');
+      } else if (err.message?.includes('unique') || err.message?.includes('duplicate')) {
+        toast.error('Ya existe una invitación pendiente para este email.');
+      } else {
+        toast.error('Error al crear invitación: ' + err.message);
+      }
     } finally {
       setInviting(false);
     }
@@ -188,7 +217,7 @@ const Team: React.FC = () => {
 
   const handleSaveEdit = async () => {
     if (!editMember) return;
-    if (!await checkAccess('team.edit')) return;
+    if (!isPro) { toast.error('La gestión de equipo requiere plan PRO o ENTERPRISE 🔒'); return; }
     if (editPin && (editPin.length !== 4 || !/^\d{4}$/.test(editPin))) {
       toast.error('El PIN debe ser exactamente 4 dígitos numéricos'); return;
     }
@@ -228,7 +257,7 @@ const Team: React.FC = () => {
 
   const handleDeleteMember = async () => {
     if (!confirmDelete) return;
-    if (!await checkAccess('team.delete')) return;
+    if (!isPro) { toast.error('La gestión de equipo requiere plan PRO o ENTERPRISE 🔒'); return; }
     setDeleting(true);
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', confirmDelete.id);
@@ -289,6 +318,7 @@ const Team: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={async () => { loadMembers(); loadInvitations(); }} />
           <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isEnterprise ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
             {isEnterprise ? '🏢 ENTERPRISE' : '⭐ PRO'}
           </span>

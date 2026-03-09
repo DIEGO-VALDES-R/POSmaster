@@ -8,6 +8,7 @@ import {
 import { supabase } from '../supabaseClient';
 import { useCompany } from '../hooks/useCompany';
 import { useCurrency } from '../contexts/CurrencyContext';
+import RefreshButton from '../components/RefreshButton';
 import toast from 'react-hot-toast';
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
@@ -275,8 +276,11 @@ const Odontologia: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">🦷 Módulo Odontológico</h2>
           <p className="text-slate-500 text-sm">Gestión integral de clínica dental</p>
         </div>
-        <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-          {pacientes.length} pacientes · {citas.filter(c => c.estado === 'PROGRAMADA').length} citas hoy
+        <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={loadAll} />
+          <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
+            {pacientes.length} pacientes · {citas.filter(c => c.estado === 'PROGRAMADA').length} citas hoy
+          </div>
         </div>
       </div>
 

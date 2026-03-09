@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import RefreshButton from '../components/RefreshButton';
 import { useCompany } from '../hooks/useCompany';
 import { useCurrency } from '../contexts/CurrencyContext';
 import toast from 'react-hot-toast';
@@ -332,28 +333,30 @@ const Veterinaria: React.FC = () => {
     setter(data || []);
   }, [companyId]);
 
+  const reloadAll = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    await Promise.all([
+      loadTable('vet_propietarios',    setPropietarios),
+      loadTable('vet_mascotas',        setMascotas),
+      loadTable('vet_personal',        setPersonal),
+      loadTable('vet_consultorios',    setConsultorios),
+      loadTable('vet_citas',           setCitas),
+      loadTable('vet_historias_clinicas', setHistorias),
+      loadTable('vet_vacunas',         setVacunas),
+      loadTable('vet_control_peso',    setPesos),
+      loadTable('vet_hospitalizaciones', setHospitalizaciones),
+      loadTable('vet_medicamentos',    setMedicamentos),
+      loadTable('vet_servicios',       setServicios),
+      loadTable('vet_planes',          setPlanes),
+      loadTable('vet_facturas',        setFacturas),
+    ]);
+    setLoading(false);
+  }, [companyId, loadTable]);
+
   useEffect(() => {
     if (!companyId) return;
-    const init = async () => {
-      setLoading(true);
-      await Promise.all([
-        loadTable('vet_propietarios',    setPropietarios),
-        loadTable('vet_mascotas',        setMascotas),
-        loadTable('vet_personal',        setPersonal),
-        loadTable('vet_consultorios',    setConsultorios),
-        loadTable('vet_citas',           setCitas),
-        loadTable('vet_historias_clinicas', setHistorias),
-        loadTable('vet_vacunas',         setVacunas),
-        loadTable('vet_control_peso',    setPesos),
-        loadTable('vet_hospitalizaciones', setHospitalizaciones),
-        loadTable('vet_medicamentos',    setMedicamentos),
-        loadTable('vet_servicios',       setServicios),
-        loadTable('vet_planes',          setPlanes),
-        loadTable('vet_facturas',        setFacturas),
-      ]);
-      setLoading(false);
-    };
-    init();
+    reloadAll();
   }, [companyId, loadTable]);
 
   // ── SEED DATA ──
@@ -1533,6 +1536,7 @@ const Veterinaria: React.FC = () => {
             <p className="text-sm text-slate-400">Gestión integral de clínica veterinaria</p>
           </div>
         </div>
+        <RefreshButton onRefresh={reloadAll} />
       </div>
 
       {/* Tab Navigation */}

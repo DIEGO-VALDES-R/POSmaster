@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, X, Printer, Barcode, Zap, Tag } from 'lucide-react';
+import RefreshButton from '../components/RefreshButton';
 import { Product, ProductType, CartItem, PaymentMethod, Sale } from '../types';
 import { toast, Toaster } from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -10,7 +11,7 @@ import InvoiceModal from '../components/InvoiceModal';
 
 const POS: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { products, session, processSale, company } = useDatabase();
+  const { products, session, processSale, company, refreshAll } = useDatabase();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const location       = useLocation();
   const navigate       = useNavigate();
@@ -277,6 +278,9 @@ const POS: React.FC = () => {
       {/* Catalogo */}
       <div className="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 border-b border-slate-200 bg-slate-50">
+          <div className="flex gap-2 mb-2">
+            <RefreshButton onRefresh={refreshAll} label="Actualizar" className="text-xs px-2 py-1.5" />
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
             <input

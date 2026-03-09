@@ -27,6 +27,7 @@ const BUSINESS_TYPES = [
   { id: 'salon',             label: '💇 Salón de Belleza / Spa' },
   { id: 'odontologia',       label: '🦷 Consultorio Odontológico' },
   { id: 'veterinaria',       label: '🐾 Clínica Veterinaria' },
+  { id: 'farmacia',          label: '💊 Farmacia / Droguería' },
   { id: 'otro',              label: '📦 Otro' },
 ];
 
@@ -84,6 +85,9 @@ const Settings: React.FC = () => {
   const [formData, setFormData] = useState(safeCompany);
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS'>('GENERAL');
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
+  const [deleteInvoicePin, setDeleteInvoicePin] = useState<string>(
+    (safeCompany.config as any)?.delete_invoice_pin || ''
+  );
   const [primaryColor, setPrimaryColor] = useState(
     safeCompany.primary_color || (safeCompany.config as any)?.primary_color || '#3b82f6'
   );
@@ -130,6 +134,7 @@ const Settings: React.FC = () => {
     const cfg = (company.config as any) || {};
     setFormData(company as any);
     setTaxRate(cfg.tax_rate ?? 0);
+    setDeleteInvoicePin(cfg.delete_invoice_pin || '');
     setPrimaryColor(cfg.primary_color || '#3b82f6');
     setSecondaryColor(cfg.secondary_color || '#6366f1');
     setFontColor(cfg.font_color || '#ffffff');
@@ -175,7 +180,7 @@ const Settings: React.FC = () => {
       if (activeTab === 'GENERAL') {
         await updateCompanyConfig({
           ...formData,
-          config: { ...(formData.config || {}), tax_rate: taxRate }
+          config: { ...(formData.config || {}), tax_rate: taxRate, delete_invoice_pin: deleteInvoicePin }
         });
         toast.success('Configuración General Guardada');
       } 
@@ -371,6 +376,46 @@ const Settings: React.FC = () => {
                     <option value={19}>19% - Tarifa General</option>
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1">Se aplica a productos nuevos por defecto</p>
+                </div>
+
+                {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
+                <div className="md:col-span-2 border border-amber-200 bg-amber-50 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-amber-100 rounded-lg flex-shrink-0">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-bold text-amber-900 mb-1">
+                        PIN de Seguridad — Eliminar Facturas
+                      </label>
+                      <p className="text-xs text-amber-700 mb-3">
+                        Se solicitará este PIN de 4 dígitos antes de eliminar cualquier factura del historial.
+                        Déjalo vacío para desactivar la protección (solo administradores podrán eliminar).
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="password"
+                          maxLength={4}
+                          placeholder="Ej: 1234"
+                          value={deleteInvoicePin}
+                          onChange={e => {
+                            const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+                            setDeleteInvoicePin(v);
+                          }}
+                          className="w-32 px-3 py-2 border border-amber-300 bg-white rounded-lg outline-none focus:ring-2 focus:ring-amber-400 font-mono text-center text-lg tracking-widest"
+                        />
+                        {deleteInvoicePin.length === 4 && (
+                          <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-lg">✓ PIN configurado</span>
+                        )}
+                        {deleteInvoicePin.length > 0 && deleteInvoicePin.length < 4 && (
+                          <span className="text-xs text-amber-700">Debe ser exactamente 4 dígitos</span>
+                        )}
+                        {deleteInvoicePin.length === 0 && (
+                          <span className="text-xs text-slate-400">Sin protección PIN activa</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

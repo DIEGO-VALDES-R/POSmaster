@@ -3,6 +3,7 @@ import { Plus, Wrench, X, ChevronDown } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { repairService, RepairOrder, RepairStatus } from '../services/repairService';
 import { useCompany } from '../hooks/useCompany';
+import RefreshButton from '../components/RefreshButton';
 import toast from 'react-hot-toast';
 
 const STATUS_COLORS: Record<RepairStatus, string> = {
@@ -79,10 +80,13 @@ const Repairs: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Reparaciones</h2>
           <p className="text-slate-500">Gestión de órdenes de servicio técnico</p>
         </div>
-        <button onClick={() => { setForm({ ...EMPTY, company_id: companyId || '' }); setShowModal(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
-          <Plus size={16} /> Nueva Orden
-        </button>
+        <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={load} />
+          <button onClick={() => { setForm({ ...EMPTY, company_id: companyId || '' }); setShowModal(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+            <Plus size={16} /> Nueva Orden
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -35,6 +35,7 @@ interface DatabaseContextType {
   closeSession: (endAmount: number) => Promise<void>;
   refreshProducts: () => Promise<void>;
   refreshCompany: () => Promise<void>;
+  refreshAll: () => Promise<void>;
   switchCompany: (cid: string) => Promise<void>;
   hasPermission: (key: string) => boolean;
 }
@@ -190,6 +191,18 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
   const refreshCompany = useCallback(async () => {
     if (companyId) await loadCompany(companyId);
+  }, [companyId]);
+
+  const refreshAll = useCallback(async () => {
+    if (!companyId) return;
+    await Promise.all([
+      loadCompany(companyId),
+      loadProducts(companyId),
+      loadSales(companyId),
+      loadRepairs(companyId),
+      loadSession(companyId),
+      loadCustomers(companyId),
+    ]);
   }, [companyId]);
 
   const addProduct = async (data: Omit<Product, 'id' | 'company_id'>) => {
@@ -387,7 +400,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       session, sessionsHistory, isLoading, userRole, customRole, permissions,
       availableCompanies, addProduct, updateProduct, deleteProduct, addRepair,
       updateRepairStatus, processSale, updateCompanyConfig, saveDianSettings,
-      openSession, closeSession, refreshProducts, refreshCompany, switchCompany, hasPermission,
+      openSession, closeSession, refreshProducts, refreshCompany, refreshAll, switchCompany, hasPermission,
     }}>
       {children}
     </DatabaseContext.Provider>

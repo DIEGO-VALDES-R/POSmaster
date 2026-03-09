@@ -3,7 +3,7 @@ import {
   Search, FileText, Eye, X, ChevronDown, ChevronUp,
   User, Calendar, Hash, DollarSign, AlertCircle,
   CheckCircle, Clock, XCircle, Printer, MessageCircle,
-  Mail, QrCode, AlertTriangle, Package, Zap, Trash2
+  Mail, QrCode, AlertTriangle, Package, Zap, Trash2, Lock, ShieldAlert
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -218,7 +218,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
 
 const InvoiceHistory: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { company, companyId } = useDatabase();
+  const { company, companyId, userRole, hasPermission } = useDatabase();
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -230,6 +230,12 @@ const InvoiceHistory: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
+
+  // ── PIN DELETE STATE ──────────────────────────────────────────────────────
+  const [pendingDelete, setPendingDelete] = useState<Invoice | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinAttempts, setPinAttempts] = useState(0);
 
   const dianEnabled = (company as any)?.dian_settings?.is_active || false;
 
@@ -300,9 +306,38 @@ const InvoiceHistory: React.FC = () => {
 
   const handleDeleteInvoice = async (inv: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`¿Eliminar la factura ${inv.invoice_number}? Esta acción no se puede deshacer.`)) return;
+
+    // Solo el MASTER (propietario) puede eliminar sin restricciones de permiso.
+    // ADMIN y todos los demás necesitan tener can_delete_invoices = true.
+    const isMaster = userRole === 'MASTER';
+    const canDelete = isMaster || hasPermission('can_delete_invoices');
+    if (!canDelete) {
+      setPinError('');
+      // Show "no permission" feedback via toast - handled below
+      import('react-hot-toast').then(({ default: toast }) =>
+        toast.error('No tienes permiso para eliminar facturas')
+      );
+      return;
+    }
+
+    const companyConfig = (company as any)?.config || {};
+    const deletePin: string = companyConfig.delete_invoice_pin || '';
+
+    if (deletePin && deletePin.length === 4) {
+      // PIN is configured — open PIN modal
+      setPendingDelete(inv);
+      setPinInput('');
+      setPinError('');
+      setPinAttempts(0);
+    } else {
+      // No PIN configured — confirm dialog fallback (admin-only)
+      if (!confirm(`¿Eliminar la factura ${inv.invoice_number}? Esta acción no se puede deshacer.`)) return;
+      await doDeleteInvoice(inv);
+    }
+  };
+
+  const doDeleteInvoice = async (inv: Invoice) => {
     try {
-      // Eliminar items primero (FK), luego la factura
       await supabase.from('invoice_items').delete().eq('invoice_id', inv.id);
       const { error } = await supabase.from('invoices').delete().eq('id', inv.id);
       if (error) throw error;
@@ -311,6 +346,32 @@ const InvoiceHistory: React.FC = () => {
       if (selectedInvoice?.id === inv.id) setSelectedInvoice(null);
     } catch (e: any) {
       alert('Error al eliminar: ' + e.message);
+    }
+  };
+
+  const handlePinConfirm = async () => {
+    if (!pendingDelete) return;
+    const companyConfig = (company as any)?.config || {};
+    const deletePin: string = companyConfig.delete_invoice_pin || '';
+
+    if (pinInput === deletePin) {
+      setPendingDelete(null);
+      setPinInput('');
+      setPinError('');
+      await doDeleteInvoice(pendingDelete);
+    } else {
+      const newAttempts = pinAttempts + 1;
+      setPinAttempts(newAttempts);
+      setPinInput('');
+      if (newAttempts >= 3) {
+        setPendingDelete(null);
+        setPinError('');
+        import('react-hot-toast').then(({ default: toast }) =>
+          toast.error('Demasiados intentos fallidos. Operación cancelada.')
+        );
+      } else {
+        setPinError(`PIN incorrecto. ${3 - newAttempts} intento(s) restante(s).`);
+      }
     }
   };
 
@@ -526,6 +587,111 @@ const InvoiceHistory: React.FC = () => {
           formatMoney={formatMoney}
           onDianSuccess={handleDianSuccess}
         />
+      )}
+
+      {/* ── PIN DELETE MODAL ───────────────────────────────────────────── */}
+      {pendingDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 360, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '24px 24px 20px', textAlign: 'center' }}>
+              <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '50%', width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <ShieldAlert size={28} color="#fff" />
+              </div>
+              <h3 style={{ color: '#fff', margin: 0, fontSize: 18, fontWeight: 800 }}>Autorización requerida</h3>
+              <p style={{ color: 'rgba(255,255,255,0.8)', margin: '6px 0 0', fontSize: 13 }}>
+                Factura <strong>{pendingDelete.invoice_number}</strong>
+              </p>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 13, color: '#64748b', textAlign: 'center', margin: '0 0 20px' }}>
+                Ingresa el PIN de 4 dígitos para confirmar la eliminación de esta factura.
+                <br /><span style={{ color: '#dc2626', fontWeight: 600 }}>Esta acción no se puede deshacer.</span>
+              </p>
+
+              {/* PIN input dots */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
+                {[0, 1, 2, 3].map(i => (
+                  <div key={i} style={{
+                    width: 48, height: 56, borderRadius: 12, border: `2px solid ${pinError ? '#dc2626' : pinInput.length > i ? '#dc2626' : '#e2e8f0'}`,
+                    background: pinInput.length > i ? '#fef2f2' : '#f8fafc',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 24, fontWeight: 800, color: '#dc2626',
+                    transition: 'all 0.15s',
+                  }}>
+                    {pinInput.length > i ? '●' : ''}
+                  </div>
+                ))}
+              </div>
+
+              {pinError && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px', textAlign: 'center', fontSize: 13, color: '#dc2626', marginBottom: 12 }}>
+                  {pinError}
+                </div>
+              )}
+
+              {/* Numpad */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+                {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
+                  <button key={idx} disabled={!k}
+                    onClick={() => {
+                      if (k === '⌫') {
+                        setPinInput(p => p.slice(0, -1));
+                        setPinError('');
+                      } else if (k && pinInput.length < 4) {
+                        const next = pinInput + k;
+                        setPinInput(next);
+                        setPinError('');
+                        if (next.length === 4) {
+                          // Auto-confirm after short delay for UX
+                          setTimeout(() => {
+                            const companyConfig = (company as any)?.config || {};
+                            const deletePin: string = companyConfig.delete_invoice_pin || '';
+                            if (next === deletePin) {
+                              setPendingDelete(null);
+                              setPinInput('');
+                              doDeleteInvoice(pendingDelete!);
+                            } else {
+                              const newAttempts = pinAttempts + 1;
+                              setPinAttempts(newAttempts);
+                              setPinInput('');
+                              if (newAttempts >= 3) {
+                                setPendingDelete(null);
+                                import('react-hot-toast').then(({ default: toast }) =>
+                                  toast.error('Demasiados intentos. Operación cancelada.')
+                                );
+                              } else {
+                                setPinError(`PIN incorrecto. ${3 - newAttempts} intento(s) restante(s).`);
+                              }
+                            }
+                          }, 120);
+                        }
+                      }
+                    }}
+                    style={{
+                      padding: '14px 0', borderRadius: 10, border: 'none', cursor: k ? 'pointer' : 'default',
+                      background: !k ? 'transparent' : k === '⌫' ? '#fef2f2' : '#f8fafc',
+                      color: k === '⌫' ? '#dc2626' : '#1e293b',
+                      fontSize: 18, fontWeight: 700,
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => { if (k) (e.currentTarget as HTMLButtonElement).style.background = k === '⌫' ? '#fee2e2' : '#f1f5f9'; }}
+                    onMouseLeave={e => { if (k) (e.currentTarget as HTMLButtonElement).style.background = !k ? 'transparent' : k === '⌫' ? '#fef2f2' : '#f8fafc'; }}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+
+              <button onClick={() => { setPendingDelete(null); setPinInput(''); setPinError(''); }}
+                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

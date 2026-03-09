@@ -20,6 +20,7 @@ import ShoeRepair from './pages/ShoeRepair';
 import Odontologia from './pages/Odontologia';
 import Veterinaria from './pages/Veterinaria';
 import Supplies from './pages/Supplies';
+import Farmacia from './pages/Farmacia';
 import { LandingPage, RegisterPage, AdminPanel, ClientPortal } from './LandingPage';
 import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
@@ -322,6 +323,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/dentistry"    element={<Odontologia />} />
     <Route path="/veterinaria"  element={<Veterinaria />} />
     <Route path="/supplies"     element={<Supplies />} />
+    <Route path="/farmacia"     element={<Farmacia />} />
   </Routes>
 );
 

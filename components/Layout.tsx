@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
-  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope, FlaskConical, PawPrint
+  Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat, Scissors, Stethoscope, FlaskConical, PawPrint, Pill
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -34,6 +34,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const isZapateria   = businessTypes.includes('zapateria');
   const isDentistry   = businessTypes.includes('odontologia');
   const isVeterinaria = businessTypes.includes('veterinaria');
+  const isFarmacia    = businessTypes.includes('farmacia') || businessTypes.includes('drogueria');
   // Servicio Técnico solo para negocios de tecnología/reparación electrónica
   const hasRepairs    = businessTypes.includes('tienda_tecnologia') ||
                         businessTypes.includes('reparacion') ||
@@ -54,6 +55,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     { label: 'Salón de Belleza',    path: '/salon',        icon: Scissors,        show: isSalon && isAdminOrMaster },
     { label: 'Odontología',         path: '/dentistry',    icon: Stethoscope,     show: isDentistry && isAdminOrMaster },
     { label: 'Veterinaria',         path: '/veterinaria',  icon: PawPrint,        show: isVeterinaria && isAdminOrMaster },
+    { label: 'Farmacia / Droguería', path: '/farmacia',    icon: Pill,            show: isFarmacia && isAdminOrMaster },
     { label: 'Insumos',               path: '/supplies',     icon: FlaskConical,    show: isAdminOrMaster },
     { label: 'Sucursales',          path: '/branches',     icon: Building2,       show: isPro && isAdminOrMaster },
     { label: 'Equipo',              path: '/team',         icon: Users,           show: isPro && (hasPermission('can_manage_team') || isAdminOrMaster) },
