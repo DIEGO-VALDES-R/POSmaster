@@ -951,9 +951,17 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       subscription_end_date: editForm.subscription_end_date || null,
     }).eq('id', selectedCompany.id);
     if (error) { toast.error(error.message); return; }
-    toast.success('Negocio actualizado');
+    // Actualizar estado local inmediatamente
+    setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? {
+      ...c,
+      name: editForm.name, nit: editForm.nit, email: editForm.email,
+      phone: editForm.phone, subscription_plan: editForm.plan,
+      subscription_status: editForm.subscription_status,
+      subscription_start_date: editForm.subscription_start_date || null,
+      subscription_end_date: editForm.subscription_end_date || null,
+    } : c));
+    toast.success('Negocio actualizado ✓');
     setShowEdit(false);
-    load();
   };
 
   const handleDelete = async () => {
@@ -999,9 +1007,11 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   };
 
   const setStatus = async (id: string, status: string) => {
-    await supabase.from('companies').update({ subscription_status: status }).eq('id', id);
-    toast.success(status === 'ACTIVE' ? 'Cuenta activada' : 'Cuenta suspendida');
-    load();
+    const { error } = await supabase.from('companies').update({ subscription_status: status }).eq('id', id);
+    if (error) { toast.error('Error al actualizar estado'); return; }
+    // Actualizar estado local inmediatamente sin esperar load()
+    setCompanies(prev => prev.map(c => c.id === id ? { ...c, subscription_status: status } : c));
+    toast.success(status === 'ACTIVE' ? 'Cuenta activada ✓' : 'Cuenta suspendida');
   };
 
   const openEdit = (c: any) => {

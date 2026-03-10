@@ -1,4 +1,12 @@
-// --- ENUMS ---
+// ─────────────────────────────────────────────────────────────────────────────
+// types.ts — Tipos globales de POSmaster
+// Incluye: CORE POS + todos los módulos especializados
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CORE — ENUMS
+// ══════════════════════════════════════════════════════════════════════════════
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   MANAGER = 'MANAGER',
@@ -13,15 +21,14 @@ export enum ProductType {
 }
 
 export enum SaleStatus {
-  COMPLETED = 'COMPLETED', // Venta local completada
+  COMPLETED = 'COMPLETED',
   PENDING = 'PENDING',
   CANCELLED = 'CANCELLED',
   CREDIT_PENDING = 'CREDIT_PENDING',
-  // DIAN Statuses
-  PENDING_ELECTRONIC = 'PENDING_ELECTRONIC', // Lista para enviar
-  SENT_TO_DIAN = 'SENT_TO_DIAN', // Enviada, esperando respuesta
-  ACCEPTED = 'ACCEPTED', // Aceptada por DIAN
-  REJECTED = 'REJECTED', // Rechazada por DIAN
+  PENDING_ELECTRONIC = 'PENDING_ELECTRONIC',
+  SENT_TO_DIAN = 'SENT_TO_DIAN',
+  ACCEPTED = 'ACCEPTED',
+  REJECTED = 'REJECTED',
   ACCEPTED_WITH_ERRORS = 'ACCEPTED_WITH_ERRORS'
 }
 
@@ -41,11 +48,13 @@ export enum RepairStatus {
 }
 
 export enum DianEnvironment {
-  TEST = 'TEST', // Habilitación
+  TEST = 'TEST',
   PRODUCTION = 'PRODUCTION'
 }
 
-// --- INTERFACES ---
+// ══════════════════════════════════════════════════════════════════════════════
+// CORE — INTERFACES
+// ══════════════════════════════════════════════════════════════════════════════
 
 export interface Company {
   id: string;
@@ -75,14 +84,14 @@ export interface DianSettings {
   company_id: string;
   software_id: string;
   software_pin: string;
-  certificate_url?: string; // .p12 file path in storage
+  certificate_url?: string;
   certificate_password?: string;
   resolution_number: string;
   prefix: string;
   current_number: number;
   range_from: number;
   range_to: number;
-  technical_key: string; // Clave técnica DIAN
+  technical_key: string;
   environment: DianEnvironment;
   is_active: boolean;
 }
@@ -95,8 +104,8 @@ export interface ElectronicDocument {
   cufe: string;
   qr_data: string;
   status: SaleStatus;
-  dian_response?: string; // JSON or XML response from DIAN
-  track_id?: string; // ID de seguimiento DIAN
+  dian_response?: string;
+  track_id?: string;
   sent_at?: string;
   validated_at?: string;
   errors?: string[];
@@ -114,7 +123,7 @@ export interface Product {
   type: ProductType;
   category?: string;
   brand?: string;
-  stock_quantity: number; // Virtual field for UI
+  stock_quantity: number;
 }
 
 export interface Customer {
@@ -147,9 +156,9 @@ export interface Sale {
   status: SaleStatus;
   created_at: string;
   items: CartItem[];
-  dian_cufe?: string; // Código Único de Facturación Electrónica
+  dian_cufe?: string;
   dian_qr_data?: string;
-  electronic_doc?: ElectronicDocument; // Link to electronic document details
+  electronic_doc?: ElectronicDocument;
 }
 
 export interface RepairOrder {
@@ -175,3 +184,503 @@ export interface CashRegisterSession {
   total_sales_cash: number;
   total_sales_card: number;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: FARMACIA  (tablas: pharma_*)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface PharmaMedication {
+  id: string;
+  company_id: string;
+  name: string;
+  sku: string;
+  barcode?: string;
+  category: string;
+  laboratory: string;
+  presentation: string;
+  concentration: string;
+  med_type: 'GENERIC' | 'COMMERCIAL';
+  price: number;
+  cost: number;
+  stock_total: number;
+  requires_prescription: boolean;
+  is_controlled: boolean;
+  is_active: boolean;
+  image_url?: string;
+}
+
+export interface PharmaLot {
+  id: string;
+  company_id: string;
+  medication_id: string;
+  medication_name?: string;
+  lot_number: string;
+  expiry_date: string;
+  quantity: number;
+  purchase_price: number;
+  supplier_id?: string;
+  supplier_name?: string;
+  created_at: string;
+}
+
+export interface PharmaSupplier {
+  id: string;
+  company_id: string;
+  name: string;
+  nit: string;
+  phone: string;
+  address: string;
+  email: string;
+  notes?: string;
+}
+
+export interface PharmaPurchase {
+  id: string;
+  company_id: string;
+  supplier_id: string;
+  supplier_name?: string;
+  purchase_date: string;
+  total_amount: number;
+  notes?: string;
+  items: PharmaPurchaseItem[];
+  created_at: string;
+}
+
+export interface PharmaPurchaseItem {
+  medication_id: string;
+  medication_name: string;
+  lot_number: string;
+  expiry_date: string;
+  quantity: number;
+  unit_cost: number;
+}
+
+export interface PharmaPrescription {
+  id: string;
+  company_id: string;
+  patient_name: string;
+  patient_document: string;
+  doctor_name: string;
+  prescription_date: string;
+  medications: string;
+  notes?: string;
+  image_url?: string;
+  created_at: string;
+}
+
+export interface PharmaControlledSale {
+  id: string;
+  company_id: string;
+  medication_id: string;
+  medication_name?: string;
+  patient_name: string;
+  patient_document: string;
+  prescription_number: string;
+  doctor_name: string;
+  sale_date: string;
+  quantity: number;
+  created_at: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: ODONTOLOGÍA  (tablas: odonto_*)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type OdontoPersonalType = 'ODONTOLOGO' | 'AUXILIAR' | 'HIGIENISTA' | 'RECEPCION';
+export type OdontoPersonalStatus = 'ACTIVO' | 'INACTIVO';
+export type OdontoConsultorioStatus = 'DISPONIBLE' | 'OCUPADO' | 'INACTIVO';
+export type OdontoCitaStatus = 'PROGRAMADA' | 'ATENDIDA' | 'CANCELADA';
+export type OdontoPlanDuracion = 'MENSUAL' | 'ANUAL';
+export type OdontoFacturaStatus = 'PAGADA' | 'PENDIENTE' | 'ABONO';
+
+export interface OdontoPersonal {
+  id?: string;
+  company_id?: string;
+  nombre: string;
+  documento: string;
+  tipo: OdontoPersonalType;
+  especialidad: string;
+  telefono: string;
+  estado: OdontoPersonalStatus;
+}
+
+export interface OdontoConsultorio {
+  id?: string;
+  company_id?: string;
+  nombre: string;
+  odontologo_id: string;
+  auxiliar_id: string;
+  estado: OdontoConsultorioStatus;
+  observaciones: string;
+}
+
+export interface OdontoPaciente {
+  id?: string;
+  company_id?: string;
+  nombre: string;
+  documento: string;
+  telefono: string;
+  correo: string;
+  direccion: string;
+  fecha_nacimiento: string;
+  grupo_sanguineo: string;
+  alergias: string;
+  antecedentes: string;
+  observaciones: string;
+}
+
+export interface OdontoCita {
+  id?: string;
+  company_id?: string;
+  paciente_id: string;
+  paciente_nombre?: string;
+  odontologo_id: string;
+  odontologo_nombre?: string;
+  consultorio_id: string;
+  fecha: string;
+  hora: string;
+  motivo: string;
+  estado: OdontoCitaStatus;
+  notas: string;
+}
+
+export interface OdontoHistoriaClinica {
+  id?: string;
+  company_id?: string;
+  paciente_id: string;
+  paciente_nombre?: string;
+  odontologo_id: string;
+  fecha: string;
+  motivo_consulta: string;
+  diagnostico: string;
+  tratamiento: string;
+  dientes_tratados: string;
+  observaciones: string;
+  proxima_cita: string;
+}
+
+export interface OdontoServicio {
+  id?: string;
+  company_id?: string;
+  nombre: string;
+  descripcion: string;
+  precio: number;
+  activo: boolean;
+}
+
+export interface OdontoPlan {
+  id?: string;
+  company_id?: string;
+  nombre: string;
+  descripcion: string;
+  precio: number;
+  duracion: OdontoPlanDuracion;
+  sesiones_incluidas: number;
+  activo: boolean;
+}
+
+export interface OdontoFactura {
+  id?: string;
+  company_id?: string;
+  paciente_id: string;
+  paciente_nombre?: string;
+  servicio_descripcion: string;
+  total: number;
+  abonado: number;
+  saldo: number;
+  estado: OdontoFacturaStatus;
+  fecha: string;
+  notas: string;
+}
+
+export interface OdontoDienteEstado {
+  numero: number;
+  estado: 'sano' | 'caries' | 'obturado' | 'extraccion' | 'corona' | 'implante' | 'ausente';
+  notas: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: VETERINARIA  (tablas: vet_*)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type VetPersonalType  = 'VETERINARIO' | 'AUXILIAR' | 'CIRUJANO' | 'RECEPCION';
+export type VetPersonalStatus = 'ACTIVO' | 'INACTIVO';
+export type VetConsultorioStatus = 'DISPONIBLE' | 'OCUPADO' | 'INACTIVO';
+export type VetCitaStatus    = 'PROGRAMADA' | 'ATENDIDA' | 'CANCELADA';
+export type VetHospitalizacionStatus = 'HOSPITALIZADO' | 'ALTA';
+export type VetFacturaStatus = 'PAGADA' | 'PENDIENTE' | 'ABONO';
+
+export interface VetPropietario {
+  id?: string; company_id?: string;
+  nombre: string; documento: string; telefono: string;
+  correo: string; direccion: string; observaciones: string;
+}
+
+export interface VetMascota {
+  id?: string; company_id?: string;
+  nombre: string; propietario_id: string; propietario_nombre?: string;
+  especie: string; raza: string; sexo: 'MACHO' | 'HEMBRA';
+  fecha_nacimiento: string; peso_inicial: number; color: string;
+  microchip: string; observaciones: string;
+}
+
+export interface VetPersonal {
+  id?: string; company_id?: string;
+  nombre: string; documento: string; tipo: VetPersonalType;
+  especialidad: string; telefono: string; estado: VetPersonalStatus;
+}
+
+export interface VetConsultorio {
+  id?: string; company_id?: string;
+  nombre: string; veterinario_id: string; auxiliar_id: string;
+  estado: VetConsultorioStatus; observaciones: string;
+}
+
+export interface VetCita {
+  id?: string; company_id?: string;
+  mascota_id: string; mascota_nombre?: string;
+  propietario_id: string; propietario_nombre?: string;
+  veterinario_id: string; veterinario_nombre?: string;
+  consultorio_id: string;
+  fecha: string; hora: string; motivo: string;
+  estado: VetCitaStatus; notas: string;
+}
+
+export interface VetHistoriaClinica {
+  id?: string; company_id?: string;
+  mascota_id: string; mascota_nombre?: string;
+  veterinario_id: string; fecha: string;
+  motivo_consulta: string; diagnostico: string; tratamiento: string;
+  temperatura: number; peso: number; observaciones: string;
+}
+
+export interface VetVacuna {
+  id?: string; company_id?: string;
+  mascota_id: string; mascota_nombre?: string;
+  nombre_vacuna: string; fecha_aplicacion: string;
+  proxima_dosis: string; veterinario_id: string; lote: string; observaciones: string;
+}
+
+export interface VetControlPeso {
+  id?: string; company_id?: string;
+  mascota_id: string; fecha: string;
+  peso: number; observaciones: string;
+}
+
+export interface VetHospitalizacion {
+  id?: string; company_id?: string;
+  mascota_id: string; mascota_nombre?: string;
+  fecha_ingreso: string; fecha_alta?: string;
+  motivo: string; veterinario_id: string;
+  estado: VetHospitalizacionStatus; observaciones: string;
+}
+
+export interface VetMedicamento {
+  id?: string; company_id?: string;
+  nombre: string; tipo: string; presentacion: string;
+  stock: number; precio: number;
+}
+
+export interface VetServicio {
+  id?: string; company_id?: string;
+  nombre: string; descripcion: string; precio: number; activo: boolean;
+}
+
+export interface VetPlan {
+  id?: string; company_id?: string;
+  nombre: string; precio: number;
+  servicios_incluidos: string; descuento: number;
+  estado: 'ACTIVO' | 'INACTIVO';
+}
+
+export interface VetFactura {
+  id?: string; company_id?: string;
+  mascota_id: string; mascota_nombre?: string; propietario_nombre?: string;
+  servicio_descripcion: string; total: number;
+  abonado: number; saldo: number;
+  estado: VetFacturaStatus; fecha: string; notas: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: SALÓN DE BELLEZA  (tablas: salon_*)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type SalonServiceStatus = 'WAITING' | 'ASSIGNED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+
+export interface SalonService {
+  id: string;
+  company_id: string;
+  name: string;
+  duration_min: number;
+  price: number;
+  category: string;
+  is_active: boolean;
+}
+
+export interface SalonStylist {
+  id: string;
+  company_id: string;
+  name: string;
+  specialty: string;
+  phone?: string;
+  is_active: boolean;
+}
+
+export interface SalonOrder {
+  id: string;
+  company_id: string;
+  customer_name: string;
+  customer_phone?: string;
+  service_id: string;
+  service_name?: string;
+  stylist_id?: string;
+  stylist_name?: string;
+  status: SalonServiceStatus;
+  price: number;
+  notes?: string;
+  started_at?: string;
+  finished_at?: string;
+  invoice_id?: string;
+  created_at: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: ZAPATERÍA / MARROQUINERÍA  (tablas: shoe_repair_*)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type ShoeRepairStatus = 'RECEIVED' | 'ASSIGNED' | 'IN_REPAIR' | 'PENDING_DELIVERY' | 'DELIVERED' | 'CANCELLED';
+
+export interface ShoeRepairOrder {
+  id: string;
+  company_id: string;
+  ticket_number: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_document?: string;
+  item_description: string;
+  item_brand?: string;
+  item_color?: string;
+  issue_description: string;
+  service_type: string;
+  estimated_cost: number;
+  final_cost?: number;
+  status: ShoeRepairStatus;
+  technician_id?: string;
+  technician_name?: string;
+  received_at: string;
+  estimated_delivery?: string;
+  delivered_at?: string;
+  invoice_id?: string;
+  notes?: string;
+  photo_url?: string;
+}
+
+export interface ShoeRepairTechnician {
+  id: string;
+  company_id: string;
+  name: string;
+  specialty?: string;
+  phone?: string;
+  is_active: boolean;
+}
+
+export interface ShoeRepairMaterial {
+  id: string;
+  company_id: string;
+  name: string;
+  unit: string;
+  stock: number;
+  cost: number;
+  is_active: boolean;
+}
+
+export interface ShoeRepairHistoryEntry {
+  id: string;
+  company_id: string;
+  repair_id: string;
+  event: string;
+  description: string;
+  user_name: string;
+  created_at: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: RESTAURANTE  (tablas: restaurant_*, table_orders)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type RestaurantTableStatus = 'FREE' | 'OCCUPIED' | 'ORDERING' | 'READY' | 'BILLING';
+export type RestaurantOrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+export type KitchenItemStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED';
+
+export interface RestaurantTable {
+  id: string;
+  company_id: string;
+  number: number;
+  capacity: number;
+  status: RestaurantTableStatus;
+  current_order_id?: string;
+  area?: string;
+}
+
+export interface RestaurantOrderItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  price: number;
+  notes?: string;
+  status: KitchenItemStatus;
+}
+
+export interface RestaurantOrder {
+  id: string;
+  company_id: string;
+  table_id: string;
+  table_number?: number;
+  items: RestaurantOrderItem[];
+  status: RestaurantOrderStatus;
+  total: number;
+  waiter_name?: string;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: INSUMOS  (tablas: supplies, supply_movements)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type SupplyUnitType = 'unidad' | 'gramo' | 'kilogramo' | 'mililitro' | 'litro' | 'metro' | 'centimetro' | 'caja' | 'rollo' | 'par';
+
+export interface Supply {
+  id: string;
+  company_id: string;
+  name: string;
+  category: string;
+  unit: SupplyUnitType;
+  stock_quantity: number;
+  stock_min: number;
+  cost: number;
+  supplier: string;
+  notes: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SupplyMovement {
+  id: string;
+  company_id: string;
+  supply_id: string;
+  supply_name?: string;
+  type: 'ENTRADA' | 'CONSUMO' | 'AJUSTE';
+  quantity: number;
+  cost_per_unit: number;
+  reason: string;
+  user_name: string;
+  created_at: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: SERVICIO TÉCNICO  (tablas: repair_orders)
+// ══════════════════════════════════════════════════════════════════════════════
+// RepairOrder y RepairStatus ya están definidos en CORE arriba
