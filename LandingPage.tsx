@@ -7,9 +7,11 @@ const CONTACT_EMAIL = 'diegoferrangel@gmail.com';
 const BOLD_PAYMENT_URL = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
 const BOLD_PAYMENT_PRO_URL = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
 
+
 // ── LANDING PAGE ─────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void; onClientPortal?: () => void }> = ({ onLogin, onRegister, onClientPortal }) => {
   const [scrolled, setScrolled] = useState(false);
+  const [activeBiz, setActiveBiz] = useState(0);
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 40);
@@ -17,207 +19,568 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  const plans = [
-    { id: 'TRIAL', name: 'Prueba Gratis', price: 'Gratis', period: '7 días', color: '#10b981', badge: '🎁 Sin tarjeta', features: ['Acceso completo 7 días', 'POS Completo', 'Inventario', 'Control de Caja', 'Servicio Técnico', 'Sin compromiso'], cta: 'Probar Gratis' },
-    { id: 'BASIC', name: 'Basic', price: '$65.000', period: '/mes', color: '#64748b', features: ['1 Negocio', 'POS Completo', 'Inventario Ilimitado', 'Control de Caja', 'Servicio Técnico', 'Cartera / CxC', '1 sucursal · 1 usuario admin', 'Soporte por WhatsApp'], cta: 'Comenzar' },
-    { id: 'PRO', name: 'Pro', price: '$120.000', period: '/mes', color: '#3b82f6', badge: '⭐ Más popular', features: ['Todo lo del Basic', 'Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'PIN de acceso rápido', 'Dashboard multi-sucursal', 'Soporte Prioritario'], cta: 'Comenzar Ahora', popular: true },
-    { id: 'ENTERPRISE', name: 'Enterprise', price: '$249.900', period: '/mes', color: '#8b5cf6', badge: '🏢 Para grandes negocios', features: ['Todo lo del Pro', 'Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación electrónica y convencional', 'API + Webhooks', 'Gerente de cuenta dedicado', 'SLA 99.9% uptime', 'Soporte Dedicado'], cta: 'Contactar Ventas', enterprise: true },
+  // Auto-rotate business types
+  useEffect(() => {
+    const t = setInterval(() => setActiveBiz(p => (p + 1) % businesses.length), 2800);
+    return () => clearInterval(t);
+  }, []);
+
+  const businesses = [
+    { icon: '👟', label: 'Zapaterías',         color: '#f59e0b', desc: 'Reparaciones, pedidos y entregas' },
+    { icon: '🐾', label: 'Veterinarias',        color: '#10b981', desc: 'Historial clínico y vacunas' },
+    { icon: '💇', label: 'Salones de Belleza',  color: '#ec4899', desc: 'Servicios y estilistas' },
+    { icon: '💊', label: 'Farmacias',           color: '#06b6d4', desc: 'Medicamentos y lotes' },
+    { icon: '🔧', label: 'Servicio Técnico',    color: '#6366f1', desc: 'Equipos y diagnósticos' },
+    { icon: '🍽️', label: 'Restaurantes',        color: '#ef4444', desc: 'Mesas, cocina y comandas' },
+    { icon: '🦷', label: 'Odontología',         color: '#3b82f6', desc: 'Pacientes y citas' },
+    { icon: '📱', label: 'Tecnología',          color: '#8b5cf6', desc: 'IMEI, reparaciones y garantías' },
   ];
 
-  const features = [
-    { icon: '🏪', title: 'Punto de Venta', desc: 'POS rápido con soporte de código de barras, IMEI y pagos mixtos.' },
-    { icon: '📦', title: 'Inventario Inteligente', desc: 'Control de stock en tiempo real con alertas de mínimos y fotos de producto.' },
-    { icon: '🔧', title: 'Servicio Técnico', desc: 'Gestiona órdenes de reparación con seguimiento de estado y técnico asignado.' },
-    { icon: '💰', title: 'Control de Caja', desc: 'Apertura, cierre y arqueo de turnos con historial detallado.' },
-    { icon: '📊', title: 'Dashboard', desc: 'Métricas reales de ventas, utilidad y rendimiento de tu negocio.' },
-    { icon: '🤝', title: 'Cartera / CxC', desc: 'Controla cuentas por cobrar, deudas de clientes y pagos pendientes.' },
+  const bizModules = [
+    {
+      icon: '👟', name: 'Zapaterías & Marroquinería', color: '#f59e0b',
+      items: ['Control de órdenes de reparación', 'Seguimiento por cliente y modelo', 'Registro de materiales usados', 'Estado del trabajo en tiempo real'],
+    },
+    {
+      icon: '🐾', name: 'Clínicas Veterinarias', color: '#10b981',
+      items: ['Historia clínica por mascota', 'Control de vacunas y desparasitación', 'Agenda de citas y consultas', 'Hospitalización y seguimiento'],
+    },
+    {
+      icon: '💇', name: 'Salones de Belleza & Spa', color: '#ec4899',
+      items: ['Gestión de servicios y paquetes', 'Comisiones por estilista', 'Control de productos usados', 'Agenda y reservas'],
+    },
+    {
+      icon: '💊', name: 'Farmacias & Droguerías', color: '#06b6d4',
+      items: ['Inventario con lotes y vencimientos', 'Alertas de stock mínimo', 'Registro de medicamentos controlados', 'Recetas y proveedores'],
+    },
+    {
+      icon: '🔧', name: 'Servicio Técnico', color: '#6366f1',
+      items: ['Órdenes de trabajo con diagnóstico', 'IMEI, serial y modelo del equipo', 'Técnico asignado y estado', 'Entrega y garantía'],
+    },
+    {
+      icon: '🍽️', name: 'Restaurantes & Cafeterías', color: '#ef4444',
+      items: ['Gestión de mesas en tiempo real', 'Comandas a cocina', 'Combos y modificadores', 'Display de cocina integrado'],
+    },
   ];
+
+  const plans = [
+    {
+      id: 'TRIAL', name: 'Prueba Gratis', price: 'Gratis', period: '7 días',
+      color: '#10b981', borderColor: 'rgba(16,185,129,0.35)',
+      badge: '🎁 Sin tarjeta',
+      features: ['Acceso completo 7 días', 'POS Completo', 'Inventario', 'Control de Caja', 'Servicio Técnico', 'Sin compromiso'],
+      cta: 'Probar Gratis',
+    },
+    {
+      id: 'BASIC', name: 'Basic', price: '$65.000', period: '/mes',
+      color: '#64748b', borderColor: 'rgba(100,116,139,0.3)',
+      desc: 'Para negocios pequeños',
+      features: ['1 Negocio · 1 sucursal', 'POS Completo', 'Inventario Ilimitado', 'Control de Caja', 'Servicio Técnico', 'Cartera / CxC', 'Soporte por WhatsApp'],
+      cta: 'Comenzar',
+    },
+    {
+      id: 'PRO', name: 'Pro', price: '$120.000', period: '/mes',
+      color: '#3b82f6', borderColor: 'rgba(59,130,246,0.5)',
+      badge: '⭐ Más popular', popular: true,
+      desc: 'Para negocios con varias sucursales',
+      features: ['Todo lo del Basic', 'Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'PIN de acceso rápido', 'Dashboard avanzado', 'Soporte Prioritario'],
+      cta: 'Comenzar Ahora',
+    },
+    {
+      id: 'ENTERPRISE', name: 'Enterprise', price: '$249.900', period: '/mes',
+      color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.5)',
+      badge: '🏢 Para grandes negocios', enterprise: true,
+      desc: 'Empresas con facturación electrónica y API',
+      features: ['Todo lo del Pro', 'Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación electrónica', 'API + Webhooks', 'Gerente de cuenta dedicado', 'SLA 99.9%'],
+      cta: 'Contactar Ventas',
+    },
+  ];
+
+  const painPoints = [
+    { bad: '❌ Cuadernos y papelitos', good: '✅ Todo digital y organizado' },
+    { bad: '❌ Excel desactualizado',  good: '✅ Inventario en tiempo real' },
+    { bad: '❌ No saber cuánto vendes', good: '✅ Dashboard con tus métricas' },
+    { bad: '❌ Clientes que deben sin control', good: '✅ Cartera / CxC integrada' },
+    { bad: '❌ Reparaciones sin seguimiento', good: '✅ Órdenes con estado y técnico' },
+    { bad: '❌ Caja cuadrada a ojo', good: '✅ Arqueo automático por turno' },
+  ];
+
+  const payments = [
+    { name: 'Wompi', color: '#7c3aed' },
+    { name: 'Bold', color: '#f59e0b' },
+    { name: 'PayU', color: '#2563eb' },
+    { name: 'PSE', color: '#059669' },
+    { name: 'Datáfono', color: '#64748b' },
+    { name: 'Efectivo', color: '#10b981' },
+  ];
+
+  // ── inline keyframes via <style>
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
+    @keyframes fadeUp { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes pulse-ring { 0%,100%{transform:scale(1);opacity:.6} 50%{transform:scale(1.18);opacity:0} }
+    @keyframes ticker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+    @keyframes glow-blue { 0%,100%{box-shadow:0 0 20px rgba(59,130,246,.3)} 50%{box-shadow:0 0 40px rgba(59,130,246,.6)} }
+    .fade-up { animation: fadeUp .7s ease both; }
+    .d1 { animation-delay:.1s } .d2{animation-delay:.22s} .d3{animation-delay:.35s} .d4{animation-delay:.5s} .d5{animation-delay:.65s}
+    .plan-card:hover { transform:translateY(-4px); transition:transform .2s; }
+    .biz-card:hover { border-color:rgba(255,255,255,.2) !important; background:rgba(255,255,255,.07) !important; }
+    .feat-card:hover { border-color:rgba(59,130,246,.4) !important; }
+  `;
+
+  const C = {
+    bg:   '#080d1a',
+    bg2:  '#0d1426',
+    card: 'rgba(255,255,255,0.04)',
+    border: 'rgba(255,255,255,0.08)',
+    text:  '#f1f5f9',
+    muted: '#64748b',
+    dim:   '#94a3b8',
+    blue:  '#3b82f6',
+    violet:'#8b5cf6',
+  };
 
   return (
-    <div style={{ fontFamily: "'DM Sans','Segoe UI',sans-serif", background: '#0a0f1e', color: '#f1f5f9', minHeight: '100vh' }}>
-      {/* NAV */}
+    <div style={{ fontFamily:"'DM Sans','Segoe UI',sans-serif", background: C.bg, color: C.text, minHeight:'100vh', overflowX:'hidden' }}>
+      <style>{css}</style>
+
+      {/* ── NAV ── */}
       <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        background: scrolled ? 'rgba(10,15,30,0.95)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(12px)' : 'none',
-        borderBottom: scrolled ? '1px solid rgba(255,255,255,0.08)' : 'none',
-        transition: 'all 0.3s', padding: '0 5%',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64
+        position:'fixed', top:0, left:0, right:0, zIndex:100,
+        background: scrolled ? 'rgba(8,13,26,0.97)' : 'transparent',
+        backdropFilter: scrolled ? 'blur(16px)' : 'none',
+        borderBottom: scrolled ? `1px solid ${C.border}` : 'none',
+        transition:'all .35s', padding:'0 6%',
+        display:'flex', alignItems:'center', justifyContent:'space-between', height:64,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 36, width: 'auto', filter: 'brightness(0) invert(1)' }} />
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png"
+            alt="POSmaster" style={{height:34,width:'auto',filter:'brightness(0) invert(1)'}} />
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {onClientPortal && (
-            <button onClick={onClientPortal} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>👤 Mis facturas</button>
+            <button onClick={onClientPortal} style={{background:'rgba(255,255,255,0.06)',border:`1px solid ${C.border}`,color:C.dim,padding:'7px 16px',borderRadius:8,cursor:'pointer',fontWeight:600,fontSize:13}}>
+              👤 Mis facturas
+            </button>
           )}
-          <button onClick={onLogin} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: '#f1f5f9', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>Ingresar</button>
-          <button onClick={onRegister} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>Registrarse</button>
+          <button onClick={onLogin} style={{background:'transparent',border:`1px solid rgba(255,255,255,0.18)`,color:C.text,padding:'7px 18px',borderRadius:8,cursor:'pointer',fontWeight:600,fontSize:13}}>
+            Ingresar
+          </button>
+          <button onClick={onRegister} style={{background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',color:'#fff',padding:'8px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13,boxShadow:'0 0 18px rgba(99,102,241,.35)'}}>
+            Registrarse
+          </button>
         </div>
       </nav>
 
-      {/* HERO */}
-      <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '80px 5% 60px', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle,rgba(59,130,246,0.15) 0%,transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 780 }}>
-          <div style={{ display: 'inline-block', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', padding: '6px 16px', borderRadius: 100, fontSize: 13, fontWeight: 600, marginBottom: 24 }}>
+      {/* ── HERO ── */}
+      <section style={{
+        minHeight:'100vh', display:'flex', flexDirection:'column',
+        alignItems:'center', justifyContent:'center',
+        textAlign:'center', padding:'100px 6% 80px', position:'relative', overflow:'hidden',
+      }}>
+        {/* Background orbs */}
+        <div style={{position:'absolute',top:'15%',left:'20%',width:500,height:500,background:'radial-gradient(circle,rgba(59,130,246,0.12) 0%,transparent 70%)',pointerEvents:'none',borderRadius:'50%'}} />
+        <div style={{position:'absolute',bottom:'20%',right:'15%',width:400,height:400,background:'radial-gradient(circle,rgba(139,92,246,0.1) 0%,transparent 70%)',pointerEvents:'none',borderRadius:'50%'}} />
+
+        <div style={{position:'relative',zIndex:1,maxWidth:820}}>
+          {/* Badge */}
+          <div className="fade-up d1" style={{display:'inline-flex',alignItems:'center',gap:8,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.25)',color:'#93c5fd',padding:'6px 18px',borderRadius:100,fontSize:13,fontWeight:600,marginBottom:28}}>
+            <span style={{width:7,height:7,borderRadius:'50%',background:'#3b82f6',display:'inline-block',boxShadow:'0 0 8px #3b82f6',animation:'pulse-ring 2s ease infinite'}} />
             🇨🇴 Hecho para negocios colombianos
           </div>
-          {/* Logo centrado sobre el título */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-            <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 250, width: 'auto', filter: 'drop-shadow(0 4px 24px rgba(139,92,246,0.4))' }} />
+
+          {/* Logo */}
+          <div className="fade-up d1" style={{display:'flex',justifyContent:'center',marginBottom:32}}>
+            <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png"
+              alt="POSmaster" style={{height:200,width:'auto',filter:'drop-shadow(0 8px 32px rgba(99,102,241,0.45))'}} />
           </div>
-          <h1 style={{ fontSize: 'clamp(2.5rem,6vw,4.5rem)', fontWeight: 900, lineHeight: 1.05, marginBottom: 24, letterSpacing: '-2px' }}>
-            El POS que{' '}
-            <span style={{ background: 'linear-gradient(135deg,#3b82f6,#a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>hace crecer</span>
-            {' '}tu negocio
+
+          {/* Headline */}
+          <h1 className="fade-up d2" style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(2.2rem,5.5vw,4.2rem)',fontWeight:800,lineHeight:1.08,marginBottom:16,letterSpacing:'-2px'}}>
+            El sistema POS{' '}
+            <span style={{background:'linear-gradient(135deg,#3b82f6,#a78bfa)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>especializado</span>
+            <br/>para tu tipo de negocio
           </h1>
-          <p style={{ fontSize: 'clamp(1rem,2vw,1.25rem)', color: '#94a3b8', lineHeight: 1.7, marginBottom: 40, maxWidth: 560, margin: '0 auto 40px' }}>
-            Más control, más ventas, menos complicaciones. POS, inventario, servicios y caja en una sola plataforma para que administres tu negocio de forma fácil y profesional.
-          </p>
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', border: 'none', color: '#fff', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 16, boxShadow: '0 0 30px rgba(99,102,241,0.4)' }}>Ya tengo cuenta</button>
-            <button onClick={onRegister} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '14px 32px', borderRadius: 12, cursor: 'pointer', fontWeight: 600, fontSize: 16 }}>Elegir plan y registrarse →</button>
 
-          </div>
-          <p style={{ color: '#475569', fontSize: 13, marginTop: 20 }}>7 días gratis sin tarjeta • Planes desde $65.000/mes</p>
-        </div>
-      </section>
-
-      {/* PLANS */}
-      <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Planes y precios</h2>
-        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Empieza gratis, crece cuando lo necesites</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
-          {plans.map(plan => (
-            <div key={plan.id} style={{
-              background: (plan as any).enterprise ? 'linear-gradient(135deg,rgba(139,92,246,0.15),rgba(109,40,217,0.1))' : (plan as any).popular ? 'linear-gradient(135deg,rgba(59,130,246,0.1),rgba(99,102,241,0.1))' : 'rgba(255,255,255,0.03)',
-              border: (plan as any).enterprise ? '2px solid rgba(139,92,246,0.5)' : (plan as any).popular ? '2px solid rgba(59,130,246,0.5)' : '1px solid rgba(255,255,255,0.07)',
-              borderRadius: 20, padding: '24px 20px', position: 'relative', display: 'flex', flexDirection: 'column'
-            }}>
-              {(plan as any).popular && (
-                <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', padding: '4px 16px', borderRadius: 100, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>MÁS POPULAR</div>
-              )}
-              {(plan as any).enterprise && (
-                <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', color: '#fff', padding: '4px 16px', borderRadius: 100, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>🏢 ENTERPRISE</div>
-              )}
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontWeight: 700, fontSize: 18, marginBottom: 12, color: plan.color }}>{plan.name}</h3>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span style={{ fontSize: 36, fontWeight: 900, letterSpacing: '-1px' }}>{plan.price}</span>
-                  <span style={{ color: '#64748b', fontSize: 14 }}>{plan.period}</span>
+          {/* Rotating business type */}
+          <div className="fade-up d2" style={{marginBottom:20,height:52,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            {businesses.map((b, i) => (
+              <div key={i} style={{
+                position:'absolute',
+                opacity: activeBiz === i ? 1 : 0,
+                transform: activeBiz === i ? 'translateY(0)' : 'translateY(12px)',
+                transition:'all .4s ease',
+                display:'flex',alignItems:'center',gap:10,
+                background:`${b.color}18`,
+                border:`1px solid ${b.color}40`,
+                borderRadius:12,padding:'10px 20px',
+              }}>
+                <span style={{fontSize:22}}>{b.icon}</span>
+                <div style={{textAlign:'left'}}>
+                  <p style={{margin:0,fontWeight:700,fontSize:15,color:b.color}}>{b.label}</p>
+                  <p style={{margin:0,fontSize:12,color:C.dim}}>{b.desc}</p>
                 </div>
               </div>
-              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 32px', flex: 1 }}>
-                {plan.features.map((feat, i) => (
-                  <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 14, color: '#cbd5e1' }}>
-                    <span style={{ color: (plan as any).enterprise ? '#a78bfa' : '#22c55e', fontWeight: 700 }}>✓</span> {feat}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => (plan as any).enterprise
-                  ? window.open('https://wa.me/573001234567?text=Hola%2C+quiero+información+sobre+el+plan+Enterprise+de+POSmaster', '_blank')
-                  : onRegister()}
-                style={{
-                  background: (plan as any).enterprise ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : (plan as any).popular ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(255,255,255,0.08)',
-                  border: 'none', color: '#fff', padding: '12px 24px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 15, width: '100%'
-                }}>{plan.cta}</button>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          <p className="fade-up d3" style={{fontSize:'clamp(.95rem,1.8vw,1.15rem)',color:C.dim,lineHeight:1.75,margin:'0 auto 16px',maxWidth:560}}>
+            Ventas, inventario, servicios, clientes y caja desde una sola plataforma.
+            Sin complicaciones. Sin papelitos. Sin excusas.
+          </p>
+
+          {/* Business pill grid */}
+          <div className="fade-up d3" style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginBottom:40}}>
+            {businesses.map((b,i) => (
+              <button key={i} onClick={() => setActiveBiz(i)} style={{
+                display:'flex',alignItems:'center',gap:6,
+                padding:'6px 14px',borderRadius:100,border:`1px solid ${activeBiz===i ? b.color+'60' : C.border}`,
+                background: activeBiz===i ? `${b.color}18` : 'transparent',
+                color: activeBiz===i ? b.color : C.muted,
+                cursor:'pointer',fontSize:13,fontWeight:600,transition:'all .2s',
+              }}>
+                <span>{b.icon}</span>{b.label}
+              </button>
+            ))}
+          </div>
+
+          {/* CTAs */}
+          <div className="fade-up d4" style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:20}}>
+            <button onClick={onRegister} style={{
+              background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',color:'#fff',
+              padding:'15px 36px',borderRadius:12,cursor:'pointer',fontWeight:700,fontSize:16,
+              boxShadow:'0 0 32px rgba(99,102,241,.45)',animation:'glow-blue 3s ease infinite',
+            }}>
+              Probar 7 días gratis →
+            </button>
+            <button onClick={onLogin} style={{
+              background:'rgba(255,255,255,0.05)',border:`1px solid rgba(255,255,255,0.15)`,
+              color:C.text,padding:'15px 32px',borderRadius:12,cursor:'pointer',fontWeight:600,fontSize:16,
+            }}>
+              Ya tengo cuenta
+            </button>
+          </div>
+          <p className="fade-up d5" style={{color:'#475569',fontSize:13}}>
+            7 días gratis sin tarjeta • Planes desde $65.000/mes • Activación inmediata
+          </p>
         </div>
       </section>
 
-      {/* COMPARATIVA DE PLANES */}
-      <section style={{ padding: '60px 5%', maxWidth: 1100, margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.5rem,3.5vw,2.2rem)', fontWeight: 800, marginBottom: 8, letterSpacing: '-1px' }}>Comparativa de planes</h2>
-        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 40, fontSize: 15 }}>Todo lo que incluye cada plan</p>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', background: 'rgba(255,255,255,0.03)', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <thead>
-              <tr>
-                <th style={{ padding: '16px 20px', textAlign: 'left', color: '#94a3b8', fontSize: 13, fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Función</th>
-                {[
-                  { name: 'Basic', color: '#64748b' },
-                  { name: 'Pro', color: '#3b82f6' },
-                  { name: 'Enterprise', color: '#8b5cf6' },
-                ].map(p => (
-                  <th key={p.name} style={{ padding: '16px 20px', textAlign: 'center', color: p.color, fontSize: 15, fontWeight: 800, borderBottom: '1px solid rgba(255,255,255,0.08)', minWidth: 120 }}>{p.name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { feature: 'POS y ventas', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'Inventario ilimitado', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'Control de caja', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'Servicio técnico', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'Cartera / CxC', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'Sucursales', basic: '1', pro: 'Hasta 3', enterprise: 'Ilimitadas' },
-                { feature: 'Usuarios / colaboradores', basic: '1 admin', pro: 'Hasta 5', enterprise: 'Ilimitados' },
-                { feature: 'Roles y permisos', basic: '❌', pro: '✅', enterprise: '✅' },
-                { feature: 'PIN de acceso rápido', basic: '❌', pro: '✅', enterprise: '✅' },
-                { feature: 'Dashboard multi-sucursal', basic: '❌', pro: '✅', enterprise: '✅' },
-                { feature: 'Facturación electrónica y convencional', basic: '❌', pro: '❌', enterprise: '✅' },
-                { feature: 'API + Webhooks', basic: '❌', pro: '❌', enterprise: '✅' },
-                { feature: 'Gerente de cuenta dedicado', basic: '❌', pro: '❌', enterprise: '✅' },
-                { feature: 'Métodos de pago del negocio', basic: '✅', pro: '✅', enterprise: '✅' },
-                { feature: 'SLA uptime', basic: '99%', pro: '99.5%', enterprise: '99.9%' },
-                { feature: 'Soporte', basic: 'WhatsApp', pro: 'Prioritario', enterprise: 'Dedicado' },
-              ].map((row, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-                  <td style={{ padding: '13px 20px', fontSize: 14, color: '#cbd5e1', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{row.feature}</td>
-                  <td style={{ padding: '13px 20px', textAlign: 'center', fontSize: 14, color: '#94a3b8', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{row.basic}</td>
-                  <td style={{ padding: '13px 20px', textAlign: 'center', fontSize: 14, color: '#60a5fa', borderBottom: '1px solid rgba(255,255,255,0.05)', fontWeight: row.pro === '✅' ? 700 : 400 }}>{row.pro}</td>
-                  <td style={{ padding: '13px 20px', textAlign: 'center', fontSize: 14, color: '#a78bfa', borderBottom: '1px solid rgba(255,255,255,0.05)', fontWeight: row.enterprise === '✅' ? 700 : 400 }}>{row.enterprise}</td>
+      {/* ── PAIN POINTS ── */}
+      <section style={{padding:'80px 6%',background:C.bg2}}>
+        <div style={{maxWidth:1100,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:56}}>
+            <p style={{color:C.blue,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:'uppercase',marginBottom:12}}>¿Te identificas?</p>
+            <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.6rem,3.5vw,2.4rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:12}}>
+              Problemas que POSmaster <span style={{color:C.blue}}>resuelve</span>
+            </h2>
+            <p style={{color:C.muted,fontSize:15,maxWidth:500,margin:'0 auto'}}>
+              Muchos negocios colombianos aún trabajan así — y pierden plata sin saberlo
+            </p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
+            {painPoints.map((p,i) => (
+              <div key={i} style={{
+                background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:'20px 24px',
+                display:'flex',flexDirection:'column',gap:10,
+              }}>
+                <p style={{margin:0,color:'#f87171',fontSize:14,fontWeight:500}}>{p.bad}</p>
+                <div style={{width:'100%',height:1,background:C.border}} />
+                <p style={{margin:0,color:'#4ade80',fontSize:14,fontWeight:600}}>{p.good}</p>
+              </div>
+            ))}
+          </div>
+          <div style={{textAlign:'center',marginTop:40}}>
+            <button onClick={onRegister} style={{background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',color:'#fff',padding:'12px 32px',borderRadius:10,cursor:'pointer',fontWeight:700,fontSize:15}}>
+              Solucionar todo con POSmaster →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── MÓDULOS POR NEGOCIO ── */}
+      <section style={{padding:'80px 6%'}}>
+        <div style={{maxWidth:1100,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:56}}>
+            <p style={{color:C.violet,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:'uppercase',marginBottom:12}}>Especialización</p>
+            <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.6rem,3.5vw,2.4rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:12}}>
+              POSmaster se adapta a <span style={{color:C.violet}}>tu negocio</span>
+            </h2>
+            <p style={{color:C.muted,fontSize:15,maxWidth:520,margin:'0 auto'}}>
+              Módulos especializados que ningún POS genérico tiene. El visitante dirá: "este sistema es para mí."
+            </p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:20}}>
+            {bizModules.map((biz,i) => (
+              <div key={i} className="biz-card" style={{
+                background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:'28px 24px',
+                transition:'all .2s',cursor:'default',
+              }}>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+                  <div style={{width:48,height:48,borderRadius:14,background:`${biz.color}20`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>
+                    {biz.icon}
+                  </div>
+                  <h3 style={{fontWeight:700,fontSize:16,color:biz.color,margin:0}}>{biz.name}</h3>
+                </div>
+                <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:8}}>
+                  {biz.items.map((item,j) => (
+                    <li key={j} style={{display:'flex',alignItems:'center',gap:10,fontSize:14,color:C.dim}}>
+                      <span style={{color:biz.color,fontWeight:700,flexShrink:0}}>▸</span>{item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FEATURES ── */}
+      <section style={{padding:'80px 6%',background:C.bg2}}>
+        <div style={{maxWidth:1100,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:56}}>
+            <p style={{color:C.blue,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:'uppercase',marginBottom:12}}>Plataforma completa</p>
+            <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.6rem,3.5vw,2.4rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:12}}>
+              Todo lo que tu negocio necesita
+            </h2>
+            <p style={{color:C.muted,fontSize:15}}>Sin complicaciones. Sin módulos que nunca usarás.</p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:20}}>
+            {[
+              { icon:'🏪', title:'Punto de Venta', desc:'POS rápido con soporte de código de barras, IMEI, pagos mixtos y ventas con cuota.',color:'#3b82f6' },
+              { icon:'📦', title:'Inventario Inteligente', desc:'Stock en tiempo real, alertas de mínimos, fotos de producto y control por categoría.',color:'#10b981' },
+              { icon:'🔧', title:'Servicio Técnico', desc:'Órdenes de reparación con técnico asignado, diagnóstico, IMEI y seguimiento de estado.',color:'#6366f1' },
+              { icon:'💰', title:'Control de Caja', desc:'Apertura, cierre y arqueo de turnos con historial detallado y conciliación automática.',color:'#f59e0b' },
+              { icon:'📊', title:'Dashboard', desc:'Métricas reales de ventas, utilidad estimada, rendimiento por sucursal y por período.',color:'#ec4899' },
+              { icon:'🤝', title:'Cartera / CxC', desc:'Controla deudas, cuentas por cobrar, pagos parciales y envía recordatorios por WhatsApp.',color:'#06b6d4' },
+              { icon:'👥', title:'Historial de Clientes', desc:'Perfil completo por cliente: compras, deudas, categoría VIP/Frecuente y contacto directo.',color:'#8b5cf6' },
+              { icon:'📄', title:'Facturación', desc:'Facturas con número consecutivo, IVA configurable, descuentos y envío por WhatsApp o email.',color:'#ef4444' },
+            ].map((f,i) => (
+              <div key={i} className="feat-card" style={{
+                background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:'24px 22px',
+                transition:'border-color .2s',cursor:'default',
+              }}>
+                <div style={{width:44,height:44,borderRadius:12,background:`${f.color}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,marginBottom:14}}>
+                  {f.icon}
+                </div>
+                <h3 style={{fontWeight:700,fontSize:16,marginBottom:8,color:C.text}}>{f.title}</h3>
+                <p style={{color:C.muted,fontSize:13.5,lineHeight:1.65,margin:0}}>{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── PAGOS COLOMBIA ── */}
+      <section style={{padding:'60px 6%'}}>
+        <div style={{maxWidth:900,margin:'0 auto',textAlign:'center'}}>
+          <p style={{color:C.muted,fontSize:13,fontWeight:600,letterSpacing:2,textTransform:'uppercase',marginBottom:12}}>Integración de pagos</p>
+          <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.4rem,3vw,2rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:8}}>
+            Compatible con todos los medios de pago en Colombia
+          </h2>
+          <p style={{color:C.muted,fontSize:14,marginBottom:36}}>Acepta cómo quieran pagar tus clientes, sin complicaciones</p>
+          <div style={{display:'flex',flexWrap:'wrap',gap:14,justifyContent:'center'}}>
+            {payments.map((p,i) => (
+              <div key={i} style={{
+                padding:'12px 24px',borderRadius:12,
+                background:`${p.color}12`,border:`1px solid ${p.color}35`,
+                color:p.color,fontWeight:700,fontSize:15,
+              }}>
+                {p.name}
+              </div>
+            ))}
+          </div>
+          <p style={{color:'#475569',fontSize:13,marginTop:20}}>
+            También: transferencias, QR, fiado registrado, pagos mixtos y más
+          </p>
+        </div>
+      </section>
+
+      {/* ── PLANES ── */}
+      <section style={{padding:'80px 6%',background:C.bg2}}>
+        <div style={{maxWidth:1100,margin:'0 auto'}}>
+          <div style={{textAlign:'center',marginBottom:56}}>
+            <p style={{color:C.blue,fontWeight:700,fontSize:13,letterSpacing:2,textTransform:'uppercase',marginBottom:12}}>Precios</p>
+            <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.6rem,3.5vw,2.4rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:12}}>
+              Planes y precios
+            </h2>
+            <p style={{color:C.muted,fontSize:15}}>Empieza gratis 7 días. Crece cuando lo necesites.</p>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:16}}>
+            {plans.map(plan => (
+              <div key={plan.id} className="plan-card" style={{
+                background: (plan as any).enterprise
+                  ? 'linear-gradient(135deg,rgba(139,92,246,.12),rgba(109,40,217,.08))'
+                  : (plan as any).popular
+                  ? 'linear-gradient(135deg,rgba(59,130,246,.1),rgba(99,102,241,.08))'
+                  : C.card,
+                border:`${ (plan as any).popular || (plan as any).enterprise ? '2' : '1'}px solid ${plan.borderColor}`,
+                borderRadius:20,padding:'26px 20px',position:'relative',
+                display:'flex',flexDirection:'column',
+              }}>
+                {(plan as any).popular && (
+                  <div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',background:'linear-gradient(135deg,#3b82f6,#6366f1)',color:'#fff',padding:'4px 16px',borderRadius:100,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>
+                    MÁS POPULAR
+                  </div>
+                )}
+                {(plan as any).enterprise && (
+                  <div style={{position:'absolute',top:-13,left:'50%',transform:'translateX(-50%)',background:'linear-gradient(135deg,#8b5cf6,#6d28d9)',color:'#fff',padding:'4px 16px',borderRadius:100,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>
+                    🏢 ENTERPRISE
+                  </div>
+                )}
+                <div style={{marginBottom:8}}>
+                  <h3 style={{fontWeight:700,fontSize:18,marginBottom:4,color:plan.color}}>{plan.name}</h3>
+                  {(plan as any).desc && <p style={{fontSize:12,color:C.muted,margin:'0 0 12px'}}>{(plan as any).desc}</p>}
+                  <div style={{display:'flex',alignItems:'baseline',gap:4}}>
+                    <span style={{fontSize:34,fontWeight:900,letterSpacing:'-1px'}}>{plan.price}</span>
+                    <span style={{color:C.muted,fontSize:14}}>{plan.period}</span>
+                  </div>
+                </div>
+                <ul style={{listStyle:'none',padding:0,margin:'0 0 28px',flex:1}}>
+                  {plan.features.map((feat,i) => (
+                    <li key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:9,fontSize:13.5,color:'#cbd5e1'}}>
+                      <span style={{color:(plan as any).enterprise ? '#a78bfa' : '#22c55e',fontWeight:700,flexShrink:0}}>✓</span>{feat}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => (plan as any).enterprise
+                    ? window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=Hola%2C+quiero+información+sobre+el+plan+Enterprise+de+POSmaster`, '_blank')
+                    : onRegister()}
+                  style={{
+                    background:(plan as any).enterprise
+                      ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)'
+                      : (plan as any).popular
+                      ? 'linear-gradient(135deg,#3b82f6,#6366f1)'
+                      : 'rgba(255,255,255,0.08)',
+                    border:'none',color:'#fff',padding:'12px 24px',borderRadius:10,
+                    cursor:'pointer',fontWeight:700,fontSize:15,width:'100%',
+                  }}>
+                  {plan.cta}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── COMPARATIVA ── */}
+      <section style={{padding:'60px 6%'}}>
+        <div style={{maxWidth:1000,margin:'0 auto'}}>
+          <h2 style={{fontFamily:"'Syne',sans-serif",textAlign:'center',fontSize:'clamp(1.4rem,3vw,2rem)',fontWeight:800,marginBottom:8,letterSpacing:'-1px'}}>
+            Comparativa de planes
+          </h2>
+          <p style={{textAlign:'center',color:C.muted,marginBottom:40,fontSize:14}}>Todo lo que incluye cada plan</p>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',background:C.card,borderRadius:16,overflow:'hidden',border:`1px solid ${C.border}`}}>
+              <thead>
+                <tr>
+                  <th style={{padding:'15px 20px',textAlign:'left',color:C.dim,fontSize:13,fontWeight:600,borderBottom:`1px solid ${C.border}`}}>Función</th>
+                  {[{name:'Basic',color:'#64748b'},{name:'Pro',color:'#3b82f6'},{name:'Enterprise',color:'#8b5cf6'}].map(p => (
+                    <th key={p.name} style={{padding:'15px 20px',textAlign:'center',color:p.color,fontSize:15,fontWeight:800,borderBottom:`1px solid ${C.border}`,minWidth:110}}>{p.name}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {[
+                  {feature:'POS y ventas',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Inventario ilimitado',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Control de caja',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Servicio técnico',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Cartera / CxC',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Historial de clientes',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Módulos especializados',basic:'✅',pro:'✅',enterprise:'✅'},
+                  {feature:'Sucursales',basic:'1',pro:'Hasta 3',enterprise:'Ilimitadas'},
+                  {feature:'Usuarios / colaboradores',basic:'1 admin',pro:'Hasta 5',enterprise:'Ilimitados'},
+                  {feature:'Roles y permisos',basic:'❌',pro:'✅',enterprise:'✅'},
+                  {feature:'PIN de acceso rápido',basic:'❌',pro:'✅',enterprise:'✅'},
+                  {feature:'Dashboard multi-sucursal',basic:'❌',pro:'✅',enterprise:'✅'},
+                  {feature:'Facturación electrónica',basic:'❌',pro:'❌',enterprise:'✅'},
+                  {feature:'API + Webhooks',basic:'❌',pro:'❌',enterprise:'✅'},
+                  {feature:'Gerente de cuenta',basic:'❌',pro:'❌',enterprise:'✅'},
+                  {feature:'SLA uptime',basic:'99%',pro:'99.5%',enterprise:'99.9%'},
+                  {feature:'Soporte',basic:'WhatsApp',pro:'Prioritario',enterprise:'Dedicado'},
+                ].map((row,i) => (
+                  <tr key={i} style={{background:i%2===0?'transparent':'rgba(255,255,255,0.02)'}}>
+                    <td style={{padding:'12px 20px',fontSize:13.5,color:'#cbd5e1',borderBottom:`1px solid rgba(255,255,255,0.04)`}}>{row.feature}</td>
+                    <td style={{padding:'12px 20px',textAlign:'center',fontSize:13.5,color:C.dim,borderBottom:`1px solid rgba(255,255,255,0.04)`}}>{row.basic}</td>
+                    <td style={{padding:'12px 20px',textAlign:'center',fontSize:13.5,color:'#60a5fa',borderBottom:`1px solid rgba(255,255,255,0.04)`,fontWeight:row.pro==='✅'?700:400}}>{row.pro}</td>
+                    <td style={{padding:'12px 20px',textAlign:'center',fontSize:13.5,color:'#a78bfa',borderBottom:`1px solid rgba(255,255,255,0.04)`,fontWeight:row.enterprise==='✅'?700:400}}>{row.enterprise}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-
-      {/* FEATURES */}
-      <section style={{ padding: '80px 5%', maxWidth: 1100, margin: '0 auto' }}>
-        <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.8rem,4vw,2.5rem)', fontWeight: 800, marginBottom: 12, letterSpacing: '-1px' }}>Todo lo que tu negocio necesita</h2>
-        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 56, fontSize: 16 }}>Una plataforma completa, sin complicaciones</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 20 }}>
-          {features.map((f, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 28, transition: 'all 0.2s', cursor: 'default' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(59,130,246,0.4)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(59,130,246,0.05)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.07)'; (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}>
-              <div style={{ fontSize: 32, marginBottom: 14 }}>{f.icon}</div>
-              <h3 style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>{f.title}</h3>
-              <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6 }}>{f.desc}</p>
-            </div>
-          ))}
+      {/* ── CTA FINAL ── */}
+      <section style={{padding:'80px 6%',background:C.bg2}}>
+        <div style={{
+          maxWidth:700,margin:'0 auto',textAlign:'center',
+          background:'linear-gradient(135deg,rgba(59,130,246,0.1),rgba(139,92,246,0.08))',
+          border:`1px solid rgba(99,102,241,0.25)`,
+          borderRadius:28,padding:'56px 40px',
+        }}>
+          <div style={{fontSize:48,marginBottom:16}}>🚀</div>
+          <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.6rem,3.5vw,2.2rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:12}}>
+            Empieza hoy sin riesgo
+          </h2>
+          <p style={{color:C.dim,fontSize:16,lineHeight:1.7,marginBottom:36}}>
+            7 días de acceso completo. Sin tarjeta de crédito.<br/>
+            Configuración en menos de 5 minutos.
+          </p>
+          <div style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:24}}>
+            <button onClick={onRegister} style={{
+              background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',
+              color:'#fff',padding:'15px 40px',borderRadius:12,cursor:'pointer',
+              fontWeight:700,fontSize:16,boxShadow:'0 0 30px rgba(99,102,241,.4)',
+            }}>
+              Crear mi cuenta gratis
+            </button>
+            <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola%2C+quiero+información+sobre+POSmaster`}
+              target="_blank" rel="noreferrer"
+              style={{
+                background:'#25d366',border:'none',color:'#fff',
+                padding:'15px 32px',borderRadius:12,cursor:'pointer',
+                fontWeight:700,fontSize:16,textDecoration:'none',display:'flex',alignItems:'center',gap:8,
+              }}>
+              💬 Hablar por WhatsApp
+            </a>
+          </div>
+          <div style={{display:'flex',gap:24,justifyContent:'center',flexWrap:'wrap'}}>
+            {['✓ Sin tarjeta requerida','✓ Activación inmediata','✓ Soporte en español','✓ Hecho para Colombia'].map((t,i) => (
+              <span key={i} style={{color:C.muted,fontSize:13,fontWeight:500}}>{t}</span>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* CONTACT */}
-      <section style={{ padding: '60px 5%', maxWidth: 600, margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 12 }}>¿Tienes preguntas?</h2>
-        <p style={{ color: '#64748b', marginBottom: 32, fontSize: 15 }}>Contáctanos directamente y te ayudamos a elegir el plan ideal.</p>
-        <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola,%20quiero%20información%20sobre%20POSmaster`} target="_blank" rel="noreferrer"
-            style={{ background: '#25d366', color: '#fff', padding: '12px 24px', borderRadius: 10, fontWeight: 700, fontSize: 14, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* ── CONTACT ── */}
+      <section style={{padding:'50px 6%',maxWidth:580,margin:'0 auto',textAlign:'center'}}>
+        <h2 style={{fontSize:20,fontWeight:800,marginBottom:10}}>¿Tienes preguntas?</h2>
+        <p style={{color:C.muted,marginBottom:28,fontSize:14}}>Contáctanos directamente y te ayudamos a elegir el plan ideal para tu negocio.</p>
+        <div style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap'}}>
+          <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola,%20quiero%20información%20sobre%20POSmaster`}
+            target="_blank" rel="noreferrer"
+            style={{background:'#25d366',color:'#fff',padding:'11px 22px',borderRadius:10,fontWeight:700,fontSize:14,textDecoration:'none',display:'flex',alignItems:'center',gap:8}}>
             💬 WhatsApp
           </a>
           <a href={`mailto:${CONTACT_EMAIL}`}
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#f1f5f9', padding: '12px 24px', borderRadius: 10, fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+            style={{background:'rgba(255,255,255,0.07)',border:`1px solid ${C.border}`,color:C.text,padding:'11px 22px',borderRadius:10,fontWeight:700,fontSize:14,textDecoration:'none'}}>
             ✉️ {CONTACT_EMAIL}
           </a>
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '40px 5%', textAlign: 'center', color: '#475569', fontSize: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
-          <div style={{ width: 28, height: 28, background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11, color: '#fff' }}>PM</div>
-          <span style={{ fontWeight: 700, color: '#94a3b8' }}>POSmaster</span>
+      {/* ── FOOTER ── */}
+      <footer style={{borderTop:`1px solid ${C.border}`,padding:'36px 6%',textAlign:'center',color:'#475569',fontSize:13}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10}}>
+          <div style={{width:28,height:28,background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:11,color:'#fff'}}>PM</div>
+          <span style={{fontWeight:700,color:C.dim}}>POSmaster</span>
         </div>
-        <p>© 2025 POSmaster. Todos los derechos reservados.</p>
+        <p style={{margin:'0 0 6px'}}>Hecho con ❤️ para negocios colombianos</p>
+        <p style={{margin:0}}>© 2025 POSmaster. Todos los derechos reservados.</p>
       </footer>
     </div>
   );
@@ -315,7 +678,7 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
               { id: 'TRIAL',      icon: '🎁', name: '7 días gratis',     price: 'Gratis',          desc: 'Prueba completa sin tarjeta',                  color: '#10b981', border: 'rgba(16,185,129,0.4)' },
               { id: 'BASIC',      icon: '📦', name: 'Basic',             price: '$65.000/mes',     desc: '1 sucursal · 1 usuario · POS completo',        color: '#64748b', border: 'rgba(100,116,139,0.4)' },
               { id: 'PRO',        icon: '⭐', name: 'Pro',               price: '$120.000/mes',    desc: 'Hasta 3 sucursales · 5 usuarios · Wompi',      color: '#3b82f6', border: 'rgba(59,130,246,0.5)',  popular: true },
-              { id: 'ENTERPRISE', icon: '🏢', name: 'Enterprise',        price: '$249.900/mes',    desc: 'Ilimitado · Facturación electrónica y convencional · API · Soporte dedicado',    color: '#8b5cf6', border: 'rgba(139,92,246,0.5)' },
+              { id: 'ENTERPRISE', icon: '🏢', name: 'Enterprise',        price: '$249.900/mes',    desc: 'Ilimitado · DIAN · API · Soporte dedicado',    color: '#8b5cf6', border: 'rgba(139,92,246,0.5)' },
             ].map(p => (
               <button key={p.id} onClick={() => { setForm(prev => ({ ...prev, plan: p.id })); setStep(1); }}
                 style={{
@@ -463,6 +826,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [logs, setLogs] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
   const [contracts, setContracts] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'clients' | 'contracts'>('clients');
 
   const [newCompany, setNewCompany] = useState({
