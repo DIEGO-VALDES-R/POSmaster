@@ -1,10 +1,167 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Lock, Unlock, History, AlertTriangle, FileText, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { DollarSign, Lock, Unlock, History, AlertTriangle, FileText, ChevronDown, ChevronUp, RefreshCw, Printer, Wifi, Monitor, Settings } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
 import RefreshButton from '../components/RefreshButton';
+
+// ─────────────────────────────────────────────
+// APERTURA DE CAJÓN REGISTRADORA
+// Soporta: ESC/POS USB, ESC/POS en red (IP), Impresora Windows
+// ─────────────────────────────────────────────
+type DrawerProtocol = 'escpos-usb' | 'escpos-network' | 'windows-print';
+
+interface DrawerConfig {
+  protocol: DrawerProtocol;
+  networkIp?: string;
+  networkPort?: number;
+  windowsPrinter?: string;
+}
+
+// Comando ESC/POS estándar para abrir cajón (DLE EOT + pulso en pin 2)
+const ESC_POS_OPEN_DRAWER = new Uint8Array([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+
+const openCashDrawer = async (config: DrawerConfig): Promise<{ ok: boolean; msg: string }> => {
+  try {
+    switch (config.protocol) {
+
+      // ── USB (WebUSB API) ────────────────────────────────
+      case 'escpos-usb': {
+        if (!('usb' in navigator)) return { ok: false, msg: 'WebUSB no disponible en este navegador. Usa Chrome/Edge.' };
+        const device = await (navigator as any).usb.requestDevice({ filters: [] });
+        await device.open();
+        if (device.configuration === null) await device.selectConfiguration(1);
+        await device.claimInterface(0);
+        const endpoint = device.configuration.interfaces[0].alternate.endpoints
+          .find((e: any) => e.direction === 'out');
+        if (!endpoint) { await device.close(); return { ok: false, msg: 'No se encontró endpoint de salida en la impresora.' }; }
+        await device.transferOut(endpoint.endpointNumber, ESC_POS_OPEN_DRAWER);
+        await device.close();
+        return { ok: true, msg: 'Cajón abierto (USB ESC/POS)' };
+      }
+
+      // ── Red / IP (fetch a backend proxy o Web Serial como fallback) ───
+      case 'escpos-network': {
+        const ip = config.networkIp || '192.168.1.100';
+        const port = config.networkPort || 9100;
+        // Intentar via fetch a un proxy local (si está configurado)
+        // En producción esto requiere un proxy o servidor local en el POS
+        const hexCmd = Array.from(ESC_POS_OPEN_DRAWER).map(b => b.toString(16).padStart(2, '0')).join('');
+        const proxyUrl = `http://localhost:8765/rawprint?ip=${ip}&port=${port}&hex=${hexCmd}`;
+        try {
+          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(3000) });
+          if (res.ok) return { ok: true, msg: `Cajón abierto (Red ${ip}:${port})` };
+        } catch { /* proxy no disponible */ }
+        // Fallback: mostrar instrucciones
+        return {
+          ok: false,
+          msg: `Impresora de red detectada en ${ip}:${port}. Para apertura automática instala POSmaster-Bridge en el equipo. Descarga en: posmaster.app/bridge`
+        };
+      }
+
+      // ── Windows (window.print con página en blanco + script nativo) ──
+      case 'windows-print': {
+        const printer = config.windowsPrinter || '';
+        // Generar página imperceptible para forzar apertura de cajón via driver Windows
+        const html = `<html><head><style>body{margin:0;padding:0}</style><script>
+          window.onload = function() {
+            document.title = '${printer ? `\\\\localhost\\${printer}` : ''}';
+            window.print();
+            setTimeout(function(){ window.close(); }, 500);
+          };
+        </sc` + `ript></head><body><p style="font-size:1px;color:white;">.</p></body></html>`;
+        const w = window.open('', '_blank', 'width=1,height=1,top=-100,left=-100');
+        if (!w) return { ok: false, msg: 'El navegador bloqueó la ventana emergente. Permite popups para este sitio.' };
+        w.document.write(html);
+        return { ok: true, msg: 'Señal enviada a impresora Windows. El cajón debe abrirse.' };
+      }
+
+      default:
+        return { ok: false, msg: 'Protocolo no reconocido.' };
+    }
+  } catch (err: any) {
+    return { ok: false, msg: err?.message || 'Error desconocido al abrir cajón.' };
+  }
+};
+
+// ─────────────────────────────────────────────
+// MODAL CONFIGURACIÓN DE CAJÓN
+// ─────────────────────────────────────────────
+const DrawerConfigModal: React.FC<{
+  config: DrawerConfig;
+  onChange: (c: DrawerConfig) => void;
+  onClose: () => void;
+}> = ({ config, onChange, onClose }) => {
+  const [local, setLocal] = useState<DrawerConfig>(config);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-5 border-b flex justify-between items-center bg-gradient-to-r from-slate-700 to-slate-800">
+          <div className="flex items-center gap-3">
+            <Settings size={20} className="text-white" />
+            <h2 className="text-lg font-bold text-white">Configurar Cajón Registradora</h2>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white">✕</button>
+        </div>
+        <div className="p-6 space-y-5">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Protocolo de apertura</label>
+            <div className="space-y-2">
+              {[
+                { id: 'escpos-usb', icon: <Printer size={18} />, label: 'USB (ESC/POS via WebUSB)', desc: 'Impresora térmica conectada por USB directo' },
+                { id: 'escpos-network', icon: <Wifi size={18} />, label: 'Red / IP (ESC/POS)', desc: 'Impresora térmica con IP en la red local' },
+                { id: 'windows-print', icon: <Monitor size={18} />, label: 'Impresora Windows', desc: 'Impresora instalada en el sistema operativo' },
+              ].map(opt => (
+                <label key={opt.id} className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${local.protocol === opt.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <input type="radio" name="proto" value={opt.id} checked={local.protocol === opt.id}
+                    onChange={() => setLocal(p => ({ ...p, protocol: opt.id as DrawerProtocol }))} className="mt-1" />
+                  <div className={`mt-0.5 ${local.protocol === opt.id ? 'text-blue-600' : 'text-slate-400'}`}>{opt.icon}</div>
+                  <div>
+                    <p className="font-semibold text-sm text-slate-800">{opt.label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {local.protocol === 'escpos-network' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">IP de la impresora</label>
+                <input value={local.networkIp || ''} onChange={e => setLocal(p => ({ ...p, networkIp: e.target.value }))}
+                  placeholder="192.168.1.100" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Puerto</label>
+                <input type="number" value={local.networkPort || 9100} onChange={e => setLocal(p => ({ ...p, networkPort: parseInt(e.target.value) || 9100 }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          )}
+
+          {local.protocol === 'windows-print' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre de impresora (opcional)</label>
+              <input value={local.windowsPrinter || ''} onChange={e => setLocal(p => ({ ...p, windowsPrinter: e.target.value }))}
+                placeholder="Ej: POS58 Thermal Printer" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-slate-400 mt-1">Dejar vacío usa la impresora predeterminada del sistema</p>
+            </div>
+          )}
+        </div>
+        <div className="p-5 border-t flex gap-3 bg-slate-50">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-100 text-sm">Cancelar</button>
+          <button onClick={() => { onChange(local); onClose(); }}
+            className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 text-sm">
+            Guardar configuración
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 interface TurnInvoice {
   id: string;
@@ -23,6 +180,14 @@ const CashControl: React.FC = () => {
   const [turnInvoices, setTurnInvoices] = useState<TurnInvoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [showInvoices, setShowInvoices] = useState(true);
+  const [drawerConfig, setDrawerConfig] = useState<DrawerConfig>(() => {
+    try { return JSON.parse(localStorage.getItem('posmaster_drawer_config') || '{}'); } catch { return {}; }
+  });
+  const [drawerProtocol, setDrawerProtocol] = useState<DrawerProtocol>(
+    (drawerConfig as any).protocol || 'escpos-usb'
+  );
+  const [showDrawerConfig, setShowDrawerConfig] = useState(false);
+  const [openingDrawer, setOpeningDrawer] = useState(false);
 
   const { formatMoney } = useCurrency();
 
@@ -67,6 +232,25 @@ const CashControl: React.FC = () => {
     setNotes('');
   };
 
+  const handleOpenDrawer = async () => {
+    setOpeningDrawer(true);
+    const cfg: DrawerConfig = {
+      protocol: drawerConfig.protocol || 'escpos-usb',
+      networkIp: drawerConfig.networkIp,
+      networkPort: drawerConfig.networkPort,
+      windowsPrinter: drawerConfig.windowsPrinter,
+    };
+    const result = await openCashDrawer(cfg);
+    if (result.ok) toast.success(result.msg);
+    else toast.error(result.msg, { duration: 6000 });
+    setOpeningDrawer(false);
+  };
+
+  const saveDrawerConfig = (cfg: DrawerConfig) => {
+    setDrawerConfig(cfg);
+    try { localStorage.setItem('posmaster_drawer_config', JSON.stringify(cfg)); } catch {}
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <Toaster />
@@ -77,6 +261,16 @@ const CashControl: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <RefreshButton onRefresh={refreshAll} />
+          <button onClick={handleOpenDrawer} disabled={openingDrawer || session?.status !== 'OPEN'}
+            title="Abrir cajón registradora"
+            className="flex items-center gap-2 px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white rounded-lg font-medium text-sm transition-all">
+            {openingDrawer ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <DollarSign size={16} />}
+            Abrir Cajón
+          </button>
+          <button onClick={() => setShowDrawerConfig(true)} title="Configurar protocolo del cajón"
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all">
+            <Settings size={18} />
+          </button>
           <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${session?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
             {session?.status === 'OPEN' ? <Unlock size={20} /> : <Lock size={20} />}
             {session?.status === 'OPEN' ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
@@ -295,6 +489,14 @@ const CashControl: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {showDrawerConfig && (
+        <DrawerConfigModal
+          config={drawerConfig}
+          onChange={saveDrawerConfig}
+          onClose={() => setShowDrawerConfig(false)}
+        />
       )}
     </div>
   );

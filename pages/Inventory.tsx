@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle, Truck, Phone, Mail, AlertTriangle, ShoppingCart } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { productService, Product } from '../services/productService';
 import { useCompany } from '../hooks/useCompany';
@@ -7,12 +7,11 @@ import { supabase } from '../supabaseClient';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
-
 const EMPTY_PRODUCT = {
   company_id: '', name: '', sku: '', category: '', brand: '',
   description: '', price: 0, cost: 0, tax_rate: 19,
   stock_min: 5, stock_quantity: 0, type: 'STANDARD' as const, is_active: true,
-  image_url: '',
+  image_url: '', supplier_id: '',
 };
 
 const numVal = (val: number | undefined | null, fallback = 0): string => {
@@ -27,10 +26,11 @@ interface ImportRow {
   name: string; sku: string; barcode?: string; category?: string; brand?: string;
   description?: string; price: number; cost: number; stock_quantity?: number;
   stock_min?: number; tax_rate?: number; type?: string;
+  supplier_name?: string;
   _status?: 'pending' | 'ok' | 'error'; _error?: string;
 }
 
-const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess: () => void }> = ({ companyId, onClose, onSuccess }) => {
+const ImportModal: React.FC<{ companyId: string; suppliers: Supplier[]; onClose: () => void; onSuccess: () => void }> = ({ companyId, suppliers, onClose, onSuccess }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [importing, setImporting] = useState(false);
@@ -65,6 +65,7 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
         stock_quantity: ['stock_quantity', 'stock inicial', 'stock', 'cantidad'],
         stock_min: ['stock_min', 'stock mínimo', 'stock minimo', 'mínimo'],
         tax_rate: ['tax_rate', 'iva (%)', 'iva', 'impuesto'], type: ['type', 'tipo'],
+        supplier: ['supplier', 'proveedor', 'supplier_name'],
       };
       Object.entries(fieldMap).forEach(([field, aliases]) => {
         const idx = headers.findIndex((h: string) => aliases.some(a => h.includes(a)));
@@ -98,6 +99,7 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
           stock_quantity: int(get('stock_quantity')), stock_min: int(get('stock_min')),
           tax_rate: num(get('tax_rate')),
           type: get('type') ? String(get('type')).toUpperCase().trim() : 'PRODUCT',
+          supplier_name: get('supplier') ? String(get('supplier')).trim() : undefined,
           _status: 'pending',
         };
         if (!item.name) item._error = 'Nombre requerido';
@@ -114,6 +116,25 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
     reader.readAsArrayBuffer(file);
   };
 
+  // Cache de proveedores creados durante la importación (nombre → id)
+  const supplierCache: Record<string, string> = {};
+
+  const resolveSupplier = async (name: string): Promise<string | null> => {
+    if (!name) return null;
+    const key = name.toLowerCase();
+    if (supplierCache[key]) return supplierCache[key];
+    // Buscar existente
+    const existing = suppliers.find(s => s.name.toLowerCase() === key);
+    if (existing) { supplierCache[key] = existing.id; return existing.id; }
+    // Crear nuevo
+    const { data, error } = await supabase.from('suppliers')
+      .insert({ company_id: companyId, name, products_supplied: '' })
+      .select('id').single();
+    if (error || !data) return null;
+    supplierCache[key] = data.id;
+    return data.id;
+  };
+
   const handleImport = async () => {
     if (!companyId || rows.length === 0) return;
     setImporting(true);
@@ -122,6 +143,7 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
     for (let i = 0; i < updated.length; i++) {
       const row = updated[i];
       if (row._status === 'error') { errors++; continue; }
+      const supplier_id = row.supplier_name ? await resolveSupplier(row.supplier_name) : null;
       try {
         // Buscar si ya existe un producto con ese SKU en esta empresa
         const { data: existing } = await supabase
@@ -139,6 +161,7 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
             stock_quantity: (existing.stock_quantity ?? 0) + (row.stock_quantity ?? 0),
             stock_min: row.stock_min ?? 0,
             tax_rate: row.tax_rate ?? 19,
+            ...(supplier_id ? { supplier_id } : {}),
           }).eq('id', existing.id);
           error = e;
         } else {
@@ -255,6 +278,7 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
                           <td className="px-3 py-2 text-slate-600">${r.cost?.toLocaleString('es-CO')}</td>
                           <td className="px-3 py-2 text-slate-600">{r.stock_quantity}</td>
                           <td className="px-3 py-2 text-slate-500">{r.category || '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{r.supplier_name || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -294,6 +318,314 @@ const ImportModal: React.FC<{ companyId: string; onClose: () => void; onSuccess:
 };
 
 // ─────────────────────────────────────────────
+// INTERFAZ PROVEEDOR
+// ─────────────────────────────────────────────
+interface Supplier {
+  id: string;
+  company_id: string;
+  name: string;
+  nit?: string;
+  phone?: string;
+  email?: string;
+  products_supplied?: string;
+  balance?: number;
+  notes?: string;
+}
+
+const EMPTY_SUPPLIER: Omit<Supplier, 'id' | 'company_id'> = {
+  name: '', nit: '', phone: '', email: '', products_supplied: '', balance: 0, notes: '',
+};
+
+// ─────────────────────────────────────────────
+// MODAL STOCK BAJO
+// ─────────────────────────────────────────────
+const LowStockModal: React.FC<{
+  products: Product[];
+  suppliers: Supplier[];
+  onClose: () => void;
+  onGoInventory: () => void;
+}> = ({ products, suppliers, onClose, onGoInventory }) => {
+  const lowStock = products.filter(p => p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
+  const [orderSupplier, setOrderSupplier] = useState('');
+  const [orderNote, setOrderNote] = useState('');
+  const [showOrder, setShowOrder] = useState(false);
+
+  const handleCreateOrder = () => {
+    if (!orderSupplier) { toast.error('Selecciona un proveedor'); return; }
+    const supplier = suppliers.find(s => s.id === orderSupplier);
+    const items = lowStock.map(p => `• ${p.name} (SKU: ${p.sku}) — Actual: ${p.stock_quantity ?? 0} / Mínimo: ${p.stock_min ?? 5}`).join('\n');
+    const msg = encodeURIComponent(`Hola ${supplier?.name}, necesitamos reponer:\n\n${items}${orderNote ? `\n\nNota: ${orderNote}` : ''}`);
+    if (supplier?.phone) window.open(`https://wa.me/${supplier.phone.replace(/\D/g, '')}?text=${msg}`, '_blank');
+    else if (supplier?.email) window.open(`mailto:${supplier.email}?subject=Orden de reposición&body=${decodeURIComponent(msg)}`, '_blank');
+    else toast.error('El proveedor no tiene teléfono ni email');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="p-5 border-b flex justify-between items-center bg-gradient-to-r from-red-500 to-orange-500">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={24} className="text-white" />
+            <div>
+              <h2 className="text-lg font-bold text-white">⚠️ Alerta de Stock Bajo</h2>
+              <p className="text-red-100 text-xs mt-0.5">{lowStock.length} producto{lowStock.length !== 1 ? 's' : ''} por debajo del mínimo</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white"><X size={22} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {lowStock.map(p => (
+            <div key={p.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                {(p as any).image_url
+                  ? <img src={(p as any).image_url} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-red-200" />
+                  : <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center"><Package size={16} className="text-red-400" /></div>}
+                <div>
+                  <p className="font-semibold text-slate-800 text-sm">{p.name}</p>
+                  <p className="text-xs text-slate-500 font-mono">{p.sku} · {p.category || 'Sin categoría'}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Actual / Mínimo</p>
+                <p className="font-bold">
+                  <span className="text-red-600 text-lg">{p.stock_quantity ?? 0}</span>
+                  <span className="text-slate-400 mx-1">/</span>
+                  <span className="text-slate-600">{p.stock_min ?? 5}</span>
+                </p>
+              </div>
+            </div>
+          ))}
+          {suppliers.length > 0 && (
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <button onClick={() => setShowOrder(!showOrder)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div className="flex items-center gap-2 font-semibold text-slate-700 text-sm">
+                  <ShoppingCart size={16} className="text-blue-500" /> Crear orden a proveedor
+                </div>
+                <ChevronDown size={16} className={`text-slate-400 transition-transform ${showOrder ? 'rotate-180' : ''}`} />
+              </button>
+              {showOrder && (
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Proveedor</label>
+                    <select value={orderSupplier} onChange={e => setOrderSupplier(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Seleccionar proveedor...</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nota adicional (opcional)</label>
+                    <textarea value={orderNote} onChange={e => setOrderNote(e.target.value)} rows={2}
+                      placeholder="Ej: Urgente, necesitamos para el lunes..."
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                  </div>
+                  <button onClick={handleCreateOrder}
+                    className="w-full py-2.5 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 flex items-center justify-center gap-2">
+                    <ShoppingCart size={15} /> Enviar orden por WhatsApp / Email
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="p-5 border-t flex gap-3 bg-slate-50">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-100 text-sm">Cerrar</button>
+          <button onClick={() => { onClose(); onGoInventory(); }}
+            className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 text-sm flex items-center justify-center gap-2">
+            <Package size={15} /> Ir a Inventario
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// TAB PROVEEDORES
+// ─────────────────────────────────────────────
+const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<Supplier | null>(null);
+  const [form, setForm] = useState<Omit<Supplier, 'id' | 'company_id'>>(EMPTY_SUPPLIER);
+  const [saving, setSaving] = useState(false);
+  const { formatMoney } = useCurrency();
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+    setSuppliers(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [companyId]);
+
+  const openCreate = () => { setEditing(null); setForm({ ...EMPTY_SUPPLIER }); setShowModal(true); };
+  const openEdit = (s: Supplier) => { setEditing(s); setForm({ ...s }); setShowModal(true); };
+
+  const handleSave = async () => {
+    if (!form.name) { toast.error('El nombre es requerido'); return; }
+    setSaving(true);
+    try {
+      if (editing?.id) {
+        const { error } = await supabase.from('suppliers').update(form).eq('id', editing.id);
+        if (error) throw error;
+        toast.success('Proveedor actualizado');
+      } else {
+        const { error } = await supabase.from('suppliers').insert({ ...form, company_id: companyId });
+        if (error) throw error;
+        toast.success('Proveedor creado');
+      }
+      setShowModal(false); load();
+    } catch (e: any) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Eliminar este proveedor?')) return;
+    const { error } = await supabase.from('suppliers').delete().eq('id', id);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Proveedor eliminado'); load();
+  };
+
+  const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm(prev => ({ ...prev, [k]: e.target.value }));
+
+  const filtered = suppliers.filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase()) ||
+    (s.nit || '').includes(search) ||
+    (s.email || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar proveedor..."
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+        </div>
+        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+          <Plus size={16} /> Nuevo Proveedor
+        </button>
+      </div>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center text-slate-400">Cargando proveedores...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center text-slate-400">
+            <Truck size={40} className="mx-auto mb-3 opacity-30" />
+            <p>No hay proveedores registrados. Agrega el primero.</p>
+          </div>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>{['Proveedor','NIT','Contacto','Productos que suministra','Saldo / Deuda',''].map(h => (
+                <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map(s => (
+                <tr key={s.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center"><Truck size={16} className="text-indigo-500" /></div>
+                      <span className="font-semibold text-slate-800">{s.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono text-xs">{s.nit || '—'}</td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-1">
+                      {s.phone && <div className="flex items-center gap-1 text-xs text-slate-600"><Phone size={11} />{s.phone}</div>}
+                      {s.email && <div className="flex items-center gap-1 text-xs text-slate-600"><Mail size={11} />{s.email}</div>}
+                      {!s.phone && !s.email && <span className="text-slate-400 text-xs">—</span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate">{s.products_supplied || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className={`font-bold text-sm ${(s.balance || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatMoney(s.balance || 0)}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      {s.phone && (
+                        <a href={`https://wa.me/${s.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="text-green-500 hover:text-green-700" title="WhatsApp">
+                          <Phone size={15} />
+                        </a>
+                      )}
+                      <button onClick={() => openEdit(s)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
+                      <button onClick={() => handleDelete(s.id)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white">
+              <h3 className="text-lg font-bold">{editing ? 'Editar Proveedor' : 'Nuevo Proveedor'}</h3>
+              <button onClick={() => setShowModal(false)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nombre / Razón Social *</label>
+                  <input value={form.name} onChange={f('name')} placeholder="Ej: Distribuidora ABC S.A.S"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">NIT / RUT</label>
+                  <input value={form.nit || ''} onChange={f('nit')} placeholder="900.123.456-7"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono / WhatsApp</label>
+                  <input value={form.phone || ''} onChange={f('phone')} placeholder="573001234567"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                  <input type="email" value={form.email || ''} onChange={f('email')} placeholder="ventas@proveedor.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Productos que suministra</label>
+                  <input value={form.products_supplied || ''} onChange={f('products_supplied')} placeholder="Ej: iPhone, Samsung, Accesorios"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Saldo / Deuda pendiente</label>
+                  <input type="number" min="0" value={form.balance || ''} onChange={e => setForm(p => ({ ...p, balance: parseFloat(e.target.value) || 0 }))} placeholder="0"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Notas</label>
+                  <textarea value={form.notes || ''} onChange={f('notes')} rows={2} placeholder="Observaciones adicionales..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button onClick={() => setShowModal(false)} className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium">Cancelar</button>
+              <button onClick={handleSave} disabled={saving} className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50">
+                {saving ? 'Guardando...' : editing ? 'Actualizar' : 'Crear Proveedor'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// ─────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────
 const Inventory: React.FC = () => {
@@ -313,6 +645,10 @@ const Inventory: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [scannedProduct, setScannedProduct] = useState<Product | null>(null);
   const [showBarcodeNotification, setShowBarcodeNotification] = useState(false);
+  const [activeTab, setActiveTab] = useState<'products' | 'suppliers'>('products');
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [showLowStock, setShowLowStock] = useState(false);
+  const lowStockShown = useRef(false);
 
   const { isScanning } = useBarcodeScanner((barcode) => {
     const product = products.find(p => p.sku.toLowerCase() === barcode.toLowerCase());
@@ -325,15 +661,39 @@ const Inventory: React.FC = () => {
   const load = async () => {
     if (!companyId) return;
     setLoading(true);
-    try { setProducts(await productService.getAll(companyId)); }
+    try {
+      setProducts(await productService.getAll(companyId));
+      const { data: sups } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+      setSuppliers(sups || []);
+    }
     catch (e: any) { toast.error(e.message); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [companyId]);
 
-  const openCreate = () => { setEditing(null); setForm({ ...EMPTY_PRODUCT, company_id: companyId || '' }); setShowModal(true); };
-  const openEdit = (p: Product) => { setEditing(p); setForm({ ...p } as any); setShowModal(true); };
+  // Mostrar alerta de stock bajo al cargar (una sola vez por sesión)
+  useEffect(() => {
+    if (!loading && products.length > 0 && !lowStockShown.current) {
+      const hasLow = products.some(p => p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
+      if (hasLow) { setShowLowStock(true); lowStockShown.current = true; }
+    }
+  }, [loading, products]);
+
+  const loadSuppliers = async () => {
+    if (!companyId) return;
+    const { data } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+    setSuppliers(data || []);
+  };
+
+  const openCreate = () => {
+    loadSuppliers();
+    setEditing(null); setForm({ ...EMPTY_PRODUCT, company_id: companyId || '' }); setShowModal(true);
+  };
+  const openEdit = (p: Product) => {
+    loadSuppliers();
+    setEditing(p); setForm({ ...p } as any); setShowModal(true);
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -360,8 +720,9 @@ const Inventory: React.FC = () => {
     if (!form.name || !form.sku) { toast.error('Nombre y SKU son requeridos'); return; }
     setSaving(true);
     try {
-      if (editing?.id) { await productService.update(editing.id, form); toast.success('Producto actualizado'); }
-      else { await productService.create({ ...form, company_id: companyId! }); toast.success('Producto creado'); }
+      const productData = { ...form, supplier_id: (form as any).supplier_id || null };
+      if (editing?.id) { await productService.update(editing.id, productData); toast.success('Producto actualizado'); }
+      else { await productService.create({ ...productData, company_id: companyId! }); toast.success('Producto creado'); }
       setShowModal(false); load();
     } catch (e: any) { toast.error(e.message); }
     finally { setSaving(false); }
@@ -472,6 +833,8 @@ const Inventory: React.FC = () => {
     </button>
   );
 
+  const lowStockCount = products.filter(p => p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5)).length;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -480,6 +843,13 @@ const Inventory: React.FC = () => {
           <p className="text-slate-500">Gestión de productos y stock</p>
         </div>
         <div className="flex gap-2">
+          {lowStockCount > 0 && (
+            <button onClick={() => setShowLowStock(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 border-2 border-red-300 text-red-700 rounded-lg hover:bg-red-100 font-medium text-sm animate-pulse">
+              <AlertTriangle size={16} /> {lowStockCount} bajo mínimo
+            </button>
+          )}
+          {activeTab === 'products' && <>
           {/* BOTÓN IMPORTAR EXCEL */}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
@@ -494,9 +864,24 @@ const Inventory: React.FC = () => {
               <span className="text-sm font-medium text-green-700">✓ {scannedProduct.name}</span>
             </div>
           )}
+          </>}
         </div>
       </div>
 
+      {/* PESTAÑAS */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button onClick={() => setActiveTab('products')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === 'products' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <Package size={16} /> Productos
+        </button>
+        <button onClick={() => setActiveTab('suppliers')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === 'suppliers' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <Truck size={16} /> Proveedores
+          {suppliers.length > 0 && <span className="bg-slate-200 text-slate-600 text-xs px-2 py-0.5 rounded-full">{suppliers.length}</span>}
+        </button>
+      </div>
+
+      {activeTab === 'products' && (<>
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input value={search} onChange={e => setSearch(e.target.value)}
@@ -565,10 +950,21 @@ const Inventory: React.FC = () => {
         )}
       </div>
 
+      </>)}
+
+      {/* TAB PROVEEDORES */}
+      {activeTab === 'suppliers' && companyId && <SuppliersTab companyId={companyId} />}
+
+      {/* MODAL STOCK BAJO */}
+      {showLowStock && (
+        <LowStockModal products={products} suppliers={suppliers} onClose={() => setShowLowStock(false)} onGoInventory={() => setActiveTab('products')} />
+      )}
+
       {/* MODAL IMPORTAR */}
       {showImport && companyId && (
         <ImportModal
           companyId={companyId}
+          suppliers={suppliers}
           onClose={() => setShowImport(false)}
           onSuccess={() => { setShowImport(false); load(); }}
         />
@@ -643,6 +1039,19 @@ const Inventory: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Stock Mínimo</label>
                   <input type="number" min="0" value={numVal(form.stock_min, 5)} onChange={handleNumChange('stock_min')} placeholder="5" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Proveedor</label>
+                  <select value={(form as any).supplier_id || ''} onChange={e => setForm((prev: any) => ({ ...prev, supplier_id: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">Sin proveedor</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  {suppliers.length === 0 && (
+                    <p className="text-xs text-slate-400 mt-1">
+                      Primero registra proveedores en la pestaña <strong>Proveedores</strong>
+                    </p>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>

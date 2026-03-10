@@ -3,6 +3,19 @@ import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { toast } from 'react-hot-toast';
 
+const BUSINESS_TYPE_LABELS: Record<string, string> = {
+  general: '🏪 General',
+  tienda_tecnologia: '📱 Tecnología',
+  restaurante: '🍽️ Restaurante',
+  salon: '✂️ Salón',
+  zapateria: '👟 Zapatería',
+  odontologia: '🦷 Odontología',
+  veterinaria: '🐾 Veterinaria',
+  farmacia: '💊 Farmacia',
+  ropa: '👗 Ropa',
+};
+
+
 const Branches: React.FC = () => {
   const { company, isLoading: ctxLoading } = useDatabase();
   const [branches, setBranches] = useState<any[]>([]);
@@ -13,7 +26,7 @@ const Branches: React.FC = () => {
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ name: '', nit: '', email: '', phone: '', adminEmail: '', adminPassword: '' });
+  const [form, setForm] = useState({ name: '', nit: '', email: '', phone: '', adminEmail: '', adminPassword: '', business_type: 'general' });
   const [editForm, setEditForm] = useState({ name: '', nit: '', email: '', phone: '', subscription_status: 'ACTIVE' });
 
   const isPro = ['PRO', 'MASTER', 'ENTERPRISE'].includes(company?.subscription_plan || '');
@@ -62,7 +75,7 @@ const Branches: React.FC = () => {
       if (!userId) throw new Error('No se pudo crear o encontrar el usuario administrador');
 
       const { data: newCompany, error: companyError } = await supabase.from('companies').insert({
-        name: form.name, nit: form.nit, email: form.email, phone: form.phone,
+        name: form.name, nit: form.nit, email: form.email, phone: form.phone, business_type: form.business_type,
         subscription_plan: 'BASIC',
         subscription_status: 'ACTIVE',
         tipo: 'sucursal',
@@ -83,7 +96,7 @@ const Branches: React.FC = () => {
 
       toast.success(`Sucursal "${form.name}" creada exitosamente`);
       setShowCreate(false);
-      setForm({ name: '', nit: '', email: '', phone: '', adminEmail: '', adminPassword: '' });
+      setForm({ name: '', nit: '', email: '', phone: '', adminEmail: '', adminPassword: '', business_type: 'general' });
       load();
     } catch (err: any) { toast.error(err.message); }
     finally { setCreating(false); }
@@ -267,6 +280,20 @@ const Branches: React.FC = () => {
               <div className="border-t border-slate-100 pt-4">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-3">Credenciales del Administrador</p>
                 <div className="space-y-3">
+                                    <div className="col-span-2">
+                    <label style={labelStyle}>Tipo de Negocio *</label>
+                    <select value={form.business_type} onChange={e => setForm(p => ({ ...p, business_type: e.target.value }))} style={inputStyle}>
+                      <option value="general">🏪 General / Tienda</option>
+                      <option value="tienda_tecnologia">📱 Tecnología / Celulares</option>
+                      <option value="restaurante">🍽️ Restaurante / Comidas</option>
+                      <option value="salon">✂️ Salón de Belleza</option>
+                      <option value="zapateria">👟 Zapatería / Calzado</option>
+                      <option value="odontologia">🦷 Odontología</option>
+                      <option value="veterinaria">🐾 Veterinaria</option>
+                      <option value="farmacia">💊 Farmacia / Droguería</option>
+                      <option value="ropa">👗 Ropa / Moda</option>
+                    </select>
+                  </div>
                   <div><label style={labelStyle}>Email Admin *</label><input type="email" value={form.adminEmail} onChange={f('adminEmail')} placeholder="admin@sucursal.com" style={inputStyle} /></div>
                   <div><label style={labelStyle}>Contraseña *</label><input type="password" value={form.adminPassword} onChange={f('adminPassword')} placeholder="Mínimo 6 caracteres" style={inputStyle} /></div>
                 </div>

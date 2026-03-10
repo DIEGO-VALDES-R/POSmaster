@@ -6,7 +6,11 @@ import { toast } from 'react-hot-toast';
 interface DatabaseContextType {
   company: Company | null;
   companyId: string | null;
-  branchId: string | null;
+  branchId: string | null;          // sucursal activa del empleado (fija) o seleccionada (admin)
+  activeBranchId: string | null;    // siempre la sucursal en contexto actual
+  allBranches: { id: string; name: string; business_type: string }[];
+  switchBranch: (bid: string) => Promise<void>;
+  isOwnerOrAdmin: boolean;
   products: Product[];
   repairs: RepairOrder[];
   sales: Sale[];
@@ -57,6 +61,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   const [customRole, setCustomRole] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [availableCompanies, setAvailableCompanies] = useState<Company[]>([]);
+  const [allBranches, setAllBranches] = useState<{ id: string; name: string; business_type: string }[]>([]);
+  const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+  const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
 
   // Helper: verificar permiso
   const hasPermission = useCallback((key: string): boolean => {
@@ -71,9 +78,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     if (data) setCompany(data as any);
   };
 
-  const loadProducts = async (cid: string) => {
-    const { data, error } = await supabase.from('products').select('*')
-      .eq('company_id', cid).eq('is_active', true).order('name');
+  const loadProducts = async (cid: string, bid?: string | null) => {
+    let q = supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).order('name');
+    if (bid) q = q.eq('branch_id', bid);
+    const { data, error } = await q;
     if (error) console.error('❌ loadProducts:', error.message);
     setProducts((data || []) as any);
   };
@@ -101,12 +109,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     setCustomers((data || []) as any);
   };
 
-  const loadSession = async (cid: string) => {
+  const loadSession = async (cid: string, bid?: string | null) => {
     if (!cid) return;
+    let qOpen = supabase.from('cash_register_sessions').select('*').eq('company_id', cid).eq('status', 'OPEN');
+    let qHist = supabase.from('cash_register_sessions').select('*').eq('company_id', cid).eq('status', 'CLOSED');
+    if (bid) { qOpen = qOpen.eq('branch_id', bid); qHist = qHist.eq('branch_id', bid); }
     const [{ data: openSession, error: e1 }, { data: history, error: e2 }] = await Promise.all([
-      supabase.from('cash_register_sessions').select('*').eq('company_id', cid).eq('status', 'OPEN').maybeSingle(),
-      supabase.from('cash_register_sessions').select('*').eq('company_id', cid).eq('status', 'CLOSED')
-        .order('start_time', { ascending: false }).limit(20),
+      qOpen.maybeSingle(),
+      qHist.order('start_time', { ascending: false }).limit(20),
     ]);
     if (e1) console.error('❌ loadSession(open):', e1.message);
     if (e2) console.error('❌ loadSession(history):', e2.message);
@@ -114,11 +124,18 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     setSessionsHistory((history || []) as any);
   };
 
-  const loadAllData = async (cid: string) => {
+  const loadAllData = async (cid: string, bid?: string | null) => {
     setIsLoading(true);
     await loadCompany(cid);
-    await Promise.all([loadProducts(cid), loadSales(cid), loadSession(cid), loadRepairs(cid), loadCustomers(cid)]);
+    await loadBranches(cid);
+    await Promise.all([loadProducts(cid, bid), loadSales(cid), loadSession(cid, bid), loadRepairs(cid), loadCustomers(cid)]);
     setIsLoading(false);
+  };
+
+  const loadBranches = async (cid: string) => {
+    const { data } = await supabase.from('branches').select('id, name, business_type').eq('company_id', cid).eq('is_active', true).order('name');
+    setAllBranches((data || []) as any);
+    return data || [];
   };
 
   const resolvebranchId = async (cid: string): Promise<string | null> => {
@@ -160,13 +177,19 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       setUserRole(profile.role);
       setCustomRole(profile.custom_role || null);
       setPermissions(profile.permissions || {});
+      const isAdmin = profile.role === 'MASTER' || profile.role === 'ADMIN';
+      setIsOwnerOrAdmin(isAdmin);
 
       if (profile.company_id) {
         setCompanyId(profile.company_id);
         let bid = profile.branch_id || null;
         if (!bid) bid = await resolvebranchId(profile.company_id);
         setBranchId(bid);
-        await loadAllData(profile.company_id);
+        // Admin/dueño: puede ver todas las sucursales; por defecto carga la primera
+        // Empleado: queda bloqueado a su sucursal
+        const effectiveBid = isAdmin ? bid : bid;
+        setActiveBranchId(effectiveBid);
+        await loadAllData(profile.company_id, isAdmin ? null : bid);
       } else {
         setIsLoading(false);
       }
@@ -195,15 +218,17 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
   const refreshAll = useCallback(async () => {
     if (!companyId) return;
+    const bid = isOwnerOrAdmin ? activeBranchId : branchId;
     await Promise.all([
       loadCompany(companyId),
-      loadProducts(companyId),
+      loadBranches(companyId),
+      loadProducts(companyId, bid),
       loadSales(companyId),
       loadRepairs(companyId),
-      loadSession(companyId),
+      loadSession(companyId, bid),
       loadCustomers(companyId),
     ]);
-  }, [companyId]);
+  }, [companyId, activeBranchId, branchId, isOwnerOrAdmin]);
 
   const addProduct = async (data: Omit<Product, 'id' | 'company_id'>) => {
     if (!companyId) return;
@@ -390,6 +415,20 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     return invoice as any;
   };
 
+  const switchBranch = async (bid: string) => {
+    if (!companyId) return;
+    setActiveBranchId(bid);
+    setIsLoading(true);
+    await Promise.all([
+      loadProducts(companyId, bid),
+      loadSession(companyId, bid),
+      loadSales(companyId),
+    ]);
+    setIsLoading(false);
+    const branch = allBranches.find(b => b.id === bid);
+    toast.success(`Sucursal: ${branch?.name || bid}`);
+  };
+
   const updateCompanyConfig = async (data: Partial<Company>) => {
     if (!companyId) return;
     const { error } = await supabase.from('companies').update(data).eq('id', companyId);
@@ -406,11 +445,12 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     if (!companyId) { toast.error('No hay empresa configurada'); return; }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error('No hay sesión de usuario'); return; }
-    const resolvedBranchId = branchId || await resolvebranchId(companyId);
+    const resolvedBranchId = activeBranchId || branchId || await resolvebranchId(companyId);
     if (!resolvedBranchId) { toast.error('No se pudo obtener la sucursal'); return; }
     if (!branchId) setBranchId(resolvedBranchId);
     const { error } = await supabase.from('cash_register_sessions').insert({
       company_id: companyId,
+      branch_id: resolvedBranchId,
       register_id: '00000000-0000-0000-0000-000000000000',
       user_id: user.id,
       start_cash: amount,
@@ -435,11 +475,13 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
   return (
     <DatabaseContext.Provider value={{
-      company, companyId, branchId, products, repairs, sales, customers,
+      company, companyId, branchId, activeBranchId, allBranches, isOwnerOrAdmin,
+      products, repairs, sales, customers,
       session, sessionsHistory, isLoading, userRole, customRole, permissions,
       availableCompanies, addProduct, updateProduct, deleteProduct, addRepair,
       updateRepairStatus, processSale, updateCompanyConfig, saveDianSettings,
-      openSession, closeSession, refreshProducts, refreshCompany, refreshAll, switchCompany, hasPermission,
+      openSession, closeSession, refreshProducts, refreshCompany, refreshAll,
+      switchCompany, switchBranch, hasPermission,
     }}>
       {children}
     </DatabaseContext.Provider>

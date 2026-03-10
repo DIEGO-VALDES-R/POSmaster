@@ -15,7 +15,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { currency, setCurrency } = useCurrency();
-  const { company, isLoading, userRole, customRole, permissions, hasPermission } = useDatabase();
+  const { company, isLoading, userRole, customRole, permissions, hasPermission, allBranches, activeBranchId, switchBranch, isOwnerOrAdmin } = useDatabase();
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
@@ -24,22 +24,19 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const isEnterprise = plan === 'ENTERPRISE';
   const isAdminOrMaster = userRole === 'MASTER' || userRole === 'ADMIN';
 
-  // Tipos de negocio activos (guardados como array en config.business_types)
-  const cfg = (company?.config as any) || {};
-  const businessTypes: string[] = Array.isArray(cfg.business_types)
-    ? cfg.business_types
-    : cfg.business_type ? [cfg.business_type] : ['general'];
-  const isRestaurant  = businessTypes.includes('restaurante');
-  const isSalon       = businessTypes.includes('salon');
-  const isZapateria   = businessTypes.includes('zapateria');
-  const isDentistry   = businessTypes.includes('odontologia');
-  const isVeterinaria = businessTypes.includes('veterinaria');
-  const isFarmacia    = businessTypes.includes('farmacia') || businessTypes.includes('drogueria');
-  // Servicio Técnico solo para negocios de tecnología/reparación electrónica
-  const hasRepairs    = businessTypes.includes('tienda_tecnologia') ||
-                        businessTypes.includes('reparacion') ||
-                        businessTypes.includes('general') ||
-                        businessTypes.length === 0;
+  // Business type: usa la sucursal activa si el usuario es admin/dueño;
+  // si no, usa el tipo de la sucursal asignada al empleado
+  const activeBranch = allBranches.find(b => b.id === activeBranchId) || allBranches[0];
+  // Tipo de negocio: SOLO de la sucursal activa. Sin fallback al config global.
+  // Si aún no tiene tipo asignado → 'general' puro (solo menú base, sin módulos especiales)
+  const branchType = activeBranch?.business_type || 'general';
+  const isRestaurant  = branchType === 'restaurante';
+  const isSalon       = branchType === 'salon';
+  const isZapateria   = branchType === 'zapateria';
+  const isDentistry   = branchType === 'odontologia';
+  const isVeterinaria = branchType === 'veterinaria';
+  const isFarmacia    = branchType === 'farmacia' || branchType === 'drogueria';
+  const hasRepairs    = branchType === 'tienda_tecnologia' || branchType === 'reparacion' || branchType === 'general';
 
   const navItems = [
     { label: 'Dashboard',           path: '/',             icon: LayoutDashboard, show: true },
@@ -103,6 +100,29 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
           </div>
         </div>
 
+        {/* Selector de Sucursal — solo visible para admin/dueño con múltiples sucursales */}
+        {isOwnerOrAdmin && allBranches.length > 1 && (
+          <div className="px-3 py-2 border-b border-white/10">
+            <p className="text-xs font-semibold mb-1.5" style={{ color: fontColor, opacity: 0.6 }}>SUCURSAL ACTIVA</p>
+            <select
+              value={activeBranchId || ''}
+              onChange={e => switchBranch(e.target.value)}
+              className="w-full text-xs rounded-lg px-2 py-1.5 font-semibold outline-none border-0"
+              style={{ background: 'rgba(255,255,255,0.12)', color: fontColor }}
+            >
+              {allBranches.map(b => (
+                <option key={b.id} value={b.id} style={{ background: '#1e293b', color: '#fff' }}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {isOwnerOrAdmin && allBranches.length === 1 && (
+          <div className="px-3 py-1.5 border-b border-white/10">
+            <p className="text-xs" style={{ color: fontColor, opacity: 0.55 }}>📍 {allBranches[0]?.name}</p>
+          </div>
+        )}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <label className="block text-[10px] font-bold uppercase tracking-wider mb-2 px-2" style={{ color: fontColor, opacity: 0.45 }}>
             Menú Principal
