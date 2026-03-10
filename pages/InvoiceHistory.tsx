@@ -218,7 +218,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
 
 const InvoiceHistory: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { company, companyId, userRole, hasPermission } = useDatabase();
+  const { company, companyId, userRole, hasPermission, session, refreshAll } = useDatabase();
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -341,9 +341,30 @@ const InvoiceHistory: React.FC = () => {
       await supabase.from('invoice_items').delete().eq('invoice_id', inv.id);
       const { error } = await supabase.from('invoices').delete().eq('id', inv.id);
       if (error) throw error;
+
+      // ── Descontar de la sesión de caja activa ──────────────────────────
+      if (session?.id && session.status === 'OPEN') {
+        const amount = inv.total_amount || 0;
+        const method = (inv as any).payment_method?.method || (inv as any).payment_method || 'CASH';
+        if (method === 'CASH' || method === 'EFECTIVO') {
+          const newCash = Math.max(0, (session.total_sales_cash || 0) - amount);
+          await supabase.from('cash_register_sessions')
+            .update({ total_sales_cash: newCash })
+            .eq('id', session.id);
+        } else if (method === 'CARD' || method === 'TARJETA') {
+          const newCard = Math.max(0, (session.total_sales_card || 0) - amount);
+          await supabase.from('cash_register_sessions')
+            .update({ total_sales_card: newCard })
+            .eq('id', session.id);
+        }
+      }
+
       setInvoices(prev => prev.filter(i => i.id !== inv.id));
       setTotal(t => t - 1);
       if (selectedInvoice?.id === inv.id) setSelectedInvoice(null);
+
+      // Refrescar contexto global para actualizar Dashboard y CashControl
+      await refreshAll();
     } catch (e: any) {
       alert('Error al eliminar: ' + e.message);
     }
