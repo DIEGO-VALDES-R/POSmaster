@@ -304,7 +304,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
   const plan      = company?.subscription_plan || 'BASIC';
-  const isPro     = ['PRO', 'ENTERPRISE', 'MASTER'].includes(plan);
+  // BUG FIX: branches are created with plan='BASIC' but their parent is PRO.
+  // Employees who log into a branch must still see the full menu.
+  const isBranch  = !!(company as any)?.negocio_padre_id;
+  const isPro     = isBranch || ['PRO', 'ENTERPRISE', 'MASTER'].includes(plan);
   const isAdmin   = userRole === 'MASTER' || userRole === 'ADMIN';
   const brandColor = (company?.config as any)?.primary_color || '#1e293b';
   const fontColor  = (company?.config as any)?.font_color    || '#ffffff';
@@ -320,7 +323,8 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   }, [company?.id]);
 
   useEffect(() => {
-    if (!rootCompanyId || !isPro) { setChildBranches([]); return; }
+    // Employees of a branch (non-admin) must NEVER see or switch to other companies
+    if (!rootCompanyId || !isPro || (isBranch && !isAdmin)) { setChildBranches([]); return; }
     supabase
       .from('companies')
       .select('id, name, config, subscription_status')
@@ -328,7 +332,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
       .eq('subscription_status', 'ACTIVE')
       .order('created_at', { ascending: true })
       .then(({ data }) => setChildBranches(data || []));
-  }, [rootCompanyId, isPro]);
+  }, [rootCompanyId, isPro, isBranch, isAdmin]);
 
   // Activar una sección: si es otra empresa → switchCompany, luego setActiveSectionId
   const handleActivate = useCallback(async (cid: string, sid: string) => {
@@ -355,7 +359,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const isActivePath = (p: string) => location.pathname === p;
 
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => {
-    const rootCid = rootCompanyId || companyId || '';
+    // Branch employees must only see their own company, never the parent root.
+    // Only ADMIN/MASTER can see and switch between companies.
+    const rootCid = (isBranch && !isAdmin) ? (companyId || '') : (rootCompanyId || companyId || '');
 
     return (
       <>

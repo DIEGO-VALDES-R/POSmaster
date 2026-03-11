@@ -1,19 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { HashRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-
-/**
- * BranchRouteInit — dentro del Router de sucursal, lee sessionStorage para
- * navegar a /team (u otra ruta) si fue solicitado desde el botón 👥 Equipo.
- */
-const BranchRouteInit: React.FC<{ branchId: string }> = ({ branchId }) => {
-  const navigate = useNavigate();
-  useEffect(() => {
-    const key = `branch_initial_path_${branchId}`;
-    const path = sessionStorage.getItem(key);
-    if (path) { sessionStorage.removeItem(key); navigate(path, { replace: true }); }
-  }, [branchId]);
-  return null;
-};
+import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { DatabaseProvider } from './contexts/DatabaseContext';
 import Layout from './components/Layout';
@@ -39,8 +25,6 @@ import Customers from './pages/Customers';
 import { LandingPage, RegisterPage, AdminPanel, ClientPortal } from './LandingPage';
 import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
-import AcceptBranchInvitation from './AcceptBranchInvitation';
-import BranchKiosk, { KioskProfile } from './BranchKiosk';
 import { Toaster } from 'react-hot-toast';
 
 // ── CORRECCIÓN AUTH-04 / FRO-01 ───────────────────────────────────────────────
@@ -346,7 +330,7 @@ const AppRoutes: React.FC = () => (
 );
 
 // ── APP ───────────────────────────────────────────────────────────────────────
-type AppView = 'landing' | 'login' | 'register' | 'app' | 'app_branch' | 'admin' | 'pending' | 'past_due' | 'preview' | 'portal';
+type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due' | 'preview' | 'portal';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -354,8 +338,6 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
   const [userEmail, setUserEmail] = useState('');
   const [previewCompanyId, setPreviewCompanyId] = useState<string | null>(null);
-  const [branchCompanyId, setBranchCompanyId] = useState<string | null>(null);
-  const [kioskProfile, setKioskProfile] = useState<KioskProfile | null>(null);
 
   const contractTokenMatch  = window.location.hash.match(/^#\/contrato\/([a-f0-9]{64})$/);
   const contractToken       = contractTokenMatch ? contractTokenMatch[1] : null;
@@ -364,12 +346,6 @@ const App: React.FC = () => {
   // Ruta de sucursal directa — abre la sucursal en su propio contexto (nueva pestaña)
   const branchRouteMatch = window.location.hash.match(/^#\/sucursal\/([0-9a-f-]{36})$/);
   const branchRouteId    = branchRouteMatch ? branchRouteMatch[1] : null;
-  // Ruta de ACTIVACIÓN de sucursal — muestra AcceptBranchInvitation (código)
-  const branchAccessMatch = window.location.hash.match(/^#\/sucursal-acceso\/([0-9a-f-]{36})$/);
-  const branchAccessId    = branchAccessMatch ? branchAccessMatch[1] : null;
-  // Ruta KIOSK — pantalla de login por PIN para empleados de una sucursal
-  const kioskMatch = window.location.hash.match(/^#\/kiosk\/([0-9a-f-]{36})$/);
-  const kioskCompanyId = kioskMatch ? kioskMatch[1] : null;
 
   const retryCheck = async () => {
     const { data: { session: s } } = await supabase.auth.getSession();
@@ -382,7 +358,7 @@ const App: React.FC = () => {
   };
 
   const resolveView = (status: string | null): AppView => {
-    if (status === 'ACTIVE' || status === 'TRIAL') return 'app';
+    if (status === 'ACTIVE') return 'app';
     if (status === 'PAST_DUE') return 'past_due';
     return 'pending';
   };
@@ -413,7 +389,7 @@ const App: React.FC = () => {
 
         const { data: company } = await supabase
           .from('companies')
-          .select('subscription_status, subscription_end_date, negocio_padre_id')
+          .select('subscription_status, subscription_end_date')
           .eq('id', profile.company_id)
           .maybeSingle();
 
@@ -427,23 +403,29 @@ const App: React.FC = () => {
             status = 'PAST_DUE';
           }
         }
-
-        // Si el usuario pertenece a una sucursal hija, usar modo branch con overrideCompanyId
-        // para que la navegación interna no lo saque al contexto del padre.
-        if (company.negocio_padre_id && resolveView(status) === 'app') {
-          setBranchCompanyId(profile.company_id);
-          setView('app_branch');
-          setChecking(false);
-          return;
-        }
-
         setView(resolveView(status));
 
-        // Si venía de un link de sucursal antes del login, redirigir
+        // Si venía de un link de sucursal antes del login, verificar pertenencia y redirigir
         const branchRedirect = sessionStorage.getItem('branch_redirect');
         if (branchRedirect && resolveView(status) === 'app') {
-          sessionStorage.removeItem('branch_redirect');
-          window.location.hash = `/sucursal/${branchRedirect}`;
+          // Verificar que el usuario logueado pertenece a esta empresa/sucursal
+          const { data: branchProfile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('id', session.user.id)
+            .eq('company_id', branchRedirect)
+            .maybeSingle();
+
+          if (branchProfile) {
+            // Pertenece a esta sucursal → marcar como verificado y redirigir
+            sessionStorage.setItem('branch_verified', branchRedirect);
+            sessionStorage.removeItem('branch_redirect');
+            window.location.hash = `/sucursal/${branchRedirect}`;
+          } else {
+            // No pertenece a esta sucursal → limpiar y entrar a su empresa normal
+            sessionStorage.removeItem('branch_redirect');
+            sessionStorage.removeItem('branch_verified');
+          }
         }
       } catch {
         setView('landing');
@@ -462,68 +444,18 @@ const App: React.FC = () => {
   if (contractToken)   return <ContractSign token={contractToken} />;
   if (invitationToken) return <><Toaster position="top-right" /><AcceptInvitation token={invitationToken} /></>;
 
-  // ── Activación de sucursal por código ────────────────────────────────────
-  if (branchAccessId) {
-    return (
-      <>
-        <Toaster position="top-right" />
-        <AcceptBranchInvitation companyId={branchAccessId} />
-      </>
-    );
-  }
-
-  // ── Kiosk: login por PIN para empleados — no requiere sesión Supabase ────
-  // Si el empleado ya autenticó con PIN en esta sesión, mostrar la app.
-  // Si no, mostrar la pantalla de selección de empleado + PIN.
-  if (kioskCompanyId) {
-    if (kioskProfile) {
-      // Empleado autenticado: montar la app con el companyId del kiosk
-      return (
-        <>
-          <Toaster position="top-right" />
-          {/* Banner de sesión de empleado */}
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
-            background: 'linear-gradient(135deg,#059669,#0d9488)',
-            color: '#fff', padding: '6px 20px',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans','Segoe UI',sans-serif",
-          }}>
-            <span>👤 {kioskProfile.full_name} · <span style={{ opacity: 0.85, textTransform: 'capitalize' }}>{kioskProfile.custom_role}</span></span>
-            <button
-              onClick={() => setKioskProfile(null)}
-              style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '4px 14px', borderRadius: 7, cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>
-              🔒 Cerrar sesión
-            </button>
-          </div>
-          <div style={{ paddingTop: 38 }}>
-            <Router>
-              <DatabaseProvider overrideCompanyId={kioskCompanyId}>
-                <Routes>
-                  <Route path="/*" element={<Layout onAdminPanel={undefined}><AppRoutes /></Layout>} />
-                </Routes>
-              </DatabaseProvider>
-            </Router>
-          </div>
-        </>
-      );
-    }
-    // Sin PIN autenticado: mostrar kiosk
-    return (
-      <>
-        <Toaster position="top-right" />
-        <BranchKiosk companyId={kioskCompanyId} onSuccess={(p) => setKioskProfile(p)} />
-      </>
-    );
-  }
-
   // ── Vista directa de sucursal ─────────────────────────────────────────────
-  // Se abre al hacer clic en "↗ Abrir" o al compartir el link de una sucursal.
-  // El usuario debe tener sesión activa; si no, ve el login primero.
+  // El link /#/sucursal/:id SIEMPRE pide credenciales de empleado.
+  // Si hay sesión del dueño activa, se ignora — el empleado debe ingresar
+  // con su propio email/contraseña para acceder a su sucursal.
   if (branchRouteId && !checking) {
-    if (!session) {
-      // Sin sesión: mostrar login, guardar intent
+    // Verificar si la sesión activa pertenece a esta sucursal específica
+    const verifiedForThisBranch = sessionStorage.getItem('branch_verified') === branchRouteId;
+
+    if (!session || !verifiedForThisBranch) {
+      // Guardar el intent y forzar login
       sessionStorage.setItem('branch_redirect', branchRouteId);
+      sessionStorage.removeItem('branch_verified');
       return (
         <>
           <Toaster position="top-right" />
@@ -531,7 +463,7 @@ const App: React.FC = () => {
         </>
       );
     }
-    // Con sesión: cargar la sucursal en su propio DatabaseProvider
+    // Sesión verificada como perteneciente a esta sucursal → entrar
     return (
       <>
         <Toaster position="top-right" />
@@ -542,17 +474,11 @@ const App: React.FC = () => {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans','Segoe UI',sans-serif",
         }}>
-          <span>🏢 Vista Sucursal</span>
-          <button
-            onClick={() => { window.location.hash = '/'; }}
-            style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', padding: '4px 14px', borderRadius: 7, cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>
-            ← Ir al inicio
-          </button>
+          <span>🏢 Sucursal</span>
         </div>
         <div style={{ paddingTop: 42 }}>
           <Router>
             <DatabaseProvider overrideCompanyId={branchRouteId}>
-              <BranchRouteInit branchId={branchRouteId} />
               <Routes>
                 <Route path="/*" element={<Layout onAdminPanel={undefined}><AppRoutes /></Layout>} />
               </Routes>
@@ -583,21 +509,6 @@ const App: React.FC = () => {
   if (view === 'past_due' && session) return (<><Toaster position="top-right" /><PastDueScreen  email={userEmail} onRetry={retryCheck} /></>);
   if (view === 'login')    return (<><Toaster position="top-right" /><Login onShowLanding={() => setView('landing')} onShowRegister={() => setView('register')} /></>);
   if (!session)            return (<><Toaster position="top-right" /><LandingPage onLogin={() => setView('login')} onRegister={() => setView('register')} onClientPortal={() => setView('portal')} /></>);
-
-  // ── Admin de sucursal hija: montar con overrideCompanyId ─────────────────
-  // Esto evita que cualquier navegación interna lo saque al contexto del padre.
-  if (view === 'app_branch' && branchCompanyId) return (
-    <>
-      <Toaster position="top-right" />
-      <Router>
-        <DatabaseProvider overrideCompanyId={branchCompanyId}>
-          <Routes>
-            <Route path="/*" element={<Layout onAdminPanel={undefined}><AppRoutes /></Layout>} />
-          </Routes>
-        </DatabaseProvider>
-      </Router>
-    </>
-  );
 
   if (view === 'preview' && previewCompanyId) return (
     <>

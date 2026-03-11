@@ -156,10 +156,34 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   useEffect(() => {
     if (overrideCompanyId) {
       setCompanyId(overrideCompanyId);
-      setUserRole('ADMIN');
       setCustomRole(null);
       setPermissions({});
-      resolvebranchId(overrideCompanyId).then(bid => { setBranchId(bid); loadAllData(overrideCompanyId, bid); });
+      // BUG FIX: respect the real user role for this branch instead of forcing ADMIN.
+      const initBranch = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: branchProfile } = await supabase
+            .from('profiles')
+            .select('role, custom_role, permissions')
+            .eq('id', user.id)
+            .eq('company_id', overrideCompanyId)
+            .maybeSingle();
+          if (branchProfile) {
+            setUserRole(branchProfile.role);
+            setCustomRole(branchProfile.custom_role || null);
+            setPermissions(branchProfile.permissions || {});
+          } else {
+            // Owner/admin previewing a branch without a profile there
+            setUserRole('ADMIN');
+          }
+        } else {
+          setUserRole('ADMIN');
+        }
+        const bid = await resolvebranchId(overrideCompanyId);
+        setBranchId(bid);
+        await loadAllData(overrideCompanyId, bid);
+      };
+      initBranch();
       return;
     }
 

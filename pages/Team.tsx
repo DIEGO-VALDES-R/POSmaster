@@ -146,29 +146,31 @@ const hashPin = async (pin: string): Promise<string> => {
 const Team: React.FC = () => {
   const { company, companyId, userRole } = useDatabase();
   const { checkAccess } = useAccessControl();
-  const businessType = (company as any)?.business_type || 'default';
+  // BUG FIX: business_type lives inside config, not at root level
+  const businessType = (company as any)?.config?.business_type
+    || (company as any)?.config?.business_types?.[0]
+    || (company as any)?.business_type
+    || 'default';
+  // BUG FIX: if this is a branch (has negocio_padre_id), the plan lives on the parent.
+  // The branch itself is created with plan='BASIC' — we must treat the admin of a branch as PRO.
+  const isBranch = !!(company as any)?.negocio_padre_id;
   const plan = company?.subscription_plan || 'BASIC';
   const isEnterprise = plan === 'ENTERPRISE';
-  // Las sucursales hijas (negocio_padre_id != null) heredan el privilegio de equipo
-  // del padre sin importar su propio plan almacenado.
-  const isBranchChild = !!(company as any)?.negocio_padre_id;
-  const isPro = plan === 'PRO' || isEnterprise || isBranchChild;
+  const isPro = isBranch || plan === 'PRO' || isEnterprise;
 
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
 
-  // ── Nuevo empleado (creación directa con PIN) ──────────────────────────
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [addName, setAddName] = useState('');
-  const [addRole, setAddRole] = useState('cajero');
-  const [addPerms, setAddPerms] = useState<Record<string, boolean>>({});
-  const [addPin, setAddPin] = useState('');
-  const [addBranch, setAddBranch] = useState('');
-  const [addShowPin, setAddShowPin] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('cajero');
+  const [inviteBranch, setInviteBranch] = useState('');
+  const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({});
+  const [inviting, setInviting] = useState(false);
 
-  // ── Edición de miembro ──────────────────────────────────────────────────
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [editRole, setEditRole] = useState('');
   const [editBranch, setEditBranch] = useState('');
@@ -177,17 +179,13 @@ const Team: React.FC = () => {
   const [showPin, setShowPin] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // ── Eliminar ────────────────────────────────────────────────────────────
   const [confirmDelete, setConfirmDelete] = useState<TeamMember | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // ── Link kiosk ──────────────────────────────────────────────────────────
-  const kioskLink = companyId ? `${window.location.origin}/#/kiosk/${companyId}` : '';
 
   const roles = getRolesForType(businessType);
 
   useEffect(() => {
-    if (companyId) { loadMembers(); loadBranches(); }
+    if (companyId) { loadMembers(); loadBranches(); loadInvitations(); }
   }, [companyId]);
 
   const loadMembers = async () => {
@@ -203,55 +201,67 @@ const Team: React.FC = () => {
     setBranches(data || []);
   };
 
-  const handleRoleSelect = (roleId: string) => {
-    setAddRole(roleId);
-    const found = roles.find(r => r.id === roleId);
-    setAddPerms(found?.defaultPerms || {});
+  const loadInvitations = async () => {
+    const { data } = await supabase.from('user_invitations').select('*').eq('company_id', companyId).order('created_at', { ascending: false });
+    setInvitations((data || []) as any);
   };
 
-  // ── Crear empleado directamente con PIN (sin email/invitación) ──────────
-  const handleAddMember = async () => {
-    if (!addName.trim()) { toast.error('Ingresa el nombre del empleado'); return; }
-    if (!addPin || addPin.length !== 4 || !/^\d{4}$/.test(addPin)) {
-      toast.error('El PIN debe ser exactamente 4 dígitos numéricos'); return;
+  const handleRoleSelect = (roleId: string) => {
+    setInviteRole(roleId);
+    const found = roles.find(r => r.id === roleId);
+    setInvitePerms(found?.defaultPerms || {});
+  };
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) { toast.error('Ingresa un email válido'); return; }
+
+    // Validación local — evita depender de la Edge Function para una operación crítica
+    if (!isPro) {
+      toast.error('La gestión de equipo requiere plan PRO o ENTERPRISE 🔒');
+      return;
     }
-    setAdding(true);
+    if (!companyId) { toast.error('Error: empresa no cargada'); return; }
+
+    setInviting(true);
     try {
-      // Verificar que el PIN no esté en uso en esta empresa
-      const { data: existing } = await supabase
-        .from('profiles').select('id, full_name').eq('company_id', companyId).eq('pin', addPin);
-      if (existing && existing.length > 0) {
-        toast.error(`El PIN ${addPin} ya lo usa ${existing[0].full_name}. Elige otro.`);
-        setAdding(false);
-        return;
-      }
+      // Generar token seguro de 32 chars hex en el cliente
+      // (por si la BD no tiene trigger que lo genere automáticamente)
+      const tokenArray = new Uint8Array(16);
+      crypto.getRandomValues(tokenArray);
+      const token = Array.from(tokenArray).map(b => b.toString(16).padStart(2, '0')).join('');
 
-      // Insertar perfil sin auth uid (empleado de kiosk — no tiene cuenta Supabase)
-      // Usamos un UUID generado en cliente para el id
-      const newId = crypto.randomUUID();
-      const { error } = await supabase.from('profiles').insert({
-        id: newId,
+      // Expiración: 7 días
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: inv, error } = await supabase.from('user_invitations').insert({
         company_id: companyId,
-        branch_id: addBranch || branches[0]?.id || null,
-        role: 'STAFF',
-        custom_role: addRole,
-        permissions: addPerms,
-        full_name: addName.trim(),
-        email: null,
-        pin: addPin,
-        pin_hash: null,
-        is_active: true,
-      });
+        branch_id: inviteBranch || branches[0]?.id || null,
+        email: inviteEmail.trim().toLowerCase(),
+        custom_role: inviteRole,
+        permissions: invitePerms,
+        token,
+        expires_at: expiresAt,
+        status: 'PENDING',
+      }).select().single();
       if (error) throw error;
-
-      toast.success(`✅ ${addName.trim()} agregado al equipo con PIN ${addPin}`);
-      setShowAddModal(false);
-      setAddName(''); setAddRole('cajero'); setAddPerms({}); setAddPin(''); setAddBranch('');
-      loadMembers();
+      const link = `${window.location.origin}/#/invitacion/${inv.token}`;
+      await navigator.clipboard.writeText(link).catch(() => {});
+      toast.success('✅ Invitación creada. Enlace copiado al portapapeles.');
+      setShowInviteModal(false);
+      setInviteEmail(''); setInviteRole('cajero'); setInviteBranch(''); setInvitePerms({});
+      loadInvitations();
     } catch (err: any) {
-      toast.error('Error: ' + err.message);
+      console.error('Error creando invitación:', err);
+      // Mensaje de error más descriptivo
+      if (err.message?.includes('user_invitations')) {
+        toast.error('Error: la tabla de invitaciones no existe en la BD. Ejecuta el SQL de user_invitations.');
+      } else if (err.message?.includes('unique') || err.message?.includes('duplicate')) {
+        toast.error('Ya existe una invitación pendiente para este email.');
+      } else {
+        toast.error('Error al crear invitación: ' + err.message);
+      }
     } finally {
-      setAdding(false);
+      setInviting(false);
     }
   };
 
@@ -278,12 +288,10 @@ const Team: React.FC = () => {
         permissions: editPerms,
       };
       if (editPin) {
-        try {
-          const pinHash = await hashPin(editPin);
-          updateData.pin_hash = pinHash;
-        } catch { /* si no hay función RPC, guardamos solo en pin */ }
-        updateData.pin = editPin; // guardamos también en claro para el kiosk
-      } else if (!editPin && !editMember.pin_hash && !editMember.pin) {
+        const pinHash = await hashPin(editPin);
+        updateData.pin_hash = pinHash;
+        updateData.pin = null;
+      } else if (!editPin && !editMember.pin_hash) {
         updateData.pin_hash = null;
         updateData.pin = null;
       }
@@ -344,6 +352,16 @@ const Team: React.FC = () => {
           </div>
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Gestión de Equipo</h2>
           <p className="text-slate-500 mb-6">Esta función está disponible en los planes <span className="font-bold text-blue-600">PRO</span> y <span className="font-bold text-purple-600">ENTERPRISE</span>.</p>
+          <div className="grid grid-cols-2 gap-4 text-left max-w-md mx-auto">
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+              <p className="font-bold text-blue-700 mb-1">PRO</p>
+              <p className="text-xs text-blue-600">Roles en sede principal<br/>Hasta 5 usuarios</p>
+            </div>
+            <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+              <p className="font-bold text-purple-700 mb-1">ENTERPRISE</p>
+              <p className="text-xs text-purple-600">Roles en todas las sucursales<br/>Usuarios ilimitados</p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -351,126 +369,173 @@ const Team: React.FC = () => {
 
   return (
     <div className="space-y-6">
-
-      {/* Header */}
       <div className="flex justify-between items-start flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Equipo</h2>
-          <p className="text-slate-500 text-sm">Crea empleados con PIN — ingresan por el link kiosk de la sucursal</p>
+          <h2 className="text-2xl font-bold text-slate-800">Gestión de Equipo</h2>
+          <p className="text-slate-500 text-sm">
+            {isEnterprise ? 'Usuarios y roles en todas las sucursales' : 'Usuarios y roles en tu sede principal'}
+          </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <RefreshButton onRefresh={loadMembers} />
-          {/* Link kiosk para compartir */}
-          <button
-            onClick={() => { navigator.clipboard.writeText(kioskLink).then(() => toast.success('🔗 Link kiosk copiado')); }}
-            className="flex items-center gap-2 px-3 py-2 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg font-bold hover:bg-violet-100 text-xs">
-            🔗 Link de entrada
-          </button>
-          <button onClick={() => { setAddName(''); setAddRole('cajero'); setAddPerms(roles.find(r => r.id === 'cajero')?.defaultPerms || {}); setAddPin(''); setAddBranch(''); setShowAddModal(true); }}
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={async () => { loadMembers(); loadInvitations(); }} />
+          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isEnterprise ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+            {isEnterprise ? '🏢 ENTERPRISE' : '⭐ PRO'}
+          </span>
+          <button onClick={() => setShowInviteModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 text-sm shadow-sm">
-            <Plus size={16} /> Agregar empleado
+            <Plus size={16} /> Invitar usuario
           </button>
         </div>
       </div>
 
-      {/* Info box link kiosk */}
-      <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-bold text-violet-800">🖥️ Link de ingreso para tu equipo</p>
-          <p className="text-xs text-violet-600 mt-0.5 font-mono break-all">{kioskLink}</p>
-          <p className="text-xs text-violet-500 mt-1">Comparte este link con tu equipo. Cada uno selecciona su nombre y digita su PIN para ingresar.</p>
-        </div>
-        <button
-          onClick={() => { navigator.clipboard.writeText(kioskLink).then(() => toast.success('✓ Copiado')); }}
-          className="flex-shrink-0 px-4 py-2 bg-violet-600 text-white rounded-lg font-bold hover:bg-violet-700 text-xs whitespace-nowrap">
-          📋 Copiar link
+      <div className="flex bg-white rounded-lg p-1 border border-slate-200 w-fit">
+        <button onClick={() => setActiveTab('members')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'members' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+          <UserCheck size={15} /> Miembros activos <span className="bg-blue-200 text-blue-800 text-xs px-1.5 py-0.5 rounded-full">{members.length}</span>
+        </button>
+        <button onClick={() => setActiveTab('invitations')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'invitations' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+          <Mail size={15} /> Invitaciones <span className="bg-slate-200 text-slate-700 text-xs px-1.5 py-0.5 rounded-full">{invitations.filter(i => i.status === 'PENDING').length}</span>
         </button>
       </div>
 
-      {/* Tabla de miembros */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            Cargando equipo...
-          </div>
-        ) : members.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <Users size={40} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Sin empleados aún</p>
-            <p className="text-xs mt-1">Agrega tu primer empleado con el botón de arriba</p>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                {['Nombre', 'Rol', 'PIN', 'Permisos', 'Estado', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {members.map(m => {
-                const roleDef = getRoleBadge(m.custom_role || m.role, businessType);
-                const hasPin = !!(m.pin || m.pin_hash);
-                return (
-                  <tr key={m.id} className={`hover:bg-slate-50 transition-colors ${!m.is_active ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                          {(m.full_name || '?').charAt(0).toUpperCase()}
-                        </div>
-                        <span className="font-medium text-slate-800">{m.full_name || '—'}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium">
-                        {roleDef.icon} {roleDef.label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {hasPin
-                        ? <span className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-bold">🔢 Configurado</span>
-                        : <span className="text-xs bg-red-50 text-red-500 border border-red-100 px-2 py-0.5 rounded-full">Sin PIN</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(m.permissions || {}).filter(([, v]) => v).slice(0, 3).map(([k]) => (
-                          <span key={k} className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-100">
-                            {PERMISSION_LABELS[k]?.split(' ')[1] || k}
+      {activeTab === 'members' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {loading ? (
+            <div className="p-12 text-center text-slate-400">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              Cargando equipo...
+            </div>
+          ) : members.length === 0 ? (
+            <div className="p-12 text-center text-slate-400">
+              <Users size={40} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Sin miembros aún</p>
+              <p className="text-xs mt-1">Invita a tu primer colaborador</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {['Usuario', 'Rol', isEnterprise ? 'Sucursal' : '', 'Permisos clave', 'Estado', ''].map((h, i) => h && (
+                    <th key={i} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {members.map(m => {
+                  const roleDef = getRoleBadge(m.custom_role || m.role, businessType);
+                  const branch = branches.find(b => b.id === m.branch_id);
+                  return (
+                    <tr key={m.id} className={`hover:bg-slate-50 transition-colors ${!m.is_active ? 'opacity-50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-slate-800">{m.full_name || '—'}</div>
+                        <div className="text-xs text-slate-400">{m.email}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-medium">
+                          {roleDef.icon} {roleDef.label}
+                        </span>
+                      </td>
+                      {isEnterprise && (
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-slate-500 flex items-center gap-1">
+                            <Building2 size={12} /> {branch?.name || 'Sin asignar'}
                           </span>
-                        ))}
-                        {Object.values(m.permissions || {}).filter(Boolean).length === 0 && (
-                          <span className="text-[10px] text-slate-400 italic">Sin permisos</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${m.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                        {m.is_active ? <><Check size={10} /> Activo</> : <><X size={10} /> Inactivo</>}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => openEdit(m)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg" title="Editar">
-                          <Edit2 size={14} />
-                        </button>
-                        <button onClick={() => handleToggleActive(m)} className={`p-1.5 rounded-lg ${m.is_active ? 'text-amber-500 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`}>
-                          {m.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
-                        </button>
-                        <button onClick={() => setConfirmDelete(m)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                        </td>
+                      )}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(m.permissions || {}).filter(([, v]) => v).slice(0, 3).map(([k]) => (
+                            <span key={k} className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-100">
+                              {PERMISSION_LABELS[k]?.split(' ')[1] || k}
+                            </span>
+                          ))}
+                          {Object.values(m.permissions || {}).filter(Boolean).length === 0 && (
+                            <span className="text-[10px] text-slate-400 italic">Sin permisos asignados</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${m.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {m.is_active ? <><Check size={10} /> Activo</> : <><X size={10} /> Inactivo</>}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEdit(m)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar">
+                            <Edit2 size={14} />
+                          </button>
+                          <button onClick={() => handleToggleActive(m)} className={`p-1.5 rounded-lg transition-colors ${m.is_active ? 'text-amber-500 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`} title={m.is_active ? 'Desactivar' : 'Activar'}>
+                            {m.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
+                          </button>
+                          <button onClick={() => setConfirmDelete(m)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar usuario">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'invitations' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {invitations.length === 0 ? (
+            <div className="p-12 text-center text-slate-400">
+              <Mail size={40} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Sin invitaciones pendientes</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {['Email', 'Rol', 'Estado', 'Expira', ''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {invitations.map(inv => {
+                  const roleDef = getRoleBadge(inv.custom_role, businessType);
+                  const expired = new Date(inv.expires_at) < new Date();
+                  const statusColor = inv.status === 'ACCEPTED' ? 'bg-green-100 text-green-700' : expired ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700';
+                  const statusLabel = inv.status === 'ACCEPTED' ? '✅ Aceptada' : expired ? '⏰ Expirada' : '⏳ Pendiente';
+                  return (
+                    <tr key={inv.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-medium text-slate-700">{inv.email}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs">
+                          {roleDef.icon} {roleDef.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>{statusLabel}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-400">{new Date(inv.expires_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          {inv.status === 'PENDING' && !expired && (
+                            <button onClick={() => handleCopyInviteLink(inv.token)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg" title="Copiar enlace">
+                              <Copy size={14} />
+                            </button>
+                          )}
+                          <button onClick={() => handleDeleteInvitation(inv.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Eliminar">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* ── MODAL CONFIRMAR ELIMINAR ── */}
       {confirmDelete && (
@@ -507,106 +572,64 @@ const Team: React.FC = () => {
         </div>
       )}
 
-      {/* ── MODAL AGREGAR EMPLEADO (PIN directo) ── */}
-      {showAddModal && (
+      {/* ── MODAL INVITAR ── */}
+      {showInviteModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
             <div className="bg-slate-900 p-5 flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-white">Agregar empleado</h3>
-                <p className="text-xs text-slate-400">Asigna nombre, rol y PIN de acceso</p>
+                <h3 className="font-bold text-white">Invitar al equipo</h3>
+                <p className="text-xs text-slate-400">Se enviará un enlace de registro</p>
               </div>
-              <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-700 rounded-lg"><X size={18} className="text-slate-300" /></button>
+              <button onClick={() => setShowInviteModal(false)} className="p-2 hover:bg-slate-700 rounded-lg"><X size={18} className="text-slate-300" /></button>
             </div>
-            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
-
-              {/* Nombre */}
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre completo *</label>
-                <input value={addName} onChange={e => setAddName(e.target.value)}
-                  placeholder="Ej: Laura Martínez"
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email del colaborador</label>
+                <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                  placeholder="colaborador@email.com"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
               </div>
-
-              {/* Rol */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Rol / Función *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Rol / Función</label>
                 <div className="grid grid-cols-2 gap-2">
                   {roles.map(r => (
                     <button key={r.id} type="button" onClick={() => handleRoleSelect(r.id)}
-                      className={`p-3 rounded-lg border-2 text-sm font-medium text-left transition-all flex items-center gap-2 ${addRole === r.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300 text-slate-600'}`}>
+                      className={`p-3 rounded-lg border-2 text-sm font-medium text-left transition-all flex items-center gap-2 ${inviteRole === r.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300 text-slate-600'}`}>
                       <span className="text-lg">{r.icon}</span> {r.label}
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Sede */}
-              {branches.length > 1 && (
+              {branches.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    <span className="flex items-center gap-1.5"><Building2 size={14} /> Sede asignada</span>
+                    <span className="flex items-center gap-1.5"><Building2 size={14} /> Asignar a sucursal</span>
                   </label>
-                  <select value={addBranch} onChange={e => setAddBranch(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm bg-white">
+                  <select value={inviteBranch} onChange={e => setInviteBranch(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
                     <option value="">— Sede principal —</option>
                     {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
               )}
-
-              {/* Permisos */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Permisos</label>
                 <div className="space-y-2 bg-slate-50 rounded-lg p-3 border border-slate-100">
                   {Object.entries(PERMISSION_LABELS).map(([key, label]) => (
                     <label key={key} className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={!!addPerms[key]} onChange={e => setAddPerms({ ...addPerms, [key]: e.target.checked })}
+                      <input type="checkbox" checked={!!invitePerms[key]} onChange={e => setInvitePerms({ ...invitePerms, [key]: e.target.checked })}
                         className="w-4 h-4 rounded accent-blue-600" />
                       <span className="text-sm text-slate-700">{label}</span>
                     </label>
                   ))}
                 </div>
               </div>
-
-              {/* PIN */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <label className="block text-sm font-bold text-blue-800 mb-1">🔢 PIN de acceso (4 dígitos) *</label>
-                <p className="text-xs text-blue-600 mb-3">Con este PIN el empleado ingresa al sistema desde el link kiosk de la sucursal. Debe ser único.</p>
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-2">
-                    {[0, 1, 2, 3].map(i => (
-                      <input key={i} id={`apin-${i}`}
-                        type={addShowPin ? 'text' : 'password'} inputMode="numeric" maxLength={1}
-                        value={addPin[i] || ''}
-                        onChange={e => {
-                          const val = e.target.value.replace(/\D/g, '');
-                          const arr = addPin.split(''); arr[i] = val;
-                          setAddPin(arr.join('').slice(0, 4));
-                          if (val && i < 3) document.getElementById(`apin-${i + 1}`)?.focus();
-                        }}
-                        onKeyDown={e => { if (e.key === 'Backspace' && !addPin[i] && i > 0) document.getElementById(`apin-${i - 1}`)?.focus(); }}
-                        className="w-12 h-14 text-center text-xl font-black border-2 rounded-lg outline-none focus:border-blue-500 bg-white"
-                        style={{ borderColor: addPin[i] ? '#3b82f6' : '#e2e8f0' }}
-                      />
-                    ))}
-                  </div>
-                  <button type="button" onClick={() => setAddShowPin(!addShowPin)}
-                    className="p-2 text-slate-400 hover:text-slate-600">
-                    {addShowPin ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                  {addPin.length === 4 && (
-                    <button type="button" onClick={() => setAddPin('')}
-                      className="text-xs text-red-400 hover:text-red-600 font-semibold">Borrar</button>
-                  )}
-                </div>
-              </div>
-
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>
-                <button type="button" onClick={handleAddMember} disabled={adding}
+                <button type="button" onClick={() => setShowInviteModal(false)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={handleInvite} disabled={inviting}
                   className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                  <UserCheck size={16} /> {adding ? 'Guardando...' : 'Agregar empleado'}
+                  <Mail size={16} /> {inviting ? 'Enviando...' : 'Crear invitación'}
                 </button>
               </div>
             </div>
@@ -620,8 +643,8 @@ const Team: React.FC = () => {
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
             <div className="bg-slate-900 p-5 flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-white">{editMember.full_name || '—'}</h3>
-                <p className="text-xs text-slate-400">Editar rol, permisos y PIN</p>
+                <h3 className="font-bold text-white">{editMember.full_name || editMember.email}</h3>
+                <p className="text-xs text-slate-400">Editar rol y permisos</p>
               </div>
               <button onClick={() => setEditMember(null)} className="p-2 hover:bg-slate-700 rounded-lg"><X size={18} className="text-slate-300" /></button>
             </div>
@@ -638,10 +661,10 @@ const Team: React.FC = () => {
                   ))}
                 </div>
               </div>
-              {branches.length > 1 && (
+              {branches.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    <span className="flex items-center gap-1.5"><Building2 size={14} /> Sede asignada</span>
+                    <span className="flex items-center gap-1.5"><Building2 size={14} /> Sucursal asignada</span>
                   </label>
                   <select value={editBranch} onChange={e => setEditBranch(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm bg-white">
@@ -664,19 +687,24 @@ const Team: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
-                  <Lock size={13} /> PIN de acceso (4 dígitos)
-                  {(editMember.pin || editMember.pin_hash) && <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded ml-1">🔒 Configurado</span>}
+                  <Lock size={13} /> PIN de acceso rápido (4 dígitos)
+                  {editMember.pin_hash && <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded ml-1">🔒 PIN configurado</span>}
                 </label>
                 <div className="relative">
                   <input type={showPin ? 'text' : 'password'} value={editPin}
                     onChange={e => setEditPin(e.target.value.slice(0, 4).replace(/\D/g, ''))}
-                    placeholder={(editMember.pin || editMember.pin_hash) ? 'Dejar vacío para mantener el actual' : 'Nuevo PIN'}
+                    placeholder={editMember.pin_hash ? 'Dejar vacío para mantener el actual' : 'Nuevo PIN (opcional)'}
                     maxLength={4}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono tracking-widest" />
                   <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                     {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {editMember.pin_hash
+                    ? 'Ingresa un nuevo PIN para cambiarlo, o déjalo vacío para mantener el actual.'
+                    : 'Permite login rápido en caja sin contraseña completa.'}
+                </p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setEditMember(null)} className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg font-medium hover:bg-slate-50">Cancelar</button>

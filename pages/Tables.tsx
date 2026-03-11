@@ -67,7 +67,7 @@ const ZONES = ['Salón', 'Terraza', 'Barra', 'Privado', 'Delivery'];
 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 const Tables: React.FC = () => {
-  const { company } = useDatabase();
+  const { company, branchId } = useDatabase();
   const navigate = useNavigate();
   const companyId = company?.id;
 
@@ -195,7 +195,7 @@ const Tables: React.FC = () => {
         await supabase.from('restaurant_tables').update({ name: tableForm.name, seats: tableForm.seats, zone: tableForm.zone }).eq('id', editingTable.id);
         toast.success('Mesa actualizada');
       } else {
-        await supabase.from('restaurant_tables').insert({ company_id: companyId, name: tableForm.name, seats: tableForm.seats, zone: tableForm.zone, status: 'FREE', is_active: true });
+        await supabase.from('restaurant_tables').insert({ company_id: companyId, branch_id: branchId, name: tableForm.name, seats: tableForm.seats, zone: tableForm.zone, status: 'FREE', is_active: true });
         toast.success('Mesa creada');
       }
       setShowTableModal(false);
