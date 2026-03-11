@@ -69,9 +69,9 @@ const POS: React.FC = () => {
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
 
   // ── MODO ABONO ────────────────────────────────────────────────────────────
-  const [isPartialMode, setIsPartialMode]   = useState(false);   // toggle pago parcial
-  const [shoeRepairId, setShoeRepairId]     = useState<string>(''); // id orden zapatería
-  const [shoeRepairLabel, setShoeRepairLabel] = useState('');       // label informativo
+  const [isPartialMode, setIsPartialMode]   = useState(false);
+  const [shoeRepairId, setShoeRepairId]     = useState<string>('');
+  const [shoeRepairLabel, setShoeRepairLabel] = useState('');
 
   // Leer parámetros de URL cuando viene de zapatería o salón de belleza
   useEffect(() => {
@@ -104,7 +104,6 @@ const POS: React.FC = () => {
     const total = parseFloat(params.get('total') || '0');
     const abono = parseFloat(params.get('abono') || '0');
 
-    // Agregar como producto de servicio virtual al carrito
     const virtualService: any = {
       product: {
         id: `${sku.toLowerCase()}-${sourceId}`,
@@ -132,7 +131,6 @@ const POS: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
-  // Hook para detectar escaneos de códigos de barras en el POS
   const { isScanning } = useBarcodeScanner((barcode) => {
     const product = products.find(p => p.sku.toLowerCase() === barcode.toLowerCase());
     if (product) {
@@ -143,7 +141,6 @@ const POS: React.FC = () => {
     }
   });
 
-  // ── Detectar tipo de negocio ──────────────────────────────────────────────
   const businessTypes: string[] = Array.isArray((company?.config as any)?.business_types)
     ? (company?.config as any).business_types
     : (company?.config as any)?.business_type ? [(company?.config as any).business_type] : ['general'];
@@ -154,19 +151,13 @@ const POS: React.FC = () => {
   const isVeterinaria  = businessTypes.includes('veterinaria');
   const isOdontologia  = businessTypes.includes('odontologia');
   const isSalon        = businessTypes.some(t => ['salon', 'salón', 'belleza'].includes(t));
-  // Negocios que venden servicios propios (no inventario genérico de products)
   const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia;
 
-  // ── Estado para menú de restaurante ──────────────────────────────────────
   const [menuItems,  setMenuItems]  = useState<any[]>([]);
   const [beverages,  setBeverages]  = useState<any[]>([]);
   const [menuTab,    setMenuTab]    = useState<'platos' | 'bebidas'>('platos');
-
-  // ── Estado para farmacia ──────────────────────────────────────────────────
   const [pharmaMeds,    setPharmaMeds]    = useState<any[]>([]);
   const [pharmaLoading, setPharmaLoading] = useState(false);
-
-  // ── Estado para veterinaria / odontología ─────────────────────────────────
   const [specialtyServices, setSpecialtyServices] = useState<any[]>([]);
 
   const loadRestaurantMenu = useCallback(async () => {
@@ -209,9 +200,7 @@ const POS: React.FC = () => {
   useEffect(() => { loadPharmaMeds(); }, [loadPharmaMeds]);
   useEffect(() => { loadSpecialtyServices(); }, [loadSpecialtyServices]);
 
-  // ── Catálogo filtrado según tipo de negocio ───────────────────────────────
   const filteredProducts = useMemo(() => {
-    // Estos negocios no usan la tabla `products` para vender en el POS
     if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isSalon) return [];
     return products.filter(p => {
       if (isZapateria && p.type !== 'SERVICE') return false;
@@ -221,15 +210,12 @@ const POS: React.FC = () => {
     });
   }, [searchTerm, products, isZapateria, isRestaurante, isFarmacia, isVeterinaria, isOdontologia, isSalon]);
 
-  // Listas filtradas para restaurante
   const filteredMenuItems = useMemo(() =>
     menuItems.filter(i => !searchTerm || i.name.toLowerCase().includes(searchTerm.toLowerCase())),
     [menuItems, searchTerm]);
   const filteredBeverages = useMemo(() =>
     beverages.filter(b => !searchTerm || b.name.toLowerCase().includes(searchTerm.toLowerCase())),
     [beverages, searchTerm]);
-
-  // Medicamentos filtrados para farmacia
   const filteredPharmaMeds = useMemo(() =>
     pharmaMeds.filter(m =>
       !searchTerm ||
@@ -237,14 +223,11 @@ const POS: React.FC = () => {
       (m.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.barcode || '').includes(searchTerm)
     ), [pharmaMeds, searchTerm]);
-
-  // Servicios filtrados para veterinaria/odontología/salón
   const filteredSpecialtyServices = useMemo(() =>
     specialtyServices.filter(s =>
       !searchTerm || s.nombre.toLowerCase().includes(searchTerm.toLowerCase())
     ), [specialtyServices, searchTerm]);
 
-  // ── Helpers para agregar al carrito ──────────────────────────────────────
   const addMenuItemToCart = (item: any) => {
     if (session?.status !== 'OPEN') { toast.error('Debe abrir la caja primero'); return; }
     const vp: any = { id: `menu-${item.id}`, name: item.name, price: item.price, type: 'SERVICE', sku: `MENU-${item.id.slice(0,6)}`, stock_quantity: 999, tax_rate: 0 };
@@ -347,10 +330,16 @@ const POS: React.FC = () => {
 
   const removeFromCart = (index: number) => { const c = [...cart]; c.splice(index, 1); setCart(c); };
 
+  // ── FIX: redondear amount para evitar errores de punto flotante ──────────
   const addPayment = () => {
-    const amount = parseFloat(currentPaymentAmount);
+    const amount = Math.round(parseFloat(currentPaymentAmount));
     if (!amount || amount <= 0) return;
-    if (!isPartialMode && amount > totals.remaining + 100) { toast.error('El monto excede el total restante'); return; }
+    // Permitir vuelto (el cajero puede pagar con billete de más)
+    // pero bloquear montos absurdamente superiores al total
+    if (!isPartialMode && amount > totals.total * 2 + 100000) {
+      toast.error('El monto excede el total restante');
+      return;
+    }
     setPayments([...payments, { method: currentPaymentMethod, amount }]);
     setCurrentPaymentAmount('');
   };
@@ -360,12 +349,11 @@ const POS: React.FC = () => {
   const handleFinalizeSale = async () => {
     const amountPaid = totals.totalPaid;
 
-    // En modo normal: exigir pago completo
-    if (!isPartialMode && Math.abs(totals.remaining) > 100) {
+    // Solo bloquear si FALTA dinero (remaining positivo). Vuelto (negativo) es válido.
+    if (!isPartialMode && totals.remaining > 100) {
       toast.error('Debe cubrir el total de la venta o activar modo Abono Parcial');
       return;
     }
-    // En modo parcial: exigir al menos un pago
     if (isPartialMode && amountPaid <= 0) {
       toast.error('Ingresa al menos un monto de abono');
       return;
@@ -423,7 +411,6 @@ const POS: React.FC = () => {
 
       <InvoiceModal isOpen={showInvoice} onClose={() => setShowInvoice(false)} sale={lastSale} company={company} />
 
-      {/* Indicador de escaneo activo */}
       {isScanning && (
         <div className="fixed top-4 left-4 flex items-center gap-2 px-4 py-2.5 bg-blue-50 border-2 border-blue-400 rounded-lg animate-pulse z-40">
           <Zap size={16} className="text-blue-600 animate-spin" />
@@ -441,7 +428,6 @@ const POS: React.FC = () => {
               isServiceBusiness ? loadSpecialtyServices :
               refreshAll
             } label="Actualizar" className="text-xs px-2 py-1.5" />
-            {/* Tabs para restaurante */}
             {isRestaurante && (
               <div className="flex gap-1 ml-auto bg-slate-200 rounded-lg p-0.5">
                 <button
@@ -496,20 +482,13 @@ const POS: React.FC = () => {
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {filteredMenuItems.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => addMenuItemToCart(item)}
-                    className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-orange-400 hover:shadow-md transition-all bg-white group"
-                  >
+                  <button key={item.id} onClick={() => addMenuItemToCart(item)}
+                    className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-orange-400 hover:shadow-md transition-all bg-white group">
                     <div className="w-full aspect-square bg-orange-50 rounded-md mb-3 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform overflow-hidden">
-                      {item.image_url
-                        ? <img src={item.image_url} alt={item.name} className="w-full h-full object-cover"/>
-                        : (item.rest_menu_categories?.icon || '🍽️')}
+                      {item.image_url ? <img src={item.image_url} alt={item.name} className="w-full h-full object-cover"/> : (item.rest_menu_categories?.icon || '🍽️')}
                     </div>
                     <h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{item.name}</h4>
-                    {item.rest_menu_categories && (
-                      <p className="text-xs text-slate-400 mb-1">{item.rest_menu_categories.icon} {item.rest_menu_categories.name}</p>
-                    )}
+                    {item.rest_menu_categories && <p className="text-xs text-slate-400 mb-1">{item.rest_menu_categories.icon} {item.rest_menu_categories.name}</p>}
                     {item.description && <p className="text-xs text-slate-400 line-clamp-1 mb-1">{item.description}</p>}
                     <div className="mt-auto flex items-center justify-between w-full">
                       <span className="font-bold text-orange-600">{formatMoney(item.price)}</span>
@@ -534,26 +513,17 @@ const POS: React.FC = () => {
                 {filteredBeverages.map(bev => {
                   const isLow = bev.stock <= bev.stock_min;
                   return (
-                    <button
-                      key={bev.id}
-                      onClick={() => addBeverageToCart(bev)}
-                      disabled={bev.stock <= 0}
+                    <button key={bev.id} onClick={() => addBeverageToCart(bev)} disabled={bev.stock <= 0}
                       className={`flex flex-col items-start text-left p-4 rounded-lg border transition-all bg-white group disabled:opacity-50 disabled:cursor-not-allowed ${
                         bev.stock <= 0 ? 'border-red-200 bg-red-50' : isLow ? 'border-amber-300 hover:border-amber-400 hover:shadow-md' : 'border-slate-200 hover:border-blue-400 hover:shadow-md'
-                      }`}
-                    >
-                      <div className="w-full aspect-square bg-blue-50 rounded-md mb-3 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
-                        🥤
-                      </div>
+                      }`}>
+                      <div className="w-full aspect-square bg-blue-50 rounded-md mb-3 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">🥤</div>
                       <h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{bev.name}</h4>
                       <p className="text-xs text-slate-400 mb-1">{bev.category} · {bev.presentation}</p>
                       <div className={`text-xs font-bold mb-2 ${bev.stock <= 0 ? 'text-red-500' : isLow ? 'text-amber-500' : 'text-green-600'}`}>
-                        {bev.stock <= 0 ? 'Agotado' : `Stock: ${bev.stock}`}
-                        {isLow && bev.stock > 0 && ' ⚠️'}
+                        {bev.stock <= 0 ? 'Agotado' : `Stock: ${bev.stock}`}{isLow && bev.stock > 0 && ' ⚠️'}
                       </div>
-                      <div className="mt-auto w-full">
-                        <span className="font-bold text-blue-600">{formatMoney(bev.price)}</span>
-                      </div>
+                      <div className="mt-auto w-full"><span className="font-bold text-blue-600">{formatMoney(bev.price)}</span></div>
                     </button>
                   );
                 })}
@@ -576,9 +546,7 @@ const POS: React.FC = () => {
                 {filteredPharmaMeds.map(med => (
                   <button key={med.id} onClick={() => addPharmaToCart(med)}
                     className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-teal-500 hover:shadow-md transition-all bg-white group">
-                    <div className="w-full aspect-square bg-teal-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">
-                      💊
-                    </div>
+                    <div className="w-full aspect-square bg-teal-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">💊</div>
                     <h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{med.name}</h4>
                     <p className="text-xs text-slate-400 mb-1">{med.category} · {med.presentation}</p>
                     {med.laboratory && <p className="text-xs text-slate-400 mb-1">{med.laboratory}</p>}
@@ -600,13 +568,9 @@ const POS: React.FC = () => {
             <>
               {filteredSpecialtyServices.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
-                  <span className="text-5xl mb-2 opacity-30">
-                    {isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}
-                  </span>
+                  <span className="text-5xl mb-2 opacity-30">{isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}</span>
                   <p className="font-medium">No hay servicios registrados</p>
-                  <p className="text-sm">
-                    Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : 'Salón de Belleza'}
-                  </p>
+                  <p className="text-sm">Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : 'Salón de Belleza'}</p>
                 </div>
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -618,41 +582,32 @@ const POS: React.FC = () => {
                     </div>
                     <h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{svc.nombre}</h4>
                     {svc.descripcion && <p className="text-xs text-slate-400 line-clamp-2 mb-2">{svc.descripcion}</p>}
-                    <div className="mt-auto w-full">
-                      <span className="font-bold text-purple-600">{formatMoney(svc.precio)}</span>
-                    </div>
+                    <div className="mt-auto w-full"><span className="font-bold text-purple-600">{formatMoney(svc.precio)}</span></div>
                   </button>
                 ))}
               </div>
             </>
           )}
 
-          {/* ── CATÁLOGO NORMAL (tecnología, general, ferretería, ropa, etc.) ── */}
+          {/* ── CATÁLOGO NORMAL ── */}
           {!isRestaurante && !isFarmacia && !isServiceBusiness && (
             <>
               {filteredProducts.length === 0 && searchTerm && (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className="text-slate-300 mb-4">
-                    <ShoppingCart size={48} />
-                  </div>
+                  <div className="text-slate-300 mb-4"><ShoppingCart size={48} /></div>
                   <p className="text-slate-500 font-medium">No hay productos disponibles</p>
                   <p className="text-slate-400 text-sm">Intenta con otro término de búsqueda o verifica el stock</p>
                 </div>
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {filteredProducts.map(product => (
-                  <button
-                    key={product.id}
-                    onClick={() => addToCart(product)}
+                  <button key={product.id} onClick={() => addToCart(product)}
                     disabled={product.stock_quantity === 0 && product.type !== ProductType.SERVICE}
-                    className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white group disabled:opacity-50 disabled:bg-slate-50"
-                  >
+                    className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white group disabled:opacity-50 disabled:bg-slate-50">
                     <div className="w-full aspect-square bg-slate-100 rounded-md mb-3 flex items-center justify-center text-slate-300 group-hover:text-blue-400 overflow-hidden">
-                      {(product as any).image_url ? (
-                        <img src={(product as any).image_url} alt={product.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <Smartphone size={40} />
-                      )}
+                      {(product as any).image_url
+                        ? <img src={(product as any).image_url} alt={product.name} className="w-full h-full object-cover" />
+                        : <Smartphone size={40} />}
                     </div>
                     <h4 className="font-semibold text-slate-800 line-clamp-2">{product.name}</h4>
                     <p className="text-xs text-slate-500 mb-1">{product.sku}</p>
@@ -708,14 +663,10 @@ const POS: React.FC = () => {
 
         <div className="p-4 bg-slate-50 border-t border-slate-200">
           {/* IVA TOGGLE */}
-          <button
-            onClick={() => setApplyIva(!applyIva)}
+          <button onClick={() => setApplyIva(!applyIva)}
             className={`w-full mb-3 py-2 px-4 rounded-lg text-sm font-medium border-2 transition-all flex items-center justify-between ${
-              applyIva && defaultTaxRate > 0
-                ? 'bg-green-50 border-green-400 text-green-700'
-                : 'bg-slate-50 border-slate-300 text-slate-500'
-            }`}
-          >
+              applyIva && defaultTaxRate > 0 ? 'bg-green-50 border-green-400 text-green-700' : 'bg-slate-50 border-slate-300 text-slate-500'
+            }`}>
             <span>IVA {applyIva ? defaultTaxRate : 0}%</span>
             <div className={`w-10 h-5 rounded-full flex items-center transition-all px-0.5 ${applyIva && defaultTaxRate > 0 ? 'bg-green-500 justify-end' : 'bg-slate-300 justify-start'}`}>
               <div className="w-4 h-4 bg-white rounded-full shadow" />
@@ -731,43 +682,35 @@ const POS: React.FC = () => {
               </span>
               {/* Toggle % / $ */}
               <div className="flex rounded-lg overflow-hidden border border-slate-300 text-xs font-bold">
-                <button
-                  onClick={() => setDiscountMode('pct')}
-                  className={`px-2 py-1 transition-colors ${discountMode === 'pct' ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-                >%</button>
-                <button
-                  onClick={() => setDiscountMode('val')}
-                  className={`px-2 py-1 transition-colors ${discountMode === 'val' ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-                >$</button>
+                <button onClick={() => setDiscountMode('pct')}
+                  className={`px-2 py-1 transition-colors ${discountMode === 'pct' ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>%</button>
+                <button onClick={() => setDiscountMode('val')}
+                  className={`px-2 py-1 transition-colors ${discountMode === 'val' ? 'bg-orange-500 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>$</button>
               </div>
             </div>
             <div className="flex items-center gap-2 px-3 pb-2">
               {/* Campo % */}
               <div className="flex items-center gap-1 flex-1">
-                <input
-                  type="number" min="0" max="100"
+                <input type="number" min="0" max="100"
                   value={globalDiscount}
                   onChange={e => handleDiscountPct(e.target.value)}
                   placeholder="0"
                   className={`w-full text-right px-2 py-1 rounded-lg border text-sm font-bold outline-none focus:ring-2 focus:ring-orange-400 ${
                     discountMode === 'pct' ? 'bg-white border-orange-300 text-orange-700' : 'bg-slate-100 border-slate-200 text-slate-400'
-                  }`}
-                />
+                  }`} />
                 <span className={`text-sm font-bold w-4 ${clampedDiscount > 0 ? 'text-orange-600' : 'text-slate-400'}`}>%</span>
               </div>
               <span className="text-slate-300 text-xs">=</span>
               {/* Campo valor */}
               <div className="flex items-center gap-1 flex-1">
                 <span className={`text-sm font-bold w-3 ${clampedDiscount > 0 ? 'text-orange-600' : 'text-slate-400'}`}>$</span>
-                <input
-                  type="number" min="0"
+                <input type="number" min="0"
                   value={globalDiscountVal}
                   onChange={e => handleDiscountVal(e.target.value)}
                   placeholder="0"
                   className={`w-full text-right px-2 py-1 rounded-lg border text-sm font-bold outline-none focus:ring-2 focus:ring-orange-400 ${
                     discountMode === 'val' ? 'bg-white border-orange-300 text-orange-700' : 'bg-slate-100 border-slate-200 text-slate-400'
-                  }`}
-                />
+                  }`} />
               </div>
             </div>
             {clampedDiscount > 0 && (
@@ -800,11 +743,8 @@ const POS: React.FC = () => {
             </div>
           </div>
 
-          <button
-            disabled={cart.length === 0}
-            onClick={() => setIsPaymentModalOpen(true)}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2"
-          >
+          <button disabled={cart.length === 0} onClick={() => setIsPaymentModalOpen(true)}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white py-3 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2">
             <CreditCard size={20} /> Pagar
           </button>
         </div>
@@ -820,7 +760,6 @@ const POS: React.FC = () => {
                 {shoeRepairLabel && <p className="text-xs text-blue-600 font-semibold mt-0.5">{shoeRepairLabel}</p>}
               </div>
               <div className="flex items-center gap-3">
-                {/* Toggle Abono Parcial */}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <span className="text-sm font-semibold text-slate-600">Abono parcial</span>
                   <div onClick={() => setIsPartialMode(p => !p)}
@@ -856,8 +795,7 @@ const POS: React.FC = () => {
                   <h4 className="text-sm font-bold text-slate-500 mb-2">Resumen de Venta</h4>
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2 mb-4">
                     <div className="flex justify-between text-sm text-slate-600">
-                      <span>Subtotal:</span>
-                      <span>{formatMoney(totals.subtotalBruto)}</span>
+                      <span>Subtotal:</span><span>{formatMoney(totals.subtotalBruto)}</span>
                     </div>
                     {clampedDiscount > 0 && (
                       <div className="flex justify-between text-sm text-orange-600 font-semibold">
@@ -889,15 +827,20 @@ const POS: React.FC = () => {
                       </div>
                     ))}
                     <div className="mt-3 pt-3 border-t border-slate-200 flex justify-between font-bold text-sm">
-                      <span>{isPartialMode ? 'Abonado:' : 'Restante:'}</span>
-                      <span className={isPartialMode
-                        ? 'text-amber-600'
-                        : totals.remaining > 100 ? 'text-red-600' : 'text-green-600'}>
+                      <span>{isPartialMode ? 'Abonado:' : totals.remaining < -1 ? 'Vuelto:' : 'Restante:'}</span>
+                      <span className={isPartialMode ? 'text-amber-600' : totals.remaining > 100 ? 'text-red-600' : 'text-green-600'}>
                         {isPartialMode
                           ? `${formatMoney(totals.totalPaid)} de ${formatMoney(totals.total)}`
-                          : formatMoney(totals.remaining)}
+                          : totals.remaining < -1
+                            ? formatMoney(Math.abs(totals.remaining))
+                            : formatMoney(totals.remaining)}
                       </span>
                     </div>
+                    {!isPartialMode && totals.remaining < -1 && (
+                      <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200 text-xs text-green-700 font-semibold">
+                        💵 Entregar {formatMoney(Math.abs(totals.remaining))} de vuelto al cliente
+                      </div>
+                    )}
                     {isPartialMode && totals.remaining > 0 && (
                       <div className="mt-2 p-2 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-700 font-semibold">
                         ⏳ Saldo pendiente: {formatMoney(totals.remaining)} → quedará en Cartera/CxC
@@ -918,10 +861,13 @@ const POS: React.FC = () => {
                   </div>
                   <div className="flex gap-2">
                     <input type="number" className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-lg font-bold" placeholder="0"
-                      value={currentPaymentAmount} onChange={e => setCurrentPaymentAmount(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPayment()} />
+                      value={currentPaymentAmount}
+                      onChange={e => setCurrentPaymentAmount(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addPayment()} />
                     <button onClick={addPayment} className="bg-slate-800 text-white px-4 rounded-lg hover:bg-slate-900"><Plus /></button>
                   </div>
-                  <button onClick={() => setCurrentPaymentAmount(Math.max(0, totals.remaining).toString())}
+                  {/* FIX: redondear remaining para evitar errores de punto flotante */}
+                  <button onClick={() => setCurrentPaymentAmount(Math.round(Math.max(0, totals.remaining)).toString())}
                     className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded font-medium">
                     Todo Restante
                   </button>

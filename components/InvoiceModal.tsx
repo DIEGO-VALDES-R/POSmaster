@@ -436,6 +436,28 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
                 </span>
               </div>
             )}
+
+            {/* CANCELÓ / CAMBIO */}
+            {(() => {
+              // amount_paid viene del JSONB payment_method.amount, o directo si existe
+              const amountPaid = sale.amount_paid ?? pm.amount ?? sale.total_amount;
+              const cambio = amountPaid - sale.total_amount;
+              if (amountPaid <= 0) return null;
+              return (
+                <div className="mt-3 pt-3 border-t border-dashed border-slate-300 space-y-1">
+                  <div className="flex justify-between text-sm font-semibold text-slate-700">
+                    <span>CANCELÓ:</span>
+                    <span>{formatMoney(amountPaid)}</span>
+                  </div>
+                  {cambio > 1 && (
+                    <div className="flex justify-between text-sm font-bold text-green-700">
+                      <span>CAMBIO:</span>
+                      <span>{formatMoney(cambio)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* DIAN / QR */}
