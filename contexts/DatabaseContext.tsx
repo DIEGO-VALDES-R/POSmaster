@@ -72,14 +72,29 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   };
 
   const loadProducts = async (cid: string, bid?: string | null) => {
-    let query = supabase.from('products').select('*')
-      .eq('company_id', cid).eq('is_active', true).order('name');
-    // Filter by branch when available — each branch sees only its own inventory
     const resolvedBid = bid ?? branchId;
-    if (resolvedBid) query = query.eq('branch_id', resolvedBid);
-    const { data, error } = await query;
+    let data: any[] = [];
+    let error: any = null;
+
+    if (resolvedBid) {
+      // Traer productos de esta sucursal + productos sin sucursal asignada
+      const [r1, r2] = await Promise.all([
+        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).eq('branch_id', resolvedBid).order('name'),
+        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).is('branch_id', null).order('name'),
+      ]);
+      error = r1.error || r2.error;
+      // Combinar y deduplicar por id
+      const combined = [...(r1.data || []), ...(r2.data || [])];
+      const seen = new Set<string>();
+      data = combined.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+    } else {
+      const r = await supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).order('name');
+      error = r.error;
+      data = r.data || [];
+    }
+
     if (error) console.error('❌ loadProducts:', error.message);
-    setProducts((data || []) as any);
+    setProducts(data as any);
   };
 
   const loadRepairs = async (cid: string, bid?: string | null) => {

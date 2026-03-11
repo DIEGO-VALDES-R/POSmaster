@@ -31,7 +31,7 @@ interface ImportRow {
   _status?: 'pending' | 'ok' | 'error'; _error?: string;
 }
 
-const ImportModal: React.FC<{ companyId: string; suppliers: Supplier[]; onClose: () => void; onSuccess: () => void }> = ({ companyId, suppliers, onClose, onSuccess }) => {
+const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppliers: Supplier[]; onClose: () => void; onSuccess: () => void }> = ({ companyId, branchId, suppliers, onClose, onSuccess }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [importing, setImporting] = useState(false);
@@ -168,7 +168,7 @@ const ImportModal: React.FC<{ companyId: string; suppliers: Supplier[]; onClose:
         } else {
           // No existe: insertar nuevo
           const { error: e } = await supabase.from('products').insert({
-            company_id: companyId, name: row.name, sku: row.sku,
+            company_id: companyId, branch_id: branchId || null, name: row.name, sku: row.sku,
             barcode: row.barcode || null, category: row.category || null,
             brand: row.brand || null, description: row.description || null,
             price: row.price, cost: row.cost,
@@ -632,7 +632,7 @@ const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
 const Inventory: React.FC = () => {
   const { formatMoney } = useCurrency();
   const { companyId } = useCompany();
-  const { company } = useDatabase();
+  const { company, branchId } = useDatabase();
 
   // Detectar tipo de negocio para adaptar etiquetas y mensajes
   const cfg = (company?.config as any) || {};
@@ -767,7 +767,7 @@ const Inventory: React.FC = () => {
     if (!form.name || !form.sku) { toast.error('Nombre y SKU son requeridos'); return; }
     setSaving(true);
     try {
-      const productData = { ...form, supplier_id: (form as any).supplier_id || null };
+      const productData = { ...form, supplier_id: (form as any).supplier_id || null, branch_id: branchId || null };
       if (editing?.id) { await productService.update(editing.id, productData); toast.success('Producto actualizado'); }
       else { await productService.create({ ...productData, company_id: companyId! }); toast.success('Producto creado'); }
       setShowModal(false); load();
@@ -1076,6 +1076,7 @@ const Inventory: React.FC = () => {
       {showImport && companyId && (
         <ImportModal
           companyId={companyId}
+          branchId={branchId}
           suppliers={suppliers}
           onClose={() => setShowImport(false)}
           onSuccess={() => { setShowImport(false); load(); }}
