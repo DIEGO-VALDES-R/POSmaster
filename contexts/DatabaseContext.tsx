@@ -144,12 +144,30 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   };
 
   const resolvebranchId = async (cid: string): Promise<string | null> => {
+    // 1. Buscar sede existente
     const { data: branches } = await supabase.from('branches').select('id').eq('company_id', cid).limit(1);
     if (branches && branches.length > 0) return branches[0].id;
+
+    // 2. Solo auto-crear sede si la empresa es tipo 'principal'
+    //    Las sucursales (tipo='sucursal') tienen su sede creada en Branches.tsx al momento de crearlas
+    const { data: company } = await supabase
+      .from('companies')
+      .select('tipo')
+      .eq('id', cid)
+      .maybeSingle();
+
+    if (company?.tipo === 'sucursal') {
+      // Sucursal sin sede: situación anómala, no crear automáticamente
+      console.warn('⚠️ Sucursal sin sede física asignada:', cid);
+      return null;
+    }
+
+    // 3. Empresa principal sin sede -> crear "Sede Principal" automáticamente
     const { data: newBranch, error } = await supabase.from('branches').insert({
-      company_id: cid, name: 'Principal', is_active: true,
+      company_id: cid, name: 'Sede Principal', is_active: true,
     }).select('id').single();
-    if (error) { console.error('❌ No se pudo crear branch:', error.message); return null; }
+
+    if (error) { console.error('❌ No se pudo crear sede:', error.message); return null; }
     return newBranch.id;
   };
 

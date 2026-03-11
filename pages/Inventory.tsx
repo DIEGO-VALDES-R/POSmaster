@@ -816,32 +816,42 @@ const Inventory: React.FC = () => {
     setForm((prev: any) => ({ ...prev, [key]: raw === '' ? 0 : parseFloat(raw) || 0 }));
   };
 
-  const ProductRow = ({ p }: { p: Product }) => (
-    <tr className="hover:bg-slate-50">
-      <td className="px-4 py-3">
-        {(p as any).image_url ? (
-          <img src={(p as any).image_url} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
-        ) : (
-          <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><Package size={16} className="text-slate-400" /></div>
-        )}
-      </td>
-      <td className="px-4 py-3 font-medium text-slate-900">{p.name}</td>
-      <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku}</td>
-      <td className="px-4 py-3 text-slate-500">{p.category || '—'}</td>
-      <td className="px-4 py-3 font-semibold text-slate-800">{formatMoney(p.price)}</td>
-      <td className="px-4 py-3 text-slate-500">{formatMoney(p.cost)}</td>
-      <td className="px-4 py-3">
-        <span className={`font-bold ${(p.stock_quantity||0) <= (p.stock_min||5) ? 'text-red-600' : 'text-green-600'}`}>{p.stock_quantity ?? 0}</span>
-      </td>
-      <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">{p.type}</span></td>
-      <td className="px-4 py-3">
-        <div className="flex gap-2">
-          <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
-          <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
-        </div>
-      </td>
-    </tr>
-  );
+  const ProductRow = ({ p }: { p: Product }) => {
+    const supplier = suppliers.find(s => s.id === (p as any).supplier_id);
+    return (
+      <tr className="hover:bg-slate-50">
+        <td className="px-4 py-3">
+          {(p as any).image_url ? (
+            <img src={(p as any).image_url} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
+          ) : (
+            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><Package size={16} className="text-slate-400" /></div>
+          )}
+        </td>
+        <td className="px-4 py-3 font-medium text-slate-900">{p.name}</td>
+        <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku}</td>
+        <td className="px-4 py-3 text-slate-500">{p.category || '—'}</td>
+        <td className="px-4 py-3 font-semibold text-slate-800">{formatMoney(p.price)}</td>
+        <td className="px-4 py-3 text-slate-500">{formatMoney(p.cost)}</td>
+        <td className="px-4 py-3">
+          <span className={`font-bold ${(p.stock_quantity||0) <= (p.stock_min||5) ? 'text-red-600' : 'text-green-600'}`}>{p.stock_quantity ?? 0}</span>
+        </td>
+        <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">{p.type}</span></td>
+        <td className="px-4 py-3 text-xs">
+          {supplier ? (
+            <span className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-medium whitespace-nowrap">{supplier.name}</span>
+          ) : (
+            <span className="text-slate-300">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex gap-2">
+            <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
+            <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   const ProductCard = ({ p }: { p: Product }) => (
     <div className="bg-white rounded-lg border border-slate-200 hover:shadow-lg hover:border-blue-300 transition-all overflow-hidden group">
@@ -1020,7 +1030,7 @@ const Inventory: React.FC = () => {
         ) : viewMode === 'list' ? (
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>{['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo',''].map(h => (
+              <tr>{['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor',''].map(h => (
                 <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
               ))}</tr>
             </thead>

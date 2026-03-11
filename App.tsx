@@ -338,6 +338,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
   const [userEmail, setUserEmail] = useState('');
   const [previewCompanyId, setPreviewCompanyId] = useState<string | null>(null);
+  const [daysUntilExpiry, setDaysUntilExpiry] = useState<number | null>(null);
 
   const contractTokenMatch  = window.location.hash.match(/^#\/contrato\/([a-f0-9]{64})$/);
   const contractToken       = contractTokenMatch ? contractTokenMatch[1] : null;
@@ -398,9 +399,17 @@ const App: React.FC = () => {
         let status = company.subscription_status;
         if (company.subscription_end_date) {
           const today = new Date().toISOString().split('T')[0];
+          const endDate = new Date(company.subscription_end_date);
+          const todayDate = new Date(today);
+          const diffMs = endDate.getTime() - todayDate.getTime();
+          const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
           if (company.subscription_end_date < today && status === 'ACTIVE') {
             await supabase.from('companies').update({ subscription_status: 'PAST_DUE' }).eq('id', profile.company_id);
             status = 'PAST_DUE';
+          } else if (diffDays <= 7 && status === 'ACTIVE') {
+            // Quedan 7 días o menos → mostrar banner de aviso
+            setDaysUntilExpiry(diffDays);
           }
         }
         setView(resolveView(status));
@@ -523,16 +532,44 @@ const App: React.FC = () => {
     </>
   );
 
+  const waExpiry = encodeURIComponent(`Hola, quiero renovar mi suscripción de POSmaster antes de que venza.`);
+
   return (
     <>
       <Toaster position="top-right" />
-      <Router>
-        <DatabaseProvider>
-          <Routes>
-            <Route path="/*" element={<Layout onAdminPanel={undefined}><AppRoutes /></Layout>} />
-          </Routes>
-        </DatabaseProvider>
-      </Router>
+      {/* Banner de expiración próxima */}
+      {daysUntilExpiry !== null && daysUntilExpiry <= 7 && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9998,
+          background: daysUntilExpiry <= 2 ? 'linear-gradient(135deg,#dc2626,#b91c1c)' : 'linear-gradient(135deg,#d97706,#b45309)',
+          color: '#fff', padding: '10px 24px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans','Segoe UI',sans-serif",
+          boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+        }}>
+          <span>
+            {daysUntilExpiry <= 0
+              ? '⚠️ Tu suscripción vence hoy'
+              : `⏰ Tu suscripción vence en ${daysUntilExpiry} día${daysUntilExpiry === 1 ? '' : 's'}`}
+          </span>
+          <a
+            href={`https://wa.me/${WHATSAPP_NUMBER}?text=${waExpiry}`}
+            target="_blank" rel="noreferrer"
+            style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', padding: '5px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 12 }}
+          >
+            💬 Renovar ahora
+          </a>
+        </div>
+      )}
+      <div style={{ paddingTop: daysUntilExpiry !== null && daysUntilExpiry <= 7 ? 44 : 0 }}>
+        <Router>
+          <DatabaseProvider>
+            <Routes>
+              <Route path="/*" element={<Layout onAdminPanel={undefined}><AppRoutes /></Layout>} />
+            </Routes>
+          </DatabaseProvider>
+        </Router>
+      </div>
     </>
   );
 };

@@ -54,7 +54,8 @@ async function verifyOwnerPassword(password: string): Promise<boolean> {
 const Branches: React.FC = () => {
   const { company, companyId, isLoading: ctxLoading } = useDatabase();
   const isPro = ['PRO', 'MASTER', 'ENTERPRISE'].includes(company?.subscription_plan || '');
-  const MAX_BRANCHES = 3;
+  const plan = (company as any)?.subscription_plan || 'BASIC';
+  const MAX_BRANCHES = plan === 'ENTERPRISE' ? 999 : plan === 'PRO' || plan === 'MASTER' ? 3 : 0;
 
   const parentBusinessType = (company as any)?.config?.business_type
     || (Array.isArray((company as any)?.config?.business_types) ? (company as any).config.business_types[0] : null)
