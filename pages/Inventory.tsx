@@ -693,7 +693,17 @@ const Inventory: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'products' | 'suppliers'>('products');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showLowStock, setShowLowStock] = useState(false);
-  const lowStockShown = useRef(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Mostrar alerta de stock bajo UNA SOLA VEZ mientras la página esté abierta
+  // sessionStorage se limpia al cerrar/recargar la pestaña
+  useEffect(() => {
+    if (!loading && products.length > 0) {
+      if (sessionStorage.getItem('lowStockShown')) return;
+      const hasLow = products.some(p => p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
+      if (hasLow) { setShowLowStock(true); sessionStorage.setItem('lowStockShown', '1'); }
+    }
+  }, [loading, products]);
 
   const { isScanning } = useBarcodeScanner((barcode) => {
     const product = products.find(p => p.sku.toLowerCase() === barcode.toLowerCase());
@@ -716,14 +726,6 @@ const Inventory: React.FC = () => {
   };
 
   useEffect(() => { load(); }, [companyId]);
-
-  // Mostrar alerta de stock bajo al cargar (una sola vez por sesión)
-  useEffect(() => {
-    if (!loading && products.length > 0 && !lowStockShown.current) {
-      const hasLow = products.some(p => p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
-      if (hasLow) { setShowLowStock(true); lowStockShown.current = true; }
-    }
-  }, [loading, products]);
 
   const loadSuppliers = async () => {
     if (!companyId) return;
@@ -781,6 +783,34 @@ const Inventory: React.FC = () => {
     catch (e: any) { toast.error(e.message); }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map(p => p.id!)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`¿Eliminar ${selectedIds.size} producto${selectedIds.size > 1 ? 's' : ''}? Esta acción no se puede deshacer.`)) return;
+    let ok = 0;
+    for (const id of Array.from(selectedIds)) {
+      try { await productService.delete(id); ok++; } catch {}
+    }
+    toast.success(`${ok} producto${ok > 1 ? 's' : ''} eliminado${ok > 1 ? 's' : ''}`);
+    setSelectedIds(new Set());
+    load();
+  };
+
   const filtered = products.filter(p => {
     // Filtrar por contexto de negocio:
     // - Productos con business_context NULL o 'general' son visibles en negocios 'general'
@@ -818,8 +848,13 @@ const Inventory: React.FC = () => {
 
   const ProductRow = ({ p }: { p: Product }) => {
     const supplier = suppliers.find(s => s.id === (p as any).supplier_id);
+    const isChecked = selectedIds.has(p.id!);
     return (
-      <tr className="hover:bg-slate-50">
+      <tr className={`hover:bg-slate-50 ${isChecked ? 'bg-blue-50' : ''}`}>
+        <td className="px-3 py-3">
+          <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(p.id!)}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+        </td>
         <td className="px-4 py-3">
           {(p as any).image_url ? (
             <img src={(p as any).image_url} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
@@ -1028,16 +1063,37 @@ const Inventory: React.FC = () => {
             <p>No hay productos. Crea el primero o importa desde Excel.</p>
           </div>
         ) : viewMode === 'list' ? (
+          <>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-200">
+                <span className="text-sm font-semibold text-blue-700">{selectedIds.size} producto{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100">Cancelar</button>
+                  <button onClick={handleBulkDelete} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                    <Trash2 size={14} /> Eliminar {selectedIds.size}
+                  </button>
+                </div>
+              </div>
+            )}
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>{['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor',''].map(h => (
-                <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
-              ))}</tr>
+              <tr>
+                <th className="px-3 py-4">
+                  <input type="checkbox"
+                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                </th>
+                {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor',''].map(h => (
+                  <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
+                ))}
+              </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.map(p => <ProductRow key={p.id} p={p} />)}
             </tbody>
           </table>
+          </>
         ) : selectedCategory ? (
           <div className="p-6 space-y-6">
             <button onClick={() => setSelectedCategory(null)} className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:text-blue-800 font-medium text-sm hover:bg-blue-50 rounded-lg transition-colors">
