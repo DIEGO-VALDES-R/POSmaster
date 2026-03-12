@@ -418,16 +418,42 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
     // Si viene de zapatería, vincular factura y registrar en historial
     if (saleData.shoeRepairId) {
-      await supabase.from('shoe_repair_orders')
-        .update({ invoice_id: invoice.id, status: 'DELIVERED' })
-        .eq('id', saleData.shoeRepairId);
-      await supabase.from('shoe_repair_history').insert({
-        company_id: companyId,
-        repair_id: saleData.shoeRepairId,
-        event: 'INVOICED',
-        description: `Factura generada: ${invoiceNumber}. Pagado: $${amountPaid.toLocaleString('es-CO')}${balanceDue > 0 ? ` · Saldo pendiente: $${balanceDue.toLocaleString('es-CO')}` : ''}`,
-        user_name: 'POS',
-      });
+      // Intentar marcar como orden de reparación técnica primero
+      const { data: repairOrder } = await supabase.from('repair_orders')
+        .select('id, _parts_json')
+        .eq('id', saleData.shoeRepairId)
+        .maybeSingle();
+
+      if (repairOrder) {
+        // Es una orden de servicio técnico
+        await supabase.from('repair_orders')
+          .update({ status: 'DELIVERED' })
+          .eq('id', saleData.shoeRepairId);
+        // Descontar repuestos del inventario
+        try {
+          const parts = JSON.parse(repairOrder._parts_json || '[]');
+          for (const part of parts) {
+            if (part.product_id && part.qty > 0) {
+              const { data: prod } = await supabase.from('products').select('stock_quantity').eq('id', part.product_id).single();
+              if (prod) {
+                await supabase.from('products').update({ stock_quantity: Math.max(0, (prod.stock_quantity || 0) - part.qty) }).eq('id', part.product_id);
+              }
+            }
+          }
+        } catch {}
+      } else {
+        // Es una orden de zapatería
+        await supabase.from('shoe_repair_orders')
+          .update({ invoice_id: invoice.id, status: 'DELIVERED' })
+          .eq('id', saleData.shoeRepairId);
+        await supabase.from('shoe_repair_history').insert({
+          company_id: companyId,
+          repair_id: saleData.shoeRepairId,
+          event: 'INVOICED',
+          description: `Factura generada: ${invoiceNumber}. Pagado: $${amountPaid.toLocaleString('es-CO')}${balanceDue > 0 ? ` · Saldo pendiente: $${balanceDue.toLocaleString('es-CO')}` : ''}`,
+          user_name: 'POS',
+        });
+      }
     }
 
     for (const i of saleData.items.filter((i: any) => i.product.type !== 'SERVICE')) {

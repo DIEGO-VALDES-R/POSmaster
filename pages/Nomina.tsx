@@ -3,7 +3,8 @@ import {
   Users, Plus, Edit2, Trash2, X, Check, ChevronDown, ChevronUp,
   DollarSign, Calendar, FileText, Calculator, Download, AlertTriangle,
   Briefcase, Clock, TrendingUp, Award, RefreshCw, Search, Eye,
-  UserCheck, Printer, BarChart2, ArrowUpRight, ArrowDownRight, Info
+  UserCheck, Printer, BarChart2, ArrowUpRight, ArrowDownRight, Info,
+  Shirt, Package, Bell, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -50,7 +51,7 @@ const ARL_RATES: Record<string, number> = {
 type ContractType = 'INDEFINIDO' | 'FIJO' | 'OBRA' | 'APRENDIZAJE' | 'HORA' | 'DIA' | 'PRESTACION';
 type PayFrequency = 'MENSUAL' | 'QUINCENAL' | 'SEMANAL';
 type RiskLevel = 'I' | 'II' | 'III' | 'IV' | 'V';
-type TabKey = 'empleados' | 'liquidacion' | 'historial' | 'reportes';
+type TabKey = 'empleados' | 'liquidacion' | 'historial' | 'reportes' | 'dotacion';
 
 interface Employee {
   id: string;
@@ -349,6 +350,40 @@ function calcularLiquidacion(emp: Employee, terminationDate: string, reason: str
   };
 }
 
+
+// ─── DOTACIÓN ─────────────────────────────────────────────────────────────────
+type TallaRopa  = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
+type TallaZapato = '34'|'35'|'36'|'37'|'38'|'39'|'40'|'41'|'42'|'43'|'44'|'45';
+
+interface DotacionEntrega {
+  id: string;
+  company_id: string;
+  branch_id?: string;
+  employee_id: string;
+  employee_name: string;
+  fecha_entrega: string;
+  periodo: string;           // ej: "2026-P1", "2026-P2", "2026-P3"
+  items: DotacionItem[];
+  costo_total: number;
+  observaciones?: string;
+  recibido_por: string;      // firma/confirmación del empleado
+  created_at: string;
+}
+
+interface DotacionItem {
+  descripcion: string;       // "Camisa polo manga corta"
+  cantidad: number;
+  talla_ropa?: TallaRopa;
+  talla_zapato?: TallaZapato;
+  costo_unitario: number;
+  subtotal: number;
+}
+
+interface DotacionConfig {
+  costo_estimado_periodo: number;  // costo por entrega (3 al año)
+  items_base: { descripcion: string; costo_unitario: number; cantidad: number }[];
+}
+
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 const Nomina: React.FC = () => {
   const { company, branchId } = useDatabase();
@@ -369,6 +404,14 @@ const Nomina: React.FC = () => {
   const [liqEmployee, setLiqEmployee] = useState<Employee | null>(null);
   const [showColilla, setShowColilla] = useState(false);
   const [colillaPeriod, setColillaPeriod] = useState<PayrollPeriod | null>(null);
+
+  // Dotación
+  const [dotaciones, setDotaciones]       = useState<DotacionEntrega[]>([]);
+  const [showDotModal, setShowDotModal]   = useState(false);
+  const [dotEmployee, setDotEmployee]     = useState<Employee | null>(null);
+  const [dotForm, setDotForm]             = useState<{
+    fecha_entrega: string; items: DotacionItem[]; observaciones: string; recibido_por: string;
+  }>({ fecha_entrega: new Date().toISOString().split('T')[0], items: [], observaciones: '', recibido_por: '' });
 
   // Form empleado
   const emptyEmp = (): Omit<Employee, 'id' | 'company_id' | 'created_at'> => ({
@@ -409,12 +452,14 @@ const Nomina: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
-    const [{ data: emps }, { data: perds }] = await Promise.all([
+    const [{ data: emps }, { data: perds }, { data: dots }] = await Promise.all([
       supabase.from('employees').select('*').eq('company_id', companyId).order('full_name'),
       supabase.from('payroll_periods').select('*').eq('company_id', companyId).order('period_end', { ascending: false }).limit(100),
+      supabase.from('dotacion_entregas').select('*').eq('company_id', companyId).order('fecha_entrega', { ascending: false }),
     ]);
     setEmployees((emps as Employee[]) ?? []);
     setPeriods((perds as PayrollPeriod[]) ?? []);
+    setDotaciones((dots ?? []).map((d: any) => ({ ...d, items: d.items || [] })));
     setLoading(false);
   }, [companyId]);
 
@@ -585,6 +630,7 @@ const Nomina: React.FC = () => {
             ['empleados', Users, 'Empleados'],
             ['liquidacion', Calculator, 'Liquidar Nómina'],
             ['historial', FileText, 'Historial'],
+            ['dotacion', Shirt, 'Dotación'],
             ['reportes', BarChart2, 'Reportes'],
           ] as [TabKey, any, string][]).map(([key, Icon, label]) => (
             <button
@@ -831,6 +877,373 @@ const Nomina: React.FC = () => {
             )}
           </div>
         )}
+
+
+        {/* ════════════════════════════════════════════════════════════
+            TAB: DOTACIÓN
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'dotacion' && (() => {
+          const COP = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
+          const activeEmps2 = employees.filter(e => e.is_active);
+
+          // Items base de dotación por ley colombiana
+          const ITEMS_LEY = [
+            { descripcion: 'Calzado / Zapatos de trabajo', costo_unitario: 120_000, cantidad: 1 },
+            { descripcion: 'Pantalón de trabajo', costo_unitario: 85_000, cantidad: 1 },
+            { descripcion: 'Camisa / Blusa de trabajo', costo_unitario: 65_000, cantidad: 1 },
+          ];
+
+          // Calcular alertas: empleados que no han recibido dotación en los últimos 4 meses
+          const hoy = new Date();
+          const alertas = activeEmps2.filter(emp => {
+            const entregas = dotaciones.filter(d => d.employee_id === emp.id);
+            if (entregas.length === 0) return true;
+            const ultima = new Date(entregas[0].fecha_entrega);
+            const meses = (hoy.getTime() - ultima.getTime()) / (1000 * 60 * 60 * 24 * 30);
+            return meses >= 4;
+          });
+
+          // Costo total histórico
+          const costoTotal = dotaciones.reduce((s, d) => s + (d.costo_total || 0), 0);
+
+          // Resumen por período
+          const periodosSummary = dotaciones.reduce((acc: Record<string, number>, d) => {
+            acc[d.periodo] = (acc[d.periodo] || 0) + d.costo_total;
+            return acc;
+          }, {});
+
+          // Guardar entrega
+          const saveDotacion = async () => {
+            if (!dotEmployee || !companyId) return;
+            if (dotForm.items.length === 0) { toast.error('Agrega al menos un ítem de dotación'); return; }
+            const costo_total = dotForm.items.reduce((s, i) => s + i.subtotal, 0);
+            const now = new Date();
+            const periodo = `${now.getFullYear()}-P${Math.ceil((now.getMonth() + 1) / 4)}`;
+            const payload = {
+              company_id: companyId,
+              branch_id: dotEmployee.branch_id || null,
+              employee_id: dotEmployee.id,
+              employee_name: dotEmployee.full_name,
+              fecha_entrega: dotForm.fecha_entrega,
+              periodo,
+              items: dotForm.items,
+              costo_total,
+              observaciones: dotForm.observaciones,
+              recibido_por: dotForm.recibido_por,
+            };
+            const { error } = await supabase.from('dotacion_entregas').insert(payload);
+            if (error) { toast.error(error.message); return; }
+            toast.success('✅ Dotación registrada');
+            setShowDotModal(false);
+            setDotEmployee(null);
+            setDotForm({ fecha_entrega: new Date().toISOString().split('T')[0], items: [], observaciones: '', recibido_por: '' });
+            loadData();
+          };
+
+          const openDotModal = (emp: Employee) => {
+            setDotEmployee(emp);
+            setDotForm({
+              fecha_entrega: new Date().toISOString().split('T')[0],
+              items: ITEMS_LEY.map(i => ({ ...i, talla_ropa: 'M' as any, talla_zapato: undefined, subtotal: i.costo_unitario * i.cantidad })),
+              observaciones: '', recibido_por: '',
+            });
+            setShowDotModal(true);
+          };
+
+          const updateItem = (idx: number, field: string, value: any) => {
+            setDotForm(f => {
+              const items = [...f.items];
+              items[idx] = { ...items[idx], [field]: value };
+              if (field === 'cantidad' || field === 'costo_unitario') {
+                items[idx].subtotal = items[idx].cantidad * items[idx].costo_unitario;
+              }
+              return { ...f, items };
+            });
+          };
+
+          return (
+            <div className="space-y-5">
+
+              {/* KPI cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: 'Empleados activos', value: activeEmps2.length, icon: '👥', color: 'blue' },
+                  { label: 'Con alerta pendiente', value: alertas.length, icon: '🔔', color: alertas.length > 0 ? 'red' : 'green' },
+                  { label: 'Entregas totales', value: dotaciones.length, icon: '📦', color: 'indigo' },
+                  { label: 'Costo total histórico', value: COP(costoTotal), icon: '💰', color: 'emerald', isText: true },
+                ].map(({ label, value, icon, color, isText }) => (
+                  <div key={label} className="bg-white rounded-xl border border-slate-200 p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">{icon}</span>
+                      <p className="text-xs text-slate-500 font-medium">{label}</p>
+                    </div>
+                    <p className={`font-bold text-${color}-600 ${isText ? 'text-sm' : 'text-2xl'}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Alertas */}
+              {alertas.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Bell size={16} className="text-amber-600" />
+                    <p className="font-bold text-amber-800 text-sm">
+                      {alertas.length} empleado{alertas.length > 1 ? 's' : ''} sin dotación en los últimos 4 meses
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {alertas.map(emp => (
+                      <button key={emp.id} onClick={() => openDotModal(emp)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg text-xs font-medium text-amber-800 transition-colors">
+                        <Shirt size={12} /> {emp.full_name} → Registrar dotación
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tabla de empleados con estado dotación */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-800">Estado de Dotación por Empleado</h3>
+                  <p className="text-xs text-slate-400">Dotación obligatoria cada 4 meses (Art. 230 CST)</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Empleado</th>
+                        <th className="px-4 py-3 text-left">Cargo</th>
+                        <th className="px-4 py-3 text-left">Última entrega</th>
+                        <th className="px-4 py-3 text-left">Próxima entrega</th>
+                        <th className="px-4 py-3 text-right">Costo total</th>
+                        <th className="px-4 py-3 text-center">Estado</th>
+                        <th className="px-4 py-3 text-center">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {activeEmps2.length === 0 ? (
+                        <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No hay empleados activos</td></tr>
+                      ) : activeEmps2.map(emp => {
+                        const entregas = dotaciones.filter(d => d.employee_id === emp.id);
+                        const ultimaEntrega = entregas[0];
+                        const costoEmp = entregas.reduce((s, d) => s + d.costo_total, 0);
+                        let estadoLabel = '⚠️ Pendiente';
+                        let estadoColor = 'bg-amber-100 text-amber-700';
+                        let proximaFecha = '—';
+                        if (ultimaEntrega) {
+                          const ultima = new Date(ultimaEntrega.fecha_entrega);
+                          const proxima = new Date(ultima);
+                          proxima.setMonth(proxima.getMonth() + 4);
+                          proximaFecha = proxima.toLocaleDateString('es-CO');
+                          const meses = (hoy.getTime() - ultima.getTime()) / (1000 * 60 * 60 * 24 * 30);
+                          if (meses < 3.5) { estadoLabel = '✅ Al día'; estadoColor = 'bg-green-100 text-green-700'; }
+                          else if (meses < 4) { estadoLabel = '🟡 Próximo'; estadoColor = 'bg-yellow-100 text-yellow-700'; }
+                          else { estadoLabel = '🔴 Vencido'; estadoColor = 'bg-red-100 text-red-700'; }
+                        }
+                        return (
+                          <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 font-medium text-slate-800">{emp.full_name}</td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">{emp.job_title}</td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">
+                              {ultimaEntrega ? new Date(ultimaEntrega.fecha_entrega).toLocaleDateString('es-CO') : 'Sin registros'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">{proximaFecha}</td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-700">{COP(costoEmp)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${estadoColor}`}>{estadoLabel}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button onClick={() => openDotModal(emp)}
+                                className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors">
+                                + Registrar
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Historial de entregas */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-800">Historial de Entregas</h3>
+                </div>
+                {dotaciones.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-slate-400">
+                    <Shirt size={32} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No hay entregas registradas aún</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Empleado</th>
+                          <th className="px-4 py-3 text-left">Fecha</th>
+                          <th className="px-4 py-3 text-left">Período</th>
+                          <th className="px-4 py-3 text-left">Ítems</th>
+                          <th className="px-4 py-3 text-right">Costo</th>
+                          <th className="px-4 py-3 text-left">Recibió</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {dotaciones.map(d => (
+                          <tr key={d.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-medium text-slate-800">{d.employee_name}</td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">{new Date(d.fecha_entrega).toLocaleDateString('es-CO')}</td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">{d.periodo}</span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">
+                              {d.items.map((i: DotacionItem) => `${i.descripcion}${i.talla_ropa ? ` T${i.talla_ropa}` : ''}${i.talla_zapato ? ` #${i.talla_zapato}` : ''}`).join(', ')}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-800">{COP(d.costo_total)}</td>
+                            <td className="px-4 py-3 text-slate-500 text-xs">{d.recibido_por || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Resumen de costos por período */}
+              {Object.keys(periodosSummary).length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <h3 className="font-bold text-slate-800 mb-4">Costo por Período</h3>
+                  <div className="space-y-2">
+                    {Object.entries(periodosSummary).sort((a, b) => b[0].localeCompare(a[0])).map(([periodo, costo]) => (
+                      <div key={periodo} className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-500 w-16">{periodo}</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2">
+                          <div className="h-2 bg-indigo-500 rounded-full"
+                            style={{ width: `${Math.min((costo / costoTotal) * 100, 100)}%` }} />
+                        </div>
+                        <span className="text-sm font-bold text-slate-700 w-28 text-right">{COP(costo as number)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Modal registrar dotación */}
+              {showDotModal && dotEmployee && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between px-5 py-4 border-b">
+                      <div>
+                        <h3 className="font-bold text-slate-800">Registrar Dotación</h3>
+                        <p className="text-xs text-slate-500">{dotEmployee.full_name} · {dotEmployee.job_title}</p>
+                      </div>
+                      <button onClick={() => setShowDotModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={16} /></button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de entrega</label>
+                          <input type="date" value={dotForm.fecha_entrega}
+                            onChange={e => setDotForm(f => ({ ...f, fecha_entrega: e.target.value }))}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre de quien recibe</label>
+                          <input type="text" value={dotForm.recibido_por} placeholder="Firma/nombre empleado"
+                            onChange={e => setDotForm(f => ({ ...f, recibido_por: e.target.value }))}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                      </div>
+
+                      {/* Items */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-xs font-bold text-slate-600 uppercase">Ítems de dotación</label>
+                          <button onClick={() => setDotForm(f => ({ ...f, items: [...f.items, { descripcion: '', cantidad: 1, talla_ropa: 'M', costo_unitario: 0, subtotal: 0 }] }))}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-bold">+ Agregar ítem</button>
+                        </div>
+                        <div className="space-y-3">
+                          {dotForm.items.map((item, idx) => (
+                            <div key={idx} className="bg-slate-50 rounded-xl p-3 space-y-2">
+                              <div className="flex gap-2">
+                                <input value={item.descripcion} placeholder="Descripción (ej: Camisa polo)"
+                                  onChange={e => updateItem(idx, 'descripcion', e.target.value)}
+                                  className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                                <button onClick={() => setDotForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
+                                  className="p-1.5 text-red-400 hover:text-red-600"><X size={14} /></button>
+                              </div>
+                              <div className="grid grid-cols-4 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-slate-500">Cant.</label>
+                                  <input type="number" min="1" value={item.cantidad}
+                                    onChange={e => updateItem(idx, 'cantidad', +e.target.value)}
+                                    className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500">Talla ropa</label>
+                                  <select value={item.talla_ropa || ''} onChange={e => updateItem(idx, 'talla_ropa', e.target.value)}
+                                    className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none">
+                                    <option value="">N/A</option>
+                                    {(['XS','S','M','L','XL','XXL','3XL'] as TallaRopa[]).map(t => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500">Talla zapato</label>
+                                  <select value={item.talla_zapato || ''} onChange={e => updateItem(idx, 'talla_zapato', e.target.value || undefined)}
+                                    className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none">
+                                    <option value="">N/A</option>
+                                    {['34','35','36','37','38','39','40','41','42','43','44','45'].map(t => <option key={t} value={t}>#{t}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500">Costo unit.</label>
+                                  <input type="number" min="0" value={item.costo_unitario}
+                                    onChange={e => updateItem(idx, 'costo_unitario', +e.target.value)}
+                                    className="w-full border border-slate-200 rounded px-2 py-1 text-xs text-slate-800 focus:outline-none" />
+                                </div>
+                              </div>
+                              <div className="text-right text-xs font-bold text-slate-700">
+                                Subtotal: {COP(item.subtotal)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Observaciones</label>
+                        <textarea value={dotForm.observaciones} rows={2} placeholder="Notas adicionales..."
+                          onChange={e => setDotForm(f => ({ ...f, observaciones: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      </div>
+
+                      <div className="flex items-center justify-between bg-blue-50 rounded-xl p-3">
+                        <span className="text-sm font-bold text-blue-700">Costo total entrega:</span>
+                        <span className="text-lg font-black text-blue-700">
+                          {COP(dotForm.items.reduce((s, i) => s + i.subtotal, 0))}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button onClick={() => setShowDotModal(false)}
+                          className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 text-sm">
+                          Cancelar
+                        </button>
+                        <button onClick={saveDotacion}
+                          className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 text-sm flex items-center justify-center gap-2">
+                          <CheckCircle2 size={16} /> Guardar dotación
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          );
+        })()}
 
         {/* ════════════════════════════════════════════════════════════
             TAB: REPORTES

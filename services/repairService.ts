@@ -16,6 +16,7 @@ export interface RepairOrder {
   final_cost?: number;
   technician_id?: string;
   notes?: string;
+  _parts_json?: string;  // JSON de repuestos usados
   created_at?: string;
   updated_at?: string;
 }

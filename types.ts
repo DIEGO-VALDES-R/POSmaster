@@ -17,7 +17,8 @@ export enum UserRole {
 export enum ProductType {
   STANDARD = 'STANDARD',
   SERIALIZED = 'SERIALIZED',
-  SERVICE = 'SERVICE'
+  SERVICE = 'SERVICE',
+  WEIGHABLE = 'WEIGHABLE'   // Producto vendido por peso (kg/lb/g)
 }
 
 export enum SaleStatus {
@@ -118,13 +119,18 @@ export interface Product {
   name: string;
   sku: string;
   description?: string;
-  price: number;
+  price: number;          // precio por kg/lb/unidad según unit_type
   cost: number;
   tax_rate: number;
   type: ProductType;
   category?: string;
   brand?: string;
-  stock_quantity: number;
+  stock_quantity: number; // stock en unidad base (gramos para pesables)
+  // ── Campos para productos pesables (WEIGHABLE) ──
+  unit_type?: 'kg' | 'lb' | 'g' | 'unidad';
+  price_per_unit?: number;  // precio por kg o lb
+  stock_min_weight?: number; // alerta cuando stock (en g) baja de este valor
+  plu_code?: string;         // código corto para POS ej: "F1", "P23"
 }
 
 export interface Customer {
@@ -143,6 +149,7 @@ export interface CartItem {
   serial_number?: string;
   price: number;
   tax_rate: number;
+  weight_kg?: number;     // peso real en kg para productos WEIGHABLE
   discount: number;
 }
 

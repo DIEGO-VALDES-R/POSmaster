@@ -31,6 +31,23 @@ export const productService = {
     return data || [];
   },
 
+  // Inventario necesita ver TODOS los productos (activos e inactivos) para poder reactivarlos
+  async getAllForInventory(company_id: string): Promise<Product[]> {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('company_id', company_id)
+      .order('name');
+    if (error) throw error;
+    return data || [];
+  },
+
+  async reactivate(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('products').update({ is_active: true }).eq('id', id);
+    if (error) throw error;
+  },
+
   async create(product: Omit<Product, 'id'>): Promise<Product> {
     const { data, error } = await supabase
       .from('products').insert(product).select().single();

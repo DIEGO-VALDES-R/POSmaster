@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, X, Printer, Barcode, Zap, Tag, ChefHat, Beer, UtensilsCrossed } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, X, Printer, Barcode, Zap, Tag, ChefHat, Beer, UtensilsCrossed, Scale, Wifi, Usb } from 'lucide-react';
 import RefreshButton from '../components/RefreshButton';
 import { Product, ProductType, CartItem, PaymentMethod, Sale } from '../types';
 import { toast, Toaster } from 'react-hot-toast';
@@ -199,7 +199,19 @@ const POS: React.FC = () => {
   const isVeterinaria  = businessTypes.includes('veterinaria');
   const isOdontologia  = businessTypes.includes('odontologia');
   const isSalon        = businessTypes.some(t => ['salon', 'salón', 'belleza'].includes(t));
+  const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
   const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia;
+
+  // ── BALANZA / PESABLES ────────────────────────────────────────────────────
+  const [scaleWeight,     setScaleWeight]     = useState<number | null>(null);   // kg leído de la balanza
+  const [scaleConnected,  setScaleConnected]  = useState(false);
+  const [scalePort,       setScalePort]       = useState<any>(null);             // SerialPort handle
+  const [scaleProtocol,   setScaleProtocol]   = useState<'serial' | 'barcode' | 'manual'>('manual');
+  const [showScaleConfig, setShowScaleConfig] = useState(false);
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [pendingWeighable, setPendingWeighable] = useState<Product | null>(null);
+  const [manualWeight,    setManualWeight]    = useState('');
+  const scaleBufferRef = useRef('');
 
   const [menuItems,  setMenuItems]  = useState<any[]>([]);
   const [beverages,  setBeverages]  = useState<any[]>([]);
@@ -335,8 +347,152 @@ const POS: React.FC = () => {
     }
   }, [session, isPaymentModalOpen, showInvoice, cart]);
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // BALANZA — LÓGICA MULTI-PROTOCOLO
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Decodifica código de barras tipo EAN-13 pesable (estándar mundial)
+  // Formato: 2X XXXXX PPPPP C   donde XX=PLU 5 dígitos, PPPPP=peso en gramos
+  const decodeWeighableBarcode = (barcode: string): { plu: string; weightKg: number } | null => {
+    if (barcode.length === 13 && barcode.startsWith('2')) {
+      const pluRaw  = barcode.substring(1, 6);
+      const weightG = parseInt(barcode.substring(7, 12), 10);
+      if (!isNaN(weightG)) return { plu: pluRaw.replace(/^0+/, ''), weightKg: weightG / 1000 };
+    }
+    return null;
+  };
+
+  // Parsea respuesta serial de diferentes marcas de balanzas
+  const parseScaleResponse = (raw: string): number | null => {
+    const cleaned = raw.replace(/\r|\n/g, '').trim();
+    // DIBAL / formato: "  ST,GS  +  0.850 kg"
+    const dibal = cleaned.match(/[+-]?\s*(\d+[.,]\d+)\s*kg/i);
+    if (dibal) return parseFloat(dibal[1].replace(',', '.'));
+    // DIGI SM-100 formato: "0.850"
+    const digi = cleaned.match(/^[+-]?\s*(\d+[.,]\d+)$/);
+    if (digi) return parseFloat(digi[1].replace(',', '.'));
+    // Toledo / Mettler formato: "S S      0.850 kg" o "N      0.850 kg"
+    const toledo = cleaned.match(/[SN]\s+[SN]?\s*(\d+[.,]\d+)\s*k?g?/i);
+    if (toledo) return parseFloat(toledo[1].replace(',', '.'));
+    // Genérico — primer número decimal encontrado
+    const generic = cleaned.match(/(\d+[.,]\d+)/);
+    if (generic) { const v = parseFloat(generic[1].replace(',', '.')); if (v > 0 && v < 500) return v; }
+    return null;
+  };
+
+  // Conectar balanza vía Web Serial API
+  const connectScaleSerial = async () => {
+    if (!('serial' in navigator)) {
+      toast.error('Web Serial no disponible. Usa Chrome o Edge en escritorio.');
+      return;
+    }
+    try {
+      const port = await (navigator as any).serial.requestPort({ filters: [] });
+      await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+      setScalePort(port);
+      setScaleConnected(true);
+      setScaleProtocol('serial');
+      toast.success('✅ Balanza conectada por puerto serial');
+      // Leer stream
+      const reader = port.readable.getReader();
+      const decoder = new TextDecoder();
+      const readLoop = async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            scaleBufferRef.current += decoder.decode(value);
+            // Detectar fin de mensaje (\r\n o \n)
+            if (scaleBufferRef.current.includes('\n') || scaleBufferRef.current.includes('\r')) {
+              const weight = parseScaleResponse(scaleBufferRef.current);
+              if (weight !== null && weight > 0) setScaleWeight(weight);
+              scaleBufferRef.current = '';
+            }
+          }
+        } catch { /* puerto cerrado */ }
+      };
+      readLoop();
+    } catch (err: any) {
+      if (err.name !== 'NotFoundError') toast.error('Error al conectar balanza: ' + err.message);
+    }
+  };
+
+  const disconnectScale = async () => {
+    if (scalePort) { try { await scalePort.close(); } catch { /* ignore */ } setScalePort(null); }
+    setScaleConnected(false);
+    setScaleWeight(null);
+    toast('Balanza desconectada');
+  };
+
+  // Añadir producto pesable al carrito con su peso
+  const addWeighableToCart = (product: Product, weightKg: number) => {
+    if (session?.status !== 'OPEN') { toast.error('Debe abrir la caja primero'); return; }
+    const pricePerUnit = (product as any).price_per_unit || product.price;
+    const linePrice = Math.round(pricePerUnit * weightKg);
+    const existing = cart.find(i => i.product.id === product.id);
+    if (existing) {
+      setCart(cart.map(i => i.product.id === product.id
+        ? { ...i, weight_kg: (i.weight_kg || 0) + weightKg, quantity: 1, price: Math.round(pricePerUnit * ((i.weight_kg || 0) + weightKg)) }
+        : i
+      ));
+    } else {
+      setCart([...cart, { product, quantity: 1, weight_kg: weightKg, price: linePrice, tax_rate: defaultTaxRate, discount: 0 }]);
+    }
+    toast.success(`🥬 ${product.name} · ${weightKg.toFixed(3)} kg · $${linePrice.toLocaleString('es-CO')}`);
+    setShowWeightModal(false);
+    setManualWeight('');
+    setPendingWeighable(null);
+    if (scaleProtocol === 'serial') setScaleWeight(null); // reset after add
+  };
+
+  // Buscar producto pesable por PLU code o nombre
+  const findWeighableByPlu = (term: string): Product | null => {
+    const t = term.toUpperCase().trim();
+    return (products as any[]).find(p =>
+      p.type === 'WEIGHABLE' && (
+        (p.plu_code && p.plu_code.toUpperCase() === t) ||
+        p.sku?.toUpperCase() === t ||
+        p.name?.toUpperCase().includes(t)
+      )
+    ) as Product || null;
+  };
+
+  // Interceptar Enter en el buscador para productos pesables
+  const handleWeighableSearch = (term: string): boolean => {
+    if (!isSupermercado) return false;
+    // Caso 1: código de barras EAN-13 pesable (emitido por balanza con impresora)
+    const decoded = decodeWeighableBarcode(term);
+    if (decoded) {
+      const product = (products as any[]).find(p =>
+        p.type === 'WEIGHABLE' && (
+          String(p.plu_code) === decoded.plu ||
+          String(p.sku).replace(/^0+/,'') === decoded.plu
+        )
+      ) as Product;
+      if (product) { addWeighableToCart(product, decoded.weightKg); return true; }
+    }
+    // Caso 2: PLU corto (F1, P23, etc.)
+    const byPlu = findWeighableByPlu(term);
+    if (byPlu) {
+      setPendingWeighable(byPlu);
+      // Si hay peso de balanza serial, usar directo; si no, pedir manual
+      if (scaleWeight && scaleWeight > 0) {
+        addWeighableToCart(byPlu, scaleWeight);
+      } else {
+        setManualWeight('');
+        setShowWeightModal(true);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  // ── FIN LÓGICA BALANZA ────────────────────────────────────────────────────
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchTerm) {
+      // Primero intentar como producto pesable (PLU o EAN-13)
+      if (handleWeighableSearch(searchTerm)) { setSearchTerm(''); return; }
       const exactMatch = products.find(p => p.sku.toLowerCase() === searchTerm.toLowerCase());
       if (exactMatch) { addToCart(exactMatch); setSearchTerm(''); }
       else if (filteredProducts.length === 1) { addToCart(filteredProducts[0]); setSearchTerm(''); }
@@ -496,6 +652,29 @@ const POS: React.FC = () => {
               </div>
             )}
           </div>
+          {/* ── Barra de estado balanza (solo supermercado) ── */}
+          {isSupermercado && (
+            <div className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium mb-1 transition-all ${scaleConnected ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-slate-50 border border-slate-200 text-slate-500'}`}>
+              <span className={`w-2 h-2 rounded-full ${scaleConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`} />
+              {scaleConnected ? (
+                <>
+                  <Scale size={14} className="text-green-600" />
+                  <span>Balanza conectada</span>
+                  {scaleWeight !== null && scaleWeight > 0
+                    ? <span className="font-black text-green-800 text-base ml-1">{scaleWeight.toFixed(3)} kg</span>
+                    : <span className="text-green-500 text-xs">esperando peso...</span>
+                  }
+                  <button onClick={disconnectScale} className="ml-auto text-xs text-slate-400 hover:text-red-500">Desconectar</button>
+                </>
+              ) : (
+                <>
+                  <Scale size={14} />
+                  <span>Sin balanza</span>
+                  <button onClick={() => setShowScaleConfig(true)} className="ml-auto text-xs text-blue-500 hover:text-blue-700 font-bold">Configurar balanza</button>
+                </>
+              )}
+            </div>
+          )}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
             <input
@@ -508,6 +687,7 @@ const POS: React.FC = () => {
                 isOdontologia    ? 'Buscar servicio odontológico...' :
                 isSalon          ? 'Buscar servicio del salón...' :
                 isZapateria      ? 'Buscar servicio de zapatería...' :
+                isSupermercado   ? 'Código PLU (ej: F1) o escanear etiqueta de balanza...' :
                 'Escanear Código de Barras / SKU / IMEI...'
               }
               className="w-full pl-10 pr-12 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
@@ -949,6 +1129,151 @@ const POS: React.FC = () => {
                 className="px-6 py-3 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 disabled:bg-slate-300 flex items-center gap-2">
                 <Printer size={20} /> {isPartialMode && totals.remaining > 100 ? 'Facturar con Abono' : 'Facturar e Imprimir'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ══════════════════════════════════════════════════════════════
+          MODAL: PESO MANUAL — cuando no hay balanza serial
+      ══════════════════════════════════════════════════════════════ */}
+      {showWeightModal && pendingWeighable && (
+        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2">
+                <Scale size={18} className="text-green-600" />
+                <div>
+                  <h3 className="font-bold text-slate-800">{pendingWeighable.name}</h3>
+                  <p className="text-xs text-slate-500">{formatMoney((pendingWeighable as any).price_per_unit || pendingWeighable.price)} / kg</p>
+                </div>
+              </div>
+              <button onClick={() => { setShowWeightModal(false); setPendingWeighable(null); }} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-2">
+                  {scaleConnected ? '📡 Peso leído de balanza' : '⌨️ Ingresa el peso manualmente'}
+                </label>
+                {scaleConnected && scaleWeight ? (
+                  <div className="bg-green-50 border-2 border-green-300 rounded-xl px-4 py-3 text-center">
+                    <p className="text-3xl font-black text-green-700">{scaleWeight.toFixed(3)} kg</p>
+                    <p className="text-xs text-green-500 mt-0.5">Peso estable leído de la balanza</p>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="number" step="0.001" min="0.001" autoFocus
+                      value={manualWeight}
+                      onChange={e => setManualWeight(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && (parseFloat(manualWeight) > 0)) {
+                          addWeighableToCart(pendingWeighable, parseFloat(manualWeight));
+                        }
+                      }}
+                      placeholder="0.000"
+                      className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-2xl font-black text-center text-slate-800 focus:outline-none focus:border-green-400 focus:ring-0"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">kg</span>
+                  </div>
+                )}
+              </div>
+              {/* Precio calculado en tiempo real */}
+              {(() => {
+                const w = scaleConnected && scaleWeight ? scaleWeight : parseFloat(manualWeight) || 0;
+                const pricePerKg = (pendingWeighable as any).price_per_unit || pendingWeighable.price;
+                const total = w * pricePerKg;
+                return w > 0 ? (
+                  <div className="bg-blue-50 rounded-xl p-3 flex items-center justify-between">
+                    <div className="text-sm text-slate-600">
+                      <span className="font-mono">{w.toFixed(3)} kg</span>
+                      <span className="mx-2 text-slate-400">×</span>
+                      <span>{formatMoney(pricePerKg)}/kg</span>
+                    </div>
+                    <span className="text-xl font-black text-blue-700">{formatMoney(Math.round(total))}</span>
+                  </div>
+                ) : null;
+              })()}
+              <div className="flex gap-3">
+                <button onClick={() => { setShowWeightModal(false); setPendingWeighable(null); }}
+                  className="flex-1 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const w = scaleConnected && scaleWeight ? scaleWeight : parseFloat(manualWeight);
+                    if (!w || w <= 0) { toast.error('Ingresa un peso válido'); return; }
+                    addWeighableToCart(pendingWeighable, w);
+                  }}
+                  className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 flex items-center justify-center gap-2">
+                  <ShoppingCart size={16} /> Agregar al carrito
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════
+          MODAL: CONFIGURAR BALANZA
+      ══════════════════════════════════════════════════════════════ */}
+      {showScaleConfig && (
+        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2">
+                <Scale size={18} className="text-blue-600" />
+                <h3 className="font-bold text-slate-800">Configurar Balanza</h3>
+              </div>
+              <button onClick={() => setShowScaleConfig(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-500">Selecciona cómo está conectada tu balanza al computador:</p>
+
+              {/* Opción 1: Serial / USB */}
+              <div className="border-2 border-blue-200 rounded-xl p-4 bg-blue-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Usb size={16} className="text-blue-600" />
+                  <p className="font-bold text-blue-800">Puerto Serial / USB COM</p>
+                  <span className="ml-auto text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">Recomendado</span>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">Compatible con DIBAL, DIGI, Toledo, Mettler y cualquier balanza que use RS-232 o USB serial. Requiere Chrome o Edge.</p>
+                <button onClick={() => { connectScaleSerial(); setShowScaleConfig(false); }}
+                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">
+                  Conectar por serial
+                </button>
+              </div>
+
+              {/* Opción 2: Código de barras */}
+              <div className="border-2 border-emerald-200 rounded-xl p-4 bg-emerald-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Barcode size={16} className="text-emerald-600" />
+                  <p className="font-bold text-emerald-800">Balanza con impresora de etiquetas</p>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">La balanza imprime etiquetas con código EAN-13. El escáner lee la etiqueta y el POS detecta automáticamente el producto y el peso. No requiere conexión directa.</p>
+                <button onClick={() => { setScaleProtocol('barcode'); setScaleConnected(true); setShowScaleConfig(false); toast.success('✅ Modo etiqueta activado. Escanea las etiquetas de tu balanza.'); }}
+                  className="w-full py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700">
+                  Activar modo etiqueta
+                </button>
+              </div>
+
+              {/* Opción 3: Peso manual */}
+              <div className="border-2 border-slate-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Scale size={16} className="text-slate-600" />
+                  <p className="font-bold text-slate-700">Sin balanza / Ingreso manual</p>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">El cajero escribe el código PLU del producto y luego ingresa el peso a mano. Útil si no tienes balanza conectada.</p>
+                <button onClick={() => { setScaleProtocol('manual'); setScaleConnected(false); setShowScaleConfig(false); toast('Modo manual activado'); }}
+                  className="w-full py-2.5 bg-slate-600 text-white rounded-xl font-bold text-sm hover:bg-slate-700">
+                  Usar modo manual
+                </button>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <p className="text-xs text-amber-700 font-medium">💡 Tip: Para el modo serial necesitas Chrome o Edge en Windows/Mac/Linux. En Chrome, activa la bandera <code>chrome://flags/#enable-experimental-web-platform-features</code> si el puerto no aparece.</p>
+              </div>
             </div>
           </div>
         </div>

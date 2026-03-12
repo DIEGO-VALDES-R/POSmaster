@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle, Truck, Phone, Mail, AlertTriangle, ShoppingCart } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle, Truck, Phone, Mail, AlertTriangle, ShoppingCart, Scale, TrendingUp, Calculator, BarChart3, RefreshCw, ChevronRight } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { productService, Product } from '../services/productService';
 import { useCompany } from '../hooks/useCompany';
@@ -626,6 +626,366 @@ const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
 };
 
 
+
+// ─────────────────────────────────────────────
+// PESABLES TAB — componente propio para evitar
+// violación de reglas de hooks en condicionales
+// ─────────────────────────────────────────────
+interface PesablesTabProps {
+  companyId: string;
+  branchId: string | null;
+  formatMoney: (n: number) => string;
+}
+
+const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMoney }) => {
+
+  // ── estado local del tab (IIFE pattern) ──────────────────────
+  const [pesables, setPesables] = useState<any[]>([]);
+  const [loadingP, setLoadingP] = useState(true);
+  const [showPModal, setShowPModal] = useState(false);
+  const [editingP, setEditingP] = useState<any>(null);
+  // Calculadora de rentabilidad
+  const [calc, setCalc] = useState({ kg_comprados: '', valor_compra: '', precio_venta: '' });
+  const [calcResult, setCalcResult] = useState<{ costo_kg: number; ganancia_kg: number; margen: number; ganancia_total: number } | null>(null);
+
+  const emptyP = () => ({
+    name: '', plu_code: '', category: 'Frutas y verduras',
+    unit_type: 'kg', price_per_unit: 0, cost: 0,
+    stock_quantity: 0, stock_min_weight: 1000,
+    description: '', is_active: true,
+    type: 'WEIGHABLE', company_id: companyId,
+  });
+  const [pForm, setPForm] = useState<any>(emptyP());
+
+  useEffect(() => {
+    if (!companyId) return;
+    setLoadingP(true);
+    supabase.from('products').select('*')
+      .eq('company_id', companyId).eq('type', 'WEIGHABLE')
+      .order('name')
+      .then(({ data }) => { setPesables(data || []); setLoadingP(false); });
+  }, [companyId]);
+
+  const saveP = async () => {
+    if (!pForm.name || !pForm.plu_code) { toast.error('Nombre y código PLU son obligatorios'); return; }
+    const payload = {
+      ...pForm,
+      price: pForm.price_per_unit,
+      company_id: companyId,
+      branch_id: branchId || null,
+      sku: pForm.plu_code,
+    };
+    const { error } = editingP
+      ? await supabase.from('products').update(payload).eq('id', editingP.id)
+      : await supabase.from('products').insert(payload);
+    if (error) { toast.error(error.message); return; }
+    toast.success(editingP ? 'Producto actualizado' : 'Producto pesable creado');
+    setShowPModal(false); setEditingP(null); setPForm(emptyP());
+    const { data } = await supabase.from('products').select('*').eq('company_id', companyId!).eq('type', 'WEIGHABLE').order('name');
+    setPesables(data || []);
+  };
+
+  const deleteP = async (id: string) => {
+    if (!window.confirm('¿Eliminar este producto pesable?')) return;
+    await supabase.from('products').delete().eq('id', id);
+    setPesables(p => p.filter(x => x.id !== id));
+    toast.success('Eliminado');
+  };
+
+  const calcRentabilidad = () => {
+    const kg = parseFloat(calc.kg_comprados);
+    const valor = parseFloat(calc.valor_compra);
+    const pventa = parseFloat(calc.precio_venta);
+    if (!kg || !valor) { toast.error('Ingresa kg comprados y valor de compra'); return; }
+    const costo_kg = valor / kg;
+    const ganancia_kg = pventa ? pventa - costo_kg : 0;
+    const margen = pventa ? (ganancia_kg / pventa) * 100 : 0;
+    const ganancia_total = pventa ? ganancia_kg * kg : 0;
+    setCalcResult({ costo_kg, ganancia_kg, margen, ganancia_total });
+  };
+
+  const COP = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
+  const stockKg = (g: number) => `${(g / 1000).toFixed(2)} kg`;
+
+  const CATEGORIAS = ['Frutas y verduras', 'Granos y cereales', 'Carnes y embutidos', 'Lácteos y quesos', 'Panadería y repostería', 'Otro'];
+
+  return (
+    <div className="space-y-6">
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { icon: '🥬', label: 'Productos pesables', value: pesables.length, color: 'green' },
+          { icon: '⚠️', label: 'Stock bajo', value: pesables.filter(p => p.stock_quantity < (p.stock_min_weight || 1000)).length, color: 'amber' },
+          { icon: '💰', label: 'Más rentable', value: pesables.sort((a,b) => (b.price_per_unit - b.cost) - (a.price_per_unit - a.cost))[0]?.name || '—', color: 'blue', text: true },
+          { icon: '📦', label: 'Total SKUs activos', value: pesables.filter(p => p.is_active).length, color: 'indigo' },
+        ].map(({ icon, label, value, color, text }) => (
+          <div key={label} className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">{icon}</span>
+              <p className="text-xs text-slate-500">{label}</p>
+            </div>
+            <p className={`font-bold text-${color}-600 ${text ? 'text-sm' : 'text-2xl'}`}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── CALCULADORA DE RENTABILIDAD ────────────────────────────── */}
+      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+            <Calculator size={16} className="text-white" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-800">Calculadora de Rentabilidad</h3>
+            <p className="text-xs text-slate-500">Calcula el costo por kg y la ganancia antes de fijar tu precio de venta</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">Kg comprados</label>
+            <div className="relative">
+              <input type="number" min="0" step="0.1" placeholder="ej: 50"
+                value={calc.kg_comprados}
+                onChange={e => setCalc(c => ({ ...c, kg_comprados: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">kg</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">Valor total de compra</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+              <input type="number" min="0" placeholder="ej: 30000"
+                value={calc.valor_compra}
+                onChange={e => setCalc(c => ({ ...c, valor_compra: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl pl-6 pr-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1">Mi precio de venta / kg</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+              <input type="number" min="0" placeholder="ej: 3500"
+                value={calc.precio_venta}
+                onChange={e => setCalc(c => ({ ...c, precio_venta: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl pl-6 pr-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+          </div>
+        </div>
+        <button onClick={calcRentabilidad}
+          className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors flex items-center gap-2">
+          <TrendingUp size={15} /> Calcular rentabilidad
+        </button>
+
+        {calcResult && (
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Costo por kg', value: COP(calcResult.costo_kg), color: 'bg-slate-100 text-slate-700', icon: '📥' },
+              { label: 'Ganancia por kg', value: COP(calcResult.ganancia_kg), color: calcResult.ganancia_kg > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700', icon: calcResult.ganancia_kg > 0 ? '✅' : '❌' },
+              { label: 'Margen de ganancia', value: `${calcResult.margen.toFixed(1)}%`, color: calcResult.margen >= 30 ? 'bg-green-100 text-green-700' : calcResult.margen >= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700', icon: '📊' },
+              { label: `Ganancia sobre ${calc.kg_comprados} kg`, value: COP(calcResult.ganancia_total), color: calcResult.ganancia_total > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700', icon: '💵' },
+            ].map(({ label, value, color, icon }) => (
+              <div key={label} className={`rounded-xl p-3 ${color}`}>
+                <p className="text-xs font-medium mb-1">{icon} {label}</p>
+                <p className="text-lg font-black">{value}</p>
+              </div>
+            ))}
+            <div className="col-span-2 md:col-span-4 mt-1">
+              {calcResult.margen < 15 && <p className="text-xs text-red-600 font-semibold">⚠️ Margen muy bajo. Considera aumentar el precio de venta o negociar mejor el precio de compra.</p>}
+              {calcResult.margen >= 15 && calcResult.margen < 30 && <p className="text-xs text-yellow-600 font-semibold">🟡 Margen aceptable. Un precio de venta de {COP(calcResult.costo_kg * 1.35)} daría un 35% de margen.</p>}
+              {calcResult.margen >= 30 && <p className="text-xs text-green-600 font-semibold">✅ Precio viable. Margen saludable sobre el {calcResult.margen.toFixed(1)}%.</p>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── LISTA DE PRODUCTOS PESABLES ───────────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Scale size={18} className="text-green-600" />
+            <h3 className="font-bold text-slate-800">Productos Pesables</h3>
+            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{pesables.length}</span>
+          </div>
+          <button onClick={() => { setEditingP(null); setPForm(emptyP()); setShowPModal(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-colors">
+            <Plus size={15} /> Nuevo producto
+          </button>
+        </div>
+        {loadingP ? (
+          <div className="p-8 text-center text-slate-400 text-sm">Cargando...</div>
+        ) : pesables.length === 0 ? (
+          <div className="p-10 text-center">
+            <Scale size={36} className="mx-auto mb-2 text-slate-200" />
+            <p className="text-slate-500 font-medium mb-1">Sin productos pesables</p>
+            <p className="text-xs text-slate-400">Crea tu primer producto para vender por kg o lb</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                <tr>
+                  <th className="px-4 py-3 text-left">Producto</th>
+                  <th className="px-4 py-3 text-left">Código PLU</th>
+                  <th className="px-4 py-3 text-left">Categoría</th>
+                  <th className="px-4 py-3 text-right">Precio / kg</th>
+                  <th className="px-4 py-3 text-right">Costo / kg</th>
+                  <th className="px-4 py-3 text-right">Margen</th>
+                  <th className="px-4 py-3 text-right">Stock</th>
+                  <th className="px-4 py-3 text-center">Estado</th>
+                  <th className="px-4 py-3 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {pesables.map(p => {
+                  const margin = p.price_per_unit && p.cost ? ((p.price_per_unit - p.cost) / p.price_per_unit * 100) : 0;
+                  const stockG = p.stock_quantity || 0;
+                  const lowStock = stockG < (p.stock_min_weight || 1000);
+                  return (
+                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 font-semibold text-slate-800">{p.name}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg text-xs">{p.plu_code || p.sku}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">{p.category}</td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-800">{COP(p.price_per_unit || p.price || 0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500">{COP(p.cost || 0)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${margin >= 30 ? 'bg-green-100 text-green-700' : margin >= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                          {margin.toFixed(0)}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-xs font-semibold ${lowStock ? 'text-red-600' : 'text-slate-600'}`}>
+                          {stockKg(stockG)} {lowStock && '⚠️'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {p.is_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => { setEditingP(p); setPForm({ ...p, price_per_unit: p.price_per_unit || p.price }); setShowPModal(true); }}
+                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit2 size={13} /></button>
+                          <button onClick={() => deleteP(p.id)}
+                            className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── MODAL CREAR / EDITAR PRODUCTO PESABLE ─────────────────── */}
+      {showPModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="font-bold text-slate-800">{editingP ? 'Editar producto pesable' : 'Nuevo producto pesable'}</h3>
+              <button onClick={() => setShowPModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Nombre del producto *</label>
+                  <input value={pForm.name} onChange={e => setPForm((f: any) => ({ ...f, name: e.target.value }))}
+                    placeholder="ej: Limón Tahití, Papa criolla..."
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Código PLU * <span className="text-slate-400 font-normal">(en el POS escribe este código)</span></label>
+                  <input value={pForm.plu_code} onChange={e => setPForm((f: any) => ({ ...f, plu_code: e.target.value.toUpperCase() }))}
+                    placeholder="ej: F1, P23, L01"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-green-400" />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Código corto único para identificar el producto en caja</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Unidad de venta</label>
+                  <select value={pForm.unit_type} onChange={e => setPForm((f: any) => ({ ...f, unit_type: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400">
+                    <option value="kg">Kilogramos (kg)</option>
+                    <option value="lb">Libras (lb)</option>
+                    <option value="g">Gramos (g)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Precio de venta / {pForm.unit_type}</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+                    <input type="number" min="0" value={pForm.price_per_unit || ''}
+                      onChange={e => setPForm((f: any) => ({ ...f, price_per_unit: parseFloat(e.target.value) || 0, price: parseFloat(e.target.value) || 0 }))}
+                      placeholder="3500"
+                      className="w-full border border-slate-200 rounded-xl pl-6 pr-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Costo de compra / {pForm.unit_type}</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+                    <input type="number" min="0" value={pForm.cost || ''}
+                      onChange={e => setPForm((f: any) => ({ ...f, cost: parseFloat(e.target.value) || 0 }))}
+                      placeholder="600"
+                      className="w-full border border-slate-200 rounded-xl pl-6 pr-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Categoría</label>
+                  <select value={pForm.category} onChange={e => setPForm((f: any) => ({ ...f, category: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400">
+                    {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Stock inicial (en gramos)</label>
+                  <input type="number" min="0" value={pForm.stock_quantity || ''}
+                    onChange={e => setPForm((f: any) => ({ ...f, stock_quantity: parseFloat(e.target.value) || 0 }))}
+                    placeholder="ej: 50000 = 50 kg"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                  <p className="text-[10px] text-slate-400 mt-0.5">El stock se guarda en gramos. 1 kg = 1000 g</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Alerta stock mínimo (gramos)</label>
+                  <input type="number" min="0" value={pForm.stock_min_weight || ''}
+                    onChange={e => setPForm((f: any) => ({ ...f, stock_min_weight: parseFloat(e.target.value) || 0 }))}
+                    placeholder="ej: 2000 = 2 kg"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+              </div>
+
+              {pForm.price_per_unit > 0 && pForm.cost > 0 && (
+                <div className="bg-emerald-50 rounded-xl p-3 flex items-center justify-between">
+                  <span className="text-sm text-emerald-700">Margen estimado:</span>
+                  <span className="font-black text-emerald-700 text-lg">
+                    {(((pForm.price_per_unit - pForm.cost) / pForm.price_per_unit) * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowPModal(false)}
+                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 text-sm">Cancelar</button>
+                <button onClick={saveP}
+                  className="flex-1 py-2.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 text-sm flex items-center justify-center gap-2">
+                  <Scale size={15} /> {editingP ? 'Actualizar' : 'Crear producto'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+      
+};
+
 // ─────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────
@@ -645,6 +1005,7 @@ const Inventory: React.FC = () => {
   const isFarmacia     = businessTypes.includes('farmacia');
   const isVeterinaria  = businessTypes.includes('veterinaria');
   const isOdontologia  = businessTypes.includes('odontologia');
+  const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
   // Negocios con módulo propio que no usan el inventario genérico para vender
   const hasOwnInventory = isFarmacia; // Farmacia tiene pharma_medications
   const isServiceOnly   = isVeterinaria || isOdontologia; // Solo servicios, sin inventario físico propio
@@ -690,7 +1051,7 @@ const Inventory: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [scannedProduct, setScannedProduct] = useState<Product | null>(null);
   const [showBarcodeNotification, setShowBarcodeNotification] = useState(false);
-  const [activeTab, setActiveTab] = useState<'products' | 'suppliers'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'suppliers' | 'pesables'>('products');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showLowStock, setShowLowStock] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1026,6 +1387,12 @@ const Inventory: React.FC = () => {
           <Truck size={16} /> Proveedores
           {suppliers.length > 0 && <span className="bg-slate-200 text-slate-600 text-xs px-2 py-0.5 rounded-full">{suppliers.length}</span>}
         </button>
+        {isSupermercado && (
+          <button onClick={() => setActiveTab('pesables')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === 'pesables' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Scale size={16} /> Pesables
+          </button>
+        )}
       </div>
 
       {activeTab === 'products' && (<>
@@ -1119,6 +1486,14 @@ const Inventory: React.FC = () => {
       </div>
 
       </>)}
+
+
+      {/* ══════════════════════════════════════════════════════════════
+          TAB: PESABLES — Solo supermercado/abarrotes
+      ══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'pesables' && isSupermercado && companyId && (
+        <PesablesTab companyId={companyId} branchId={branchId} formatMoney={formatMoney} />
+      )}
 
       {/* TAB PROVEEDORES */}
       {activeTab === 'suppliers' && companyId && <SuppliersTab companyId={companyId} />}
