@@ -1,10 +1,14 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
 import {
   Building2, Plus, Users, Shield, CheckCircle2, XCircle, Search,
   Edit3, ToggleLeft, ToggleRight, X, Calendar, Crown, Wrench,
-  ChevronDown, ChevronUp, Tag, CreditCard, Settings2, RefreshCw
+  ChevronDown, ChevronUp, Tag, CreditCard, Settings2, RefreshCw,
+  Activity, Package, ShoppingCart, AlertTriangle, UserCheck,
+  Stethoscope, TrendingUp, Clock, DollarSign, Eye, ChevronRight,
+  Hammer, BarChart3, Database, Wifi, WifiOff,
+  KeyRound, Mail, Lock, UserCog, Send, EyeOff
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -45,6 +49,742 @@ const EMPTY_COMPANY = {
   subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
 };
 
+
+// ── USER MANAGEMENT PANEL ─────────────────────────────────────────────────────
+const UserManagementPanel: React.FC<{ company: any; onClose: () => void }> = ({ company, onClose }) => {
+  const [users, setUsers]           = useState<any[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [actionUser, setActionUser] = useState<any>(null);
+  const [action, setAction]         = useState<'reset' | 'set_password' | 'change_email' | null>(null);
+  const [newEmail, setNewEmail]     = useState('');
+  const [newPass, setNewPass]       = useState('');
+  const [showPass, setShowPass]     = useState(false);
+  const [working, setWorking]       = useState(false);
+
+  const EDGE_URL = `${(supabase as any).supabaseUrl}/functions/v1/master-admin-actions`;
+
+  const callEdge = async (body: object) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(EDGE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  };
+
+  const loadUsers = async () => {
+    setLoading(true);
+    const result = await callEdge({ action: 'get_company_users', company_id: company.id });
+    setUsers(result.users || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadUsers(); }, [company.id]);
+
+  const fmt = (iso: string) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : 'Nunca';
+
+  const handleAction = async () => {
+    if (!actionUser) return;
+    setWorking(true);
+    let result: any;
+    try {
+      if (action === 'reset') {
+        result = await callEdge({ action: 'reset_password', user_id: actionUser.id });
+      } else if (action === 'set_password') {
+        if (newPass.length < 6) { toast.error('Mínimo 6 caracteres'); setWorking(false); return; }
+        result = await callEdge({ action: 'set_password', user_id: actionUser.id, new_password: newPass });
+      } else if (action === 'change_email') {
+        if (!newEmail.includes('@')) { toast.error('Email inválido'); setWorking(false); return; }
+        result = await callEdge({ action: 'change_email', user_id: actionUser.id, new_email: newEmail });
+      }
+      if (result?.ok) {
+        toast.success(result.message);
+        setAction(null); setActionUser(null); setNewEmail(''); setNewPass('');
+        loadUsers();
+      } else {
+        toast.error(result?.error || 'Error desconocido');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+    setWorking(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-slate-900/80 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+
+        <div className="p-5 flex items-center justify-between gap-4 border-b" style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+              <UserCog size={20} className="text-violet-400" />
+            </div>
+            <div>
+              <span className="text-violet-400 text-xs font-bold uppercase tracking-widest block">Gestión de Usuarios</span>
+              <h2 className="text-lg font-black text-white">{company.name}</h2>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center h-32 text-slate-400">
+              <RefreshCw size={24} className="animate-spin mr-2" /> Cargando usuarios...
+            </div>
+          ) : users.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">No hay usuarios registrados</div>
+          ) : (
+            <div className="space-y-3">
+              {users.map(u => (
+                <div key={u.id} className="border border-slate-200 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-bold text-slate-800 text-sm">{u.full_name || 'Sin nombre'}</p>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${u.role === 'ADMIN' || u.role === 'OWNER' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span>
+                        {u.is_active === false && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-600">INACTIVO</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 flex items-center gap-1.5 mb-0.5">
+                        <Mail size={11} className="text-slate-400 flex-shrink-0" />
+                        <span className="font-mono">{u.auth_email || u.email || '—'}</span>
+                        {u.auth_email && u.email && u.auth_email !== u.email && (
+                          <span className="text-orange-500 text-[10px] font-bold ml-1">(perfil: {u.email})</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                        <Clock size={11} className="flex-shrink-0" /> Último acceso: {fmt(u.last_sign_in)}
+                      </p>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button onClick={() => { setActionUser(u); setAction('reset'); }} title="Enviar correo de recuperación"
+                        className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 border border-blue-100 transition-colors"><Send size={13} /></button>
+                      <button onClick={() => { setActionUser(u); setAction('set_password'); setNewPass(''); }} title="Establecer nueva contraseña"
+                        className="p-2 rounded-lg hover:bg-amber-50 text-amber-600 border border-amber-100 transition-colors"><Lock size={13} /></button>
+                      <button onClick={() => { setActionUser(u); setAction('change_email'); setNewEmail(u.auth_email || ''); }} title="Cambiar correo de login"
+                        className="p-2 rounded-lg hover:bg-violet-50 text-violet-600 border border-violet-100 transition-colors"><Mail size={13} /></button>
+                    </div>
+                  </div>
+
+                  {actionUser?.id === u.id && action && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      {action === 'reset' && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <p className="text-sm font-semibold text-blue-700 mb-1 flex items-center gap-1.5"><Send size={14} /> Enviar correo de recuperación</p>
+                          <p className="text-xs text-blue-600 mb-3">Se enviará un link de recuperación a <strong>{u.auth_email}</strong>. El cliente podrá crear una nueva contraseña desde su correo.</p>
+                          <div className="flex gap-2">
+                            <button onClick={() => { setAction(null); setActionUser(null); }} className="flex-1 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                            <button onClick={handleAction} disabled={working} className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
+                              {working ? <RefreshCw size={12} className="animate-spin" /> : <Send size={12} />}{working ? 'Enviando...' : 'Enviar correo'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {action === 'set_password' && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                          <p className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-1.5"><Lock size={14} /> Nueva contraseña para {u.full_name || u.auth_email}</p>
+                          <div className="relative mb-3">
+                            <input type={showPass ? 'text' : 'password'} placeholder="Nueva contraseña (mín. 6 caracteres)" value={newPass}
+                              onChange={e => setNewPass(e.target.value)}
+                              className="w-full px-3 py-2 pr-10 border border-amber-200 rounded-lg text-sm focus:outline-none focus:border-amber-400 bg-white" />
+                            <button onClick={() => setShowPass(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                              {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => { setAction(null); setActionUser(null); }} className="flex-1 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                            <button onClick={handleAction} disabled={working || newPass.length < 6} className="flex-1 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 disabled:opacity-60 flex items-center justify-center gap-1.5">
+                              {working ? <RefreshCw size={12} className="animate-spin" /> : <Lock size={12} />}{working ? 'Guardando...' : 'Establecer contraseña'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {action === 'change_email' && (
+                        <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
+                          <p className="text-sm font-semibold text-violet-700 mb-1 flex items-center gap-1.5"><Mail size={14} /> Cambiar correo de acceso</p>
+                          <p className="text-xs text-violet-600 mb-2">Correo actual: <strong className="font-mono">{u.auth_email}</strong>. El cambio aplica inmediatamente.</p>
+                          <input type="email" placeholder="nuevo@correo.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                            className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:border-violet-400 bg-white mb-3" />
+                          <div className="flex gap-2">
+                            <button onClick={() => { setAction(null); setActionUser(null); }} className="flex-1 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                            <button onClick={handleAction} disabled={working || !newEmail.includes('@')} className="flex-1 py-2 bg-violet-600 text-white rounded-lg text-xs font-bold hover:bg-violet-700 disabled:opacity-60 flex items-center justify-center gap-1.5">
+                              {working ? <RefreshCw size={12} className="animate-spin" /> : <Mail size={12} />}{working ? 'Guardando...' : 'Cambiar correo'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t bg-slate-50 flex items-center justify-between">
+          <p className="text-xs text-slate-400"><span className="font-semibold">💡</span> Los cambios aplican inmediatamente en Supabase Auth.</p>
+          <button onClick={onClose} className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── DIAGNOSTIC PANEL ──────────────────────────────────────────────────────────
+type DiagTab = 'resumen' | 'productos' | 'ventas' | 'usuarios' | 'reparaciones' | 'config';
+
+const DiagnosticPanel: React.FC<{ company: any; onClose: () => void }> = ({ company, onClose }) => {
+  const [tab, setTab] = useState<DiagTab>('resumen');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // ── datos cargados ──
+  const [stats, setStats]           = useState<any>(null);
+  const [products, setProducts]     = useState<any[]>([]);
+  const [sales, setSales]           = useState<any[]>([]);
+  const [users, setUsers]           = useState<any[]>([]);
+  const [repairs, setRepairs]       = useState<any[]>([]);
+  const [branches, setBranches]     = useState<any[]>([]);
+
+  const COP = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n || 0);
+
+  const fmt = (iso: string) =>
+    iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const cid = company.id;
+
+      // Paralelo: todas las consultas a la vez
+      const [
+        { data: prods },
+        { data: invoicesRaw },
+        { data: usersRaw },
+        { data: repsRaw },
+        { data: shoeRepsRaw },
+        { data: branchRaw },
+      ] = await Promise.all([
+        supabase.from('products').select('id,name,sku,category,price,cost,stock_quantity,stock_min,type,is_active,business_context').eq('company_id', cid).order('name'),
+        supabase.from('invoices').select('id,total_amount,payment_method,created_at,status,invoice_number').eq('company_id', cid).order('created_at', { ascending: false }).limit(50),
+        supabase.from('profiles').select('id,full_name,email,role,created_at,is_active').eq('company_id', cid).order('created_at', { ascending: false }),
+        supabase.from('repair_orders').select('id,customer_name,device_brand,device_model,status,total_cost,created_at').eq('company_id', cid).order('created_at', { ascending: false }).limit(30),
+        supabase.from('shoe_repair_orders').select('id,customer_name,brand,model,status,total_amount,created_at').eq('company_id', cid).order('created_at', { ascending: false }).limit(20),
+        supabase.from('branches').select('id,name,is_active').eq('company_id', cid),
+      ]);
+
+      const p = prods || [];
+      // Normalizar invoices: unificar campo total
+      const s = (invoicesRaw || []).map(inv => ({
+        ...inv,
+        total: inv.total_amount ?? 0,
+        payment_method_label: typeof inv.payment_method === 'object'
+          ? (inv.payment_method?.method || inv.payment_method?.type || 'efectivo')
+          : (inv.payment_method || 'efectivo'),
+      }));
+      const u = usersRaw || [];
+      // Combinar repair_orders + shoe_repair_orders normalizados
+      const r = [
+        ...(repsRaw || []),
+        ...(shoeRepsRaw || []).map(sr => ({
+          id: sr.id,
+          customer_name: sr.customer_name,
+          device_brand: sr.brand,
+          device_model: sr.model,
+          status: sr.status,
+          total_cost: sr.total_amount,
+          created_at: sr.created_at,
+          _source: 'zapateria',
+        })),
+      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 30);
+      const b = branchRaw || [];
+
+      setProducts(p);
+      setSales(s);
+      setUsers(u);
+      setRepairs(r);
+      setBranches(b);
+
+      // KPIs resumen
+      const today = new Date().toISOString().split('T')[0];
+      const invoicesToday = s.filter(x => x.created_at?.startsWith(today));
+      const lowStock = p.filter(x => x.type !== 'SERVICE' && x.type !== 'WEIGHABLE' && (x.stock_quantity ?? 0) <= (x.stock_min ?? 5) && x.is_active !== false);
+      const inactiveProds = p.filter(x => x.is_active === false);
+      const openRepairs = r.filter(x => !['entregado', 'cancelado', 'delivered', 'cancelled'].includes((x.status || '').toLowerCase()));
+
+      setStats({
+        totalProducts:  p.filter(x => x.is_active !== false).length,
+        lowStock:       lowStock.length,
+        inactiveProds:  inactiveProds.length,
+        totalSales:     s.length,
+        salesToday:     invoicesToday.length,
+        revenueToday:   invoicesToday.reduce((a, x) => a + (x.total || 0), 0),
+        totalRevenue:   s.reduce((a, x) => a + (x.total || 0), 0),
+        totalUsers:     u.length,
+        activeUsers:    u.filter(x => x.is_active !== false).length,
+        totalRepairs:   r.length,
+        openRepairs:    openRepairs.length,
+        branches:       b.length,
+      });
+    } catch (e: any) {
+      toast.error('Error al cargar diagnóstico: ' + e.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [company.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const cfg = company.config || {};
+  const types: string[] = Array.isArray(cfg.business_types) ? cfg.business_types : cfg.business_type ? [cfg.business_type] : ['general'];
+  const plan = company.subscription_plan || 'BASIC';
+  const planMeta = PLAN_META[plan] || PLAN_META['BASIC'];
+
+  const TABS: { id: DiagTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'resumen',       label: 'Resumen',       icon: <Activity size={14} /> },
+    { id: 'productos',     label: 'Productos',     icon: <Package size={14} /> },
+    { id: 'ventas',        label: 'Ventas',        icon: <ShoppingCart size={14} /> },
+    { id: 'usuarios',      label: 'Usuarios',      icon: <Users size={14} /> },
+    { id: 'reparaciones',  label: 'Reparaciones',  icon: <Hammer size={14} /> },
+    { id: 'config',        label: 'Config',        icon: <Settings2 size={14} /> },
+  ];
+
+  const statusColor = (s: string) => {
+    const m: Record<string, string> = {
+      recibido: 'bg-blue-100 text-blue-700',
+      diagnostico: 'bg-yellow-100 text-yellow-700',
+      en_reparacion: 'bg-orange-100 text-orange-700',
+      listo: 'bg-green-100 text-green-700',
+      entregado: 'bg-slate-100 text-slate-500',
+      cancelado: 'bg-red-100 text-red-600',
+    };
+    return m[(s || '').toLowerCase()] || 'bg-slate-100 text-slate-600';
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 bg-slate-900/80 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '94vh' }}>
+
+        {/* Header */}
+        <div className="p-5 flex items-start justify-between gap-4 border-b" style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center">
+              <Stethoscope size={24} className="text-cyan-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-cyan-400 text-xs font-bold uppercase tracking-widest">Diagnóstico</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${planMeta.bg} ${planMeta.color}`}>{planMeta.icon} {planMeta.label}</span>
+              </div>
+              <h2 className="text-xl font-black text-white">{company.name}</h2>
+              <p className="text-slate-400 text-xs mt-0.5">
+                NIT {company.nit} · {types.map(t => BUSINESS_TYPES.find(b => b.id === t)?.label || t).join(', ')}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={load} disabled={refreshing}
+              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors">
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={onClose} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 p-3 border-b bg-slate-50 overflow-x-auto">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${tab === t.id ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-200'}`}>
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3">
+              <Database size={32} className="text-slate-300 animate-pulse" />
+              <p className="text-slate-400 text-sm">Cargando datos del negocio...</p>
+            </div>
+          ) : (
+
+            <>
+              {/* ── RESUMEN ── */}
+              {tab === 'resumen' && stats && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Productos activos',   value: stats.totalProducts,  icon: '📦', color: 'blue',   sub: `${stats.inactiveProds} inactivos` },
+                      { label: 'Stock bajo mínimo',   value: stats.lowStock,       icon: '⚠️', color: stats.lowStock > 0 ? 'red' : 'green', sub: 'productos' },
+                      { label: 'Ventas hoy',          value: stats.salesToday,     icon: '🛒', color: 'emerald', sub: COP(stats.revenueToday) },
+                      { label: 'Total ventas (50ú)',  value: stats.totalSales,     icon: '📊', color: 'indigo',  sub: COP(stats.totalRevenue) },
+                      { label: 'Usuarios',            value: stats.totalUsers,     icon: '👥', color: 'slate',   sub: `${stats.activeUsers} activos` },
+                      { label: 'Reparaciones abiertas', value: stats.openRepairs,  icon: '🔧', color: stats.openRepairs > 0 ? 'orange' : 'slate', sub: `${stats.totalRepairs} total` },
+                      { label: 'Sucursales',          value: stats.branches,       icon: '🏢', color: 'purple',  sub: 'configuradas' },
+                      { label: 'Plan activo',         value: planMeta.label,       icon: planMeta.icon, color: 'slate', sub: company.subscription_status, isText: true },
+                    ].map(s => (
+                      <div key={s.label} className={`bg-${s.color}-50 border border-${s.color}-100 rounded-xl p-4`}>
+                        <p className="text-xs text-slate-500 font-medium mb-1">{s.icon} {s.label}</p>
+                        <p className={`font-black text-${s.color}-700 ${(s as any).isText ? 'text-base' : 'text-2xl'}`}>{s.value}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{s.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Alertas automáticas */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Alertas detectadas</p>
+                    {stats.lowStock > 0 && (
+                      <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-3">
+                        <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-red-700">{stats.lowStock} producto{stats.lowStock > 1 ? 's' : ''} con stock bajo mínimo</p>
+                          <p className="text-xs text-red-500">El cliente puede estar vendiendo sin stock suficiente.</p>
+                        </div>
+                      </div>
+                    )}
+                    {stats.inactiveProds > 0 && (
+                      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-700">{stats.inactiveProds} producto{stats.inactiveProds > 1 ? 's' : ''} inactivos</p>
+                          <p className="text-xs text-amber-600">Pueden estar ocultos por stock en cero. El cliente puede no verlos.</p>
+                        </div>
+                      </div>
+                    )}
+                    {stats.openRepairs > 0 && (
+                      <div className="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-xl p-3">
+                        <Hammer size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-orange-700">{stats.openRepairs} reparación{stats.openRepairs > 1 ? 'es' : ''} abiertas</p>
+                          <p className="text-xs text-orange-600">Órdenes sin estado "Entregado" o "Cancelado".</p>
+                        </div>
+                      </div>
+                    )}
+                    {stats.lowStock === 0 && stats.inactiveProds === 0 && stats.openRepairs === 0 && (
+                      <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-3">
+                        <CheckCircle2 size={16} className="text-green-500" />
+                        <p className="text-sm font-semibold text-green-700">Sin alertas críticas detectadas ✓</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Últimas ventas */}
+                  {sales.length > 0 && (
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Últimas 5 ventas</p>
+                      <div className="space-y-1.5">
+                        {sales.slice(0, 5).map(s => (
+                          <div key={s.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                              <span className="text-slate-500 text-xs font-mono">{fmt(s.created_at)}</span>
+                              {s.invoice_number && <span className="text-slate-400 text-xs">#{s.invoice_number}</span>}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-medium">{s.payment_method_label}</span>
+                              <span className="font-bold text-slate-800">{COP(s.total)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── PRODUCTOS ── */}
+              {tab === 'productos' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-black text-blue-700">{products.filter(p => p.is_active !== false).length}</p>
+                      <p className="text-xs text-blue-500 font-semibold">Activos</p>
+                    </div>
+                    <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-black text-red-600">{products.filter(p => p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5) && p.is_active !== false).length}</p>
+                      <p className="text-xs text-red-500 font-semibold">Stock bajo</p>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-black text-slate-500">{products.filter(p => p.is_active === false).length}</p>
+                      <p className="text-xs text-slate-400 font-semibold">Inactivos</p>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-100 rounded-xl overflow-hidden">
+                    <div className="overflow-x-auto max-h-80">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 sticky top-0">
+                          <tr>{['Nombre','SKU','Categoría','Precio','Stock','Tipo','Estado'].map(h => (
+                            <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500">{h}</th>
+                          ))}</tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {products.map(p => {
+                            const lowStock = p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5) && p.is_active !== false;
+                            return (
+                              <tr key={p.id} className={p.is_active === false ? 'opacity-50 bg-slate-50' : lowStock ? 'bg-red-50' : ''}>
+                                <td className="px-3 py-2 font-semibold text-slate-700 max-w-[150px] truncate">{p.name}</td>
+                                <td className="px-3 py-2 font-mono text-slate-500">{p.sku}</td>
+                                <td className="px-3 py-2 text-slate-500">{p.category || '—'}</td>
+                                <td className="px-3 py-2 text-slate-700 font-semibold">{COP(p.price)}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`font-bold ${lowStock ? 'text-red-600' : 'text-green-600'}`}>{p.stock_quantity ?? 0}</span>
+                                  {lowStock && <span className="ml-1 text-red-400">⚠</span>}
+                                </td>
+                                <td className="px-3 py-2 text-slate-500">{p.type}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`px-1.5 py-0.5 rounded-full font-bold text-[10px] ${p.is_active === false ? 'bg-slate-200 text-slate-500' : 'bg-green-100 text-green-700'}`}>
+                                    {p.is_active === false ? 'INACTIVO' : 'ACTIVO'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── VENTAS ── */}
+              {tab === 'ventas' && (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-400">Mostrando las últimas 50 ventas registradas.</p>
+                  {sales.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <ShoppingCart size={36} className="mx-auto mb-2 opacity-30" />
+                      <p>No hay ventas registradas</p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-100 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto max-h-96">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>{['Fecha','ID venta','Método pago','Total','Estado'].map(h => (
+                              <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500">{h}</th>
+                            ))}</tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {sales.map(s => (
+                              <tr key={s.id} className="hover:bg-slate-50">
+                                <td className="px-3 py-2 text-slate-500 font-mono whitespace-nowrap">{fmt(s.created_at)}</td>
+                                <td className="px-3 py-2 text-slate-600 font-mono text-[10px]">{s.invoice_number || s.id?.slice(0, 8) + '…'}</td>
+                                <td className="px-3 py-2">
+                                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-semibold">{s.payment_method_label}</span>
+                                </td>
+                                <td className="px-3 py-2 font-bold text-slate-800">{COP(s.total)}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${s.status === 'PAID' || s.status === 'paid' || !s.status ? 'bg-green-100 text-green-700' : s.status === 'PENDING_ELECTRONIC' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
+                                    {s.status || 'pagada'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── USUARIOS ── */}
+              {tab === 'usuarios' && (
+                <div className="space-y-3">
+                  {users.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Users size={36} className="mx-auto mb-2 opacity-30" />
+                      <p>No hay usuarios registrados</p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-100 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto max-h-96">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>{['Nombre','Email','Rol','Registrado','Estado'].map(h => (
+                              <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500">{h}</th>
+                            ))}</tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {users.map(u => (
+                              <tr key={u.id} className={u.is_active === false ? 'opacity-50' : 'hover:bg-slate-50'}>
+                                <td className="px-3 py-2 font-semibold text-slate-700">{u.full_name || '—'}</td>
+                                <td className="px-3 py-2 text-slate-500">{u.email || '—'}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                    u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
+                                    u.role === 'OWNER' ? 'bg-blue-100 text-blue-700' :
+                                    'bg-slate-100 text-slate-600'
+                                  }`}>{u.role || 'EMPLEADO'}</span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-400 font-mono whitespace-nowrap">{fmt(u.created_at)}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${u.is_active === false ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                    {u.is_active === false ? 'INACTIVO' : 'ACTIVO'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── REPARACIONES ── */}
+              {tab === 'reparaciones' && (
+                <div className="space-y-3">
+                  {repairs.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Hammer size={36} className="mx-auto mb-2 opacity-30" />
+                      <p>No hay órdenes de reparación</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        {['recibido','en_reparacion','listo','entregado'].map(st => (
+                          <div key={st} className={`rounded-xl p-3 text-center ${statusColor(st)} border`}>
+                            <p className="text-lg font-black">{repairs.filter(r => r.status?.toLowerCase() === st).length}</p>
+                            <p className="text-[10px] font-semibold capitalize">{st.replace('_', ' ')}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border border-slate-100 rounded-xl overflow-hidden">
+                        <div className="overflow-x-auto max-h-80">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-50 sticky top-0">
+                              <tr>{['Cliente','Dispositivo','Estado','Costo','Fecha'].map(h => (
+                                <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500">{h}</th>
+                              ))}</tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {repairs.map(r => (
+                                <tr key={r.id} className="hover:bg-slate-50">
+                                  <td className="px-3 py-2 font-semibold text-slate-700">{r.customer_name || '—'}</td>
+                                  <td className="px-3 py-2 text-slate-500">{[r.device_brand, r.device_model].filter(Boolean).join(' ') || '—'}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(r.status)}`}>
+                                      {r.status || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 font-bold text-slate-700">{r.total_cost ? COP(r.total_cost) : '—'}</td>
+                                  <td className="px-3 py-2 text-slate-400 font-mono whitespace-nowrap">{fmt(r.created_at)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── CONFIG ── */}
+              {tab === 'config' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Información general</p>
+                      {[
+                        { label: 'Nombre',   value: company.name },
+                        { label: 'NIT',      value: company.nit },
+                        { label: 'Email',    value: company.email },
+                        { label: 'Teléfono', value: company.phone },
+                        { label: 'Dirección',value: company.address },
+                      ].map(f => (
+                        <div key={f.label} className="flex justify-between items-start gap-2 py-2 border-b border-slate-100">
+                          <span className="text-xs text-slate-400 font-semibold flex-shrink-0">{f.label}</span>
+                          <span className="text-xs text-slate-700 text-right break-all">{f.value || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Suscripción</p>
+                      {[
+                        { label: 'Plan',        value: `${planMeta.icon} ${planMeta.label}` },
+                        { label: 'Estado',      value: company.subscription_status },
+                        { label: 'Inicio',      value: company.subscription_start_date?.split('T')[0] },
+                        { label: 'Vencimiento', value: company.subscription_end_date?.split('T')[0] },
+                        { label: 'Sucursales',  value: String(branches.length) },
+                      ].map(f => (
+                        <div key={f.label} className="flex justify-between items-start gap-2 py-2 border-b border-slate-100">
+                          <span className="text-xs text-slate-400 font-semibold flex-shrink-0">{f.label}</span>
+                          <span className="text-xs text-slate-700 text-right">{f.value || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tipos de negocio</p>
+                    <div className="flex flex-wrap gap-2">
+                      {types.map(t => (
+                        <span key={t} className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-xs font-semibold">
+                          {BUSINESS_TYPES.find(b => b.id === t)?.label || t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Métodos de pago habilitados</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(cfg.payment_providers || {})
+                        .filter(([, v]: any) => v?.enabled)
+                        .map(([k]: any) => {
+                          const pm = PAYMENT_METHODS.find(p => p.id === k);
+                          return pm ? (
+                            <span key={k} className="px-3 py-1.5 bg-green-50 border border-green-200 text-green-700 rounded-lg text-xs font-semibold">
+                              {pm.icon} {pm.label}
+                            </span>
+                          ) : null;
+                        })}
+                      {!cfg.payment_providers && (
+                        <span className="text-xs text-slate-400">Solo efectivo (por defecto)</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* JSON config crudo — útil para debug */}
+                  <details className="group">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5 select-none">
+                      <Database size={12} /> Ver config JSON completo
+                      <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
+                    </summary>
+                    <pre className="mt-2 bg-slate-900 text-green-400 text-[10px] p-4 rounded-xl overflow-x-auto max-h-48 leading-relaxed">
+                      {JSON.stringify(cfg, null, 2)}
+                    </pre>
+                  </details>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t bg-slate-50 flex items-center justify-between">
+          <p className="text-xs text-slate-400">ID: <span className="font-mono">{company.id}</span></p>
+          <button onClick={onClose} className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700 transition-colors">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── SUPPORT PANEL ─────────────────────────────────────────────────────────────
 const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () => void }> = ({ company, onClose, onSaved }) => {
   const plan = company.subscription_plan || 'BASIC';
@@ -52,7 +792,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
 
   const maxTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1;
 
-  // Business types
   const parseTypes = (c: any): string[] => {
     if (Array.isArray(c?.business_types)) return c.business_types;
     if (c?.business_type) return [c.business_type];
@@ -60,7 +799,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
   };
   const [businessTypes, setBusinessTypes] = useState<string[]>(parseTypes(cfg));
 
-  // Payment providers
   const defaultProviders: Record<string, any> = {
     cash:      { enabled: true,  label: 'Efectivo',            icon: '💵' },
     transfer:  { enabled: false, label: 'Transferencia / PSE', icon: '🏛️', bank_name: '', account_number: '', account_type: 'ahorros' },
@@ -78,11 +816,8 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
   const toggleType = (id: string) => {
     setBusinessTypes(prev => {
       if (prev.includes(id)) return prev.length === 1 ? prev : prev.filter(t => t !== id);
-      if (plan === 'BASIC') return [id]; // swap
-      if (prev.length >= maxTypes) {
-        toast.error(`El plan ${plan} permite hasta ${maxTypes} tipos`);
-        return prev;
-      }
+      if (plan === 'BASIC') return [id];
+      if (prev.length >= maxTypes) { toast.error(`El plan ${plan} permite hasta ${maxTypes} tipos`); return prev; }
       return [...prev, id];
     });
   };
@@ -95,9 +830,7 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
       business_types: businessTypes,
       payment_providers: providers,
     };
-    const { error } = await supabase.from('companies')
-      .update({ config: newConfig })
-      .eq('id', company.id);
+    const { error } = await supabase.from('companies').update({ config: newConfig }).eq('id', company.id);
     setSaving(false);
     if (error) { toast.error(error.message); return; }
     toast.success(`✅ Configuración de "${company.name}" actualizada`);
@@ -115,8 +848,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-
-        {/* Header */}
         <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4" style={{ background: 'linear-gradient(135deg,#1e293b,#334155)' }}>
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -133,15 +864,12 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 p-4 border-b border-slate-100 bg-slate-50">
           <Section id="tipos" label="Tipo de negocio" icon={<Tag size={15} />} />
           <Section id="pagos" label="Métodos de pago"  icon={<CreditCard size={15} />} />
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
-
-          {/* ── TIPOS DE NEGOCIO ── */}
           {activeSection === 'tipos' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -157,7 +885,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
                   {PLAN_META[plan].icon} {PLAN_META[plan].label}
                 </span>
               </div>
-
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {BUSINESS_TYPES.map(bt => {
                   const isSelected = businessTypes.includes(bt.id);
@@ -176,26 +903,22 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
                   );
                 })}
               </div>
-
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
                 <strong>⚙️ Efecto inmediato:</strong> Al guardar, el menú lateral del cliente cambiará automáticamente para mostrar solo los módulos del tipo de negocio seleccionado.
               </div>
             </div>
           )}
 
-          {/* ── MÉTODOS DE PAGO ── */}
           {activeSection === 'pagos' && (
             <div className="space-y-3">
               <div>
                 <p className="font-semibold text-slate-700">Métodos de pago habilitados</p>
                 <p className="text-xs text-slate-400 mt-0.5">Los métodos marcados con 🔒 requieren un plan superior</p>
               </div>
-
               {PAYMENT_METHODS.map(pm => {
                 const allowed   = pm.plans.includes(plan);
                 const provData  = providers[pm.id] || {};
                 const isEnabled = allowed && !!provData.enabled;
-
                 return (
                   <div key={pm.id} className={`rounded-xl border p-4 transition-all ${isEnabled ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white'} ${!allowed ? 'opacity-50' : ''}`}>
                     <div className="flex items-center justify-between">
@@ -212,8 +935,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
                         <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${isEnabled ? 'left-5' : 'left-0.5'}`} />
                       </button>
                     </div>
-
-                    {/* Campos específicos */}
                     {isEnabled && pm.id === 'transfer' && (
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <input placeholder="Banco" value={provData.bank_name || ''} onChange={e => setProviders(p => ({ ...p, transfer: { ...p.transfer, bank_name: e.target.value } }))}
@@ -271,7 +992,6 @@ const SupportPanel: React.FC<{ company: any; onClose: () => void; onSaved: () =>
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-slate-100 flex gap-3 bg-slate-50">
           <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-100 text-sm">
             Cancelar
@@ -294,13 +1014,17 @@ const MasterAdmin: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPlan, setFilterPlan] = useState('ALL');
 
-  const [showNewModal, setShowNewModal]     = useState(false);
-  const [showEditModal, setShowEditModal]   = useState(false);
-  const [showSupport, setShowSupport]       = useState(false);
-  const [newCompany, setNewCompany]         = useState({ ...EMPTY_COMPANY });
-  const [editCompany, setEditCompany]       = useState<any>(null);
-  const [supportCompany, setSupportCompany] = useState<any>(null);
-  const [saving, setSaving]                 = useState(false);
+  const [showNewModal, setShowNewModal]         = useState(false);
+  const [showEditModal, setShowEditModal]       = useState(false);
+  const [showSupport, setShowSupport]           = useState(false);
+  const [showDiagnostic, setShowDiagnostic]     = useState(false);
+  const [showUserMgmt, setShowUserMgmt]         = useState(false);
+  const [userMgmtCompany, setUserMgmtCompany]   = useState<any>(null);
+  const [newCompany, setNewCompany]             = useState({ ...EMPTY_COMPANY });
+  const [editCompany, setEditCompany]           = useState<any>(null);
+  const [supportCompany, setSupportCompany]     = useState<any>(null);
+  const [diagnosticCompany, setDiagnosticCompany] = useState<any>(null);
+  const [saving, setSaving]                     = useState(false);
 
   useEffect(() => { if (userRole === 'MASTER') fetchCompanies(); }, [userRole]);
 
@@ -339,7 +1063,6 @@ const MasterAdmin: React.FC = () => {
     if (!editCompany) return;
     setSaving(true);
     const isTrial = editCompany.subscription_plan === 'TRIAL';
-    // Auto fecha de vencimiento para TRIAL (7 días desde hoy si no tiene)
     const endDate = isTrial && !editCompany.subscription_end_date
       ? new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
       : editCompany.subscription_end_date || null;
@@ -376,10 +1099,9 @@ const MasterAdmin: React.FC = () => {
     setShowEditModal(true);
   };
 
-  const openSupport = (c: any) => {
-    setSupportCompany(c);
-    setShowSupport(true);
-  };
+  const openSupport = (c: any) => { setSupportCompany(c); setShowSupport(true); };
+  const openDiagnostic = (c: any) => { setDiagnosticCompany(c); setShowDiagnostic(true); };
+  const openUserMgmt   = (c: any) => { setUserMgmtCompany(c); setShowUserMgmt(true); };
 
   if (userRole !== 'MASTER') {
     return (
@@ -432,7 +1154,6 @@ const MasterAdmin: React.FC = () => {
           <input type="text" value={data.address || ''} onChange={e => setData({ ...data, address: e.target.value })} className={inputCls} />
         </div>
       </div>
-
       <div>
         <label className={labelCls}>Plan de suscripción</label>
         <div className="grid grid-cols-2 gap-2">
@@ -443,7 +1164,6 @@ const MasterAdmin: React.FC = () => {
               <button key={p} type="button" onClick={() => setData({
                   ...data,
                   subscription_plan: p,
-                  // Al elegir TRIAL, poner status en TRIAL automáticamente; al salir, volver a ACTIVE
                   subscription_status: p === 'TRIAL' ? 'TRIAL' : data.subscription_status === 'TRIAL' ? 'ACTIVE' : data.subscription_status,
                 })}
                 className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-bold text-sm transition-all ${
@@ -466,7 +1186,6 @@ const MasterAdmin: React.FC = () => {
           </div>
         )}
       </div>
-
       <div>
         <label className={labelCls}>Estado</label>
         <select value={data.subscription_status} onChange={e => setData({ ...data, subscription_status: e.target.value })} className={inputCls}>
@@ -476,7 +1195,6 @@ const MasterAdmin: React.FC = () => {
           <option value="TRIAL">Prueba</option>
         </select>
       </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className={labelCls}>Inicio suscripción</label>
@@ -602,6 +1320,16 @@ const MasterAdmin: React.FC = () => {
                     </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {/* GESTIÓN DE USUARIOS */}
+                        <button onClick={() => openUserMgmt(c)} title="Gestionar usuarios (contraseña / correo)"
+                          className="p-2 rounded-lg hover:bg-violet-50 text-violet-500 transition-colors">
+                          <UserCog size={15} />
+                        </button>
+                        {/* DIAGNÓSTICO — botón nuevo */}
+                        <button onClick={() => openDiagnostic(c)} title="Ver diagnóstico del negocio"
+                          className="p-2 rounded-lg hover:bg-cyan-50 text-cyan-600 transition-colors">
+                          <Activity size={15} />
+                        </button>
                         {/* Soporte */}
                         <button onClick={() => openSupport(c)} title="Soporte / Configuración"
                           className="p-2 rounded-lg hover:bg-orange-50 text-orange-500 transition-colors">
@@ -680,6 +1408,22 @@ const MasterAdmin: React.FC = () => {
           company={supportCompany}
           onClose={() => { setShowSupport(false); setSupportCompany(null); }}
           onSaved={fetchCompanies}
+        />
+      )}
+
+      {/* PANEL DIAGNÓSTICO */}
+      {showDiagnostic && diagnosticCompany && (
+        <DiagnosticPanel
+          company={diagnosticCompany}
+          onClose={() => { setShowDiagnostic(false); setDiagnosticCompany(null); }}
+        />
+      )}
+
+      {/* PANEL GESTIÓN DE USUARIOS */}
+      {showUserMgmt && userMgmtCompany && (
+        <UserManagementPanel
+          company={userMgmtCompany}
+          onClose={() => { setShowUserMgmt(false); setUserMgmtCompany(null); }}
         />
       )}
     </div>
