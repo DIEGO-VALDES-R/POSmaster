@@ -1091,7 +1091,7 @@ const Inventory: React.FC = () => {
     if (!companyId) return;
     setLoading(true);
     try {
-      setProducts(await productService.getAll(companyId));
+      setProducts(await productService.getAllForInventory(companyId));
       const { data: sups } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
       setSuppliers(sups || []);
     }
@@ -1199,8 +1199,7 @@ const Inventory: React.FC = () => {
       : ctx === currentBusinessContext;
     if (!contextMatch) return false;
 
-    // Ocultar productos activos sin stock (excepto servicios e inactivos que se muestran con toggle)
-    if ((p as any).is_active !== false && p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= 0) return false;
+    // Los productos con stock 0 siguen siendo visibles — el cliente necesita verlos para gestionarlos
 
     return (
       p.name.toLowerCase().includes(search.toLowerCase()) ||
