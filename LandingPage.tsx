@@ -6,7 +6,7 @@ const WHATSAPP_NUMBER = '573204884943';
 const CONTACT_EMAIL = 'diegoferrangel@gmail.com';
 const BOLD_PAYMENT_URL = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
 const BOLD_PAYMENT_PRO_URL = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
-
+const EDGE_URL = `${(supabase as any).supabaseUrl}/functions/v1/master-admin-actions`;
 
 // ── LANDING PAGE ─────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void; onClientPortal?: () => void }> = ({ onLogin, onRegister, onClientPortal }) => {
@@ -19,7 +19,6 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  // Auto-rotate business types
   useEffect(() => {
     const t = setInterval(() => setActiveBiz(p => (p + 1) % businesses.length), 2800);
     return () => clearInterval(t);
@@ -114,7 +113,6 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
     { name: 'Efectivo', color: '#10b981' },
   ];
 
-  // ── inline keyframes via <style>
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
     @keyframes fadeUp { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:translateY(0); } }
@@ -178,31 +176,26 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
         alignItems:'center', justifyContent:'center',
         textAlign:'center', padding:'100px 6% 80px', position:'relative', overflow:'hidden',
       }}>
-        {/* Background orbs */}
         <div style={{position:'absolute',top:'15%',left:'20%',width:500,height:500,background:'radial-gradient(circle,rgba(59,130,246,0.12) 0%,transparent 70%)',pointerEvents:'none',borderRadius:'50%'}} />
         <div style={{position:'absolute',bottom:'20%',right:'15%',width:400,height:400,background:'radial-gradient(circle,rgba(139,92,246,0.1) 0%,transparent 70%)',pointerEvents:'none',borderRadius:'50%'}} />
 
         <div style={{position:'relative',zIndex:1,maxWidth:820}}>
-          {/* Badge */}
           <div className="fade-up d1" style={{display:'inline-flex',alignItems:'center',gap:8,background:'rgba(59,130,246,0.12)',border:'1px solid rgba(59,130,246,0.25)',color:'#93c5fd',padding:'6px 18px',borderRadius:100,fontSize:13,fontWeight:600,marginBottom:28}}>
             <span style={{width:7,height:7,borderRadius:'50%',background:'#3b82f6',display:'inline-block',boxShadow:'0 0 8px #3b82f6',animation:'pulse-ring 2s ease infinite'}} />
             🇨🇴 Hecho para negocios colombianos
           </div>
 
-          {/* Logo */}
           <div className="fade-up d1" style={{display:'flex',justifyContent:'center',marginBottom:32}}>
             <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png"
               alt="POSmaster" style={{height:200,width:'auto',filter:'drop-shadow(0 8px 32px rgba(99,102,241,0.45))'}} />
           </div>
 
-          {/* Headline */}
           <h1 className="fade-up d2" style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(2.2rem,5.5vw,4.2rem)',fontWeight:800,lineHeight:1.08,marginBottom:16,letterSpacing:'-2px'}}>
             El sistema POS{' '}
             <span style={{background:'linear-gradient(135deg,#3b82f6,#a78bfa)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>especializado</span>
             <br/>para tu tipo de negocio
           </h1>
 
-          {/* Rotating business type */}
           <div className="fade-up d2" style={{marginBottom:20,height:52,display:'flex',alignItems:'center',justifyContent:'center'}}>
             {businesses.map((b, i) => (
               <div key={i} style={{
@@ -229,7 +222,6 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
             Sin complicaciones. Sin papelitos. Sin excusas.
           </p>
 
-          {/* Business pill grid */}
           <div className="fade-up d3" style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginBottom:40}}>
             {businesses.map((b,i) => (
               <button key={i} onClick={() => setActiveBiz(i)} style={{
@@ -244,7 +236,6 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
             ))}
           </div>
 
-          {/* CTAs */}
           <div className="fade-up d4" style={{display:'flex',gap:14,justifyContent:'center',flexWrap:'wrap',marginBottom:20}}>
             <button onClick={onRegister} style={{
               background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',color:'#fff',
@@ -307,7 +298,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
               POSmaster se adapta a <span style={{color:C.violet}}>tu negocio</span>
             </h2>
             <p style={{color:C.muted,fontSize:15,maxWidth:520,margin:'0 auto'}}>
-              Módulos especializados que ningún POS genérico tiene. El visitante dirá: "este sistema es para mí."
+              Módulos especializados que ningún POS genérico tiene.
             </p>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:20}}>
@@ -588,7 +579,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
 
 // ── REGISTER PAGE ─────────────────────────────────────────────────────────────
 export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void }> = ({ onBack, onSuccess }) => {
-  const [step, setStep] = useState(0); // 0=plan, 1=cuenta, 2=negocio, 3=confirmación
+  const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [form, setForm] = useState({
@@ -611,7 +602,6 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
       if (authError) throw authError;
       if (!authData.user) throw new Error('No se pudo crear el usuario');
 
-      // Crear empresa con estado PENDING hasta que admin active
       const { data: company, error: companyError } = await supabase
         .from('companies').insert({
           name: form.businessName, nit: form.nit, phone: form.phone,
@@ -671,7 +661,6 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           )}
         </div>
 
-        {/* PASO 0 — Elegir Plan */}
         {step === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
@@ -705,7 +694,6 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           </div>
         )}
 
-        {/* PASO 1 — Credenciales */}
         {step === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div><label style={labelStyle}>Email *</label><input type="email" value={form.email} onChange={f('email')} placeholder="tu@email.com" style={inputStyle} /></div>
@@ -722,7 +710,6 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           </div>
         )}
 
-        {/* PASO 2 — Negocio */}
         {step === 2 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div><label style={labelStyle}>Nombre del Negocio *</label><input value={form.businessName} onChange={f('businessName')} placeholder="Ej: IPHONESHOP USA" style={inputStyle} /></div>
@@ -763,35 +750,26 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           </div>
         )}
 
-        {/* PASO 3 — Confirmación + Pago */}
         {step === 3 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Estado pendiente */}
             <div style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 12, padding: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
               <p style={{ color: '#fde047', fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Cuenta en revisión</p>
               <p style={{ color: '#94a3b8', fontSize: 13 }}>Tu cuenta fue creada pero está pendiente de activación. Contáctanos para activarla.</p>
             </div>
-
-            {/* Botón pago Bold */}
             <a href={BOLD_PAYMENT_URL} target="_blank" rel="noreferrer"
               style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', textAlign: 'center', display: 'block' }}>
               💳 Pagar con Bold
             </a>
-
-            {/* WhatsApp */}
             <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${waMessage}`} target="_blank" rel="noreferrer"
               style={{ background: '#25d366', border: 'none', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', textAlign: 'center', display: 'block' }}>
               💬 Confirmar por WhatsApp
             </a>
-
-            {/* Info contacto */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 14 }}>
               <p style={{ color: '#64748b', fontSize: 13, marginBottom: 6 }}>También puedes escribirnos a:</p>
               <p style={{ color: '#93c5fd', fontSize: 14, fontWeight: 600 }}>✉️ {CONTACT_EMAIL}</p>
               <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>Una vez confirmado el pago, activaremos tu cuenta en menos de 24 horas.</p>
             </div>
-
             <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#f1f5f9', padding: '11px', borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
               Ir al Login
             </button>
@@ -809,6 +787,174 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
   );
 };
 
+// ── USER MANAGEMENT PANEL ─────────────────────────────────────────────────────
+const UserManagementPanel: React.FC<{ company: any; onClose: () => void }> = ({ company, onClose }) => {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [action, setAction] = useState<{ type: string; userId: string; email: string } | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, is_active, created_at')
+        .eq('company_id', company.id);
+      setUsers(profiles || []);
+      setLoading(false);
+    };
+    load();
+  }, [company.id]);
+
+  const callEdge = async (payload: any) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(EDGE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Error en la operación');
+    return json;
+  };
+
+  const handleAction = async () => {
+    if (!action) return;
+    setWorking(true);
+    try {
+      if (action.type === 'recovery') {
+        await callEdge({ action: 'send_recovery', user_id: action.userId });
+        toast.success(`Correo de recuperación enviado a ${action.email}`);
+      } else if (action.type === 'password') {
+        if (!newPassword || newPassword.length < 6) { toast.error('Mínimo 6 caracteres'); setWorking(false); return; }
+        await callEdge({ action: 'set_password', user_id: action.userId, new_password: newPassword });
+        toast.success('Contraseña actualizada');
+        setNewPassword('');
+      } else if (action.type === 'email') {
+        if (!newEmail.includes('@')) { toast.error('Email inválido'); setWorking(false); return; }
+        await callEdge({ action: 'change_email', user_id: action.userId, new_email: newEmail });
+        toast.success('Correo de login actualizado');
+        setUsers(prev => prev.map(u => u.id === action.userId ? { ...u, email: newEmail } : u));
+        setNewEmail('');
+      }
+      setAction(null);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' }}>
+        {/* Header */}
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', borderRadius: '20px 20px 0 0' }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 700, textTransform: 'uppercase' }}>Gestión de Usuarios</p>
+            <h3 style={{ margin: '4px 0 0', fontWeight: 800, fontSize: 18, color: '#fff' }}>{company.name}</h3>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 16, color: '#fff' }}>✕</button>
+        </div>
+
+        <div style={{ padding: 24 }}>
+          {loading ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8', padding: 32 }}>Cargando usuarios...</p>
+          ) : users.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8', padding: 32 }}>No hay usuarios registrados</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {users.map(user => (
+                <div key={user.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, color: '#0f172a', fontSize: 14 }}>{user.full_name || '—'}</p>
+                      <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: 13 }}>{user.email}</p>
+                      <span style={{ background: user.role === 'ADMIN' ? '#dbeafe' : '#f1f5f9', color: user.role === 'ADMIN' ? '#2563eb' : '#64748b', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{user.role}</span>
+                    </div>
+                    <span style={{ background: user.is_active ? '#dcfce7' : '#fee2e2', color: user.is_active ? '#16a34a' : '#dc2626', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+                      {user.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => setAction({ type: 'recovery', userId: user.id, email: user.email })}
+                      style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
+                      📤 Enviar recuperación
+                    </button>
+                    <button onClick={() => setAction({ type: 'password', userId: user.id, email: user.email })}
+                      style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e9d5ff', background: '#f5f3ff', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#7c3aed' }}>
+                      🔒 Cambiar contraseña
+                    </button>
+                    <button onClick={() => setAction({ type: 'email', userId: user.id, email: user.email })}
+                      style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #fed7aa', background: '#fff7ed', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#ea580c' }}>
+                      ✉️ Cambiar correo
+                    </button>
+                  </div>
+
+                  {/* Sub-panel acción */}
+                  {action?.userId === user.id && (
+                    <div style={{ marginTop: 12, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                      {action.type === 'recovery' && (
+                        <div>
+                          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#475569' }}>
+                            Se enviará un correo de recuperación a <strong>{user.email}</strong>
+                          </p>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => setAction(null)} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#64748b' }}>Cancelar</button>
+                            <button onClick={handleAction} disabled={working}
+                              style={{ flex: 2, padding: '8px', border: 'none', borderRadius: 8, background: '#2563eb', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: working ? 0.7 : 1 }}>
+                              {working ? 'Enviando...' : '📤 Enviar correo'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {action.type === 'password' && (
+                        <div>
+                          <input
+                            type="password" placeholder="Nueva contraseña (mín. 6 caracteres)"
+                            value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                            style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, marginBottom: 10, boxSizing: 'border-box' as const, outline: 'none' }}
+                          />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => { setAction(null); setNewPassword(''); }} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#64748b' }}>Cancelar</button>
+                            <button onClick={handleAction} disabled={working}
+                              style={{ flex: 2, padding: '8px', border: 'none', borderRadius: 8, background: '#7c3aed', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: working ? 0.7 : 1 }}>
+                              {working ? 'Guardando...' : '🔒 Establecer contraseña'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {action.type === 'email' && (
+                        <div>
+                          <input
+                            type="email" placeholder="Nuevo correo de login"
+                            value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                            style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, marginBottom: 10, boxSizing: 'border-box' as const, outline: 'none' }}
+                          />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button onClick={() => { setAction(null); setNewEmail(''); }} style={{ flex: 1, padding: '8px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#64748b' }}>Cancelar</button>
+                            <button onClick={handleAction} disabled={working || !newEmail.includes('@')}
+                              style={{ flex: 2, padding: '8px', border: 'none', borderRadius: 8, background: '#ea580c', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: (working || !newEmail.includes('@')) ? 0.7 : 1 }}>
+                              {working ? 'Actualizando...' : '✉️ Cambiar correo'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: string) => void }> = ({ onExit, onPreview }) => {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -816,12 +962,13 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [search, setSearch] = useState('');
 
-  // Modales
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [showConfirmPayment, setShowConfirmPayment] = useState(false);
+  const [showUserMgmt, setShowUserMgmt] = useState(false);
+  const [userMgmtCompany, setUserMgmtCompany] = useState<any>(null);
   const [selectedCompany, setSelectedCompany] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
@@ -844,17 +991,10 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
-    // Cargar notificaciones no leídas
     try {
-      // Cargar contratos
-      const { data: contractsData } = await supabase
-        .from('contracts')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: contractsData } = await supabase.from('contracts').select('*').order('created_at', { ascending: false });
       setContracts(contractsData || []);
-
-      const { data: notifs } = await supabase.from('admin_notifications')
-        .select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20);
+      const { data: notifs } = await supabase.from('admin_notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20);
       setNotifications(notifs || []);
     } catch (_) {}
     setCompanies(data || []);
@@ -863,30 +1003,23 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
 
   useEffect(() => { load(); }, []);
 
-  // Suscripción realtime — contratos firmados
   useEffect(() => {
     const channel = supabase
       .channel('contracts-changes')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'contracts', filter: 'status=eq.SIGNED' },
         (payload: any) => {
-          // Actualizar lista de contratos
           setContracts(prev => prev.map(c => c.id === payload.new.id ? payload.new : c));
-          // Agregar notificación visual
           setNotifications(prev => [{
-            id: payload.new.id,
-            type: 'CONTRACT_SIGNED',
+            id: payload.new.id, type: 'CONTRACT_SIGNED',
             title: '✍️ Contrato firmado',
             message: `${payload.new.client_name} firmó el contrato del plan ${payload.new.plan}`,
-            is_read: false,
-            created_at: payload.new.signed_at,
+            is_read: false, created_at: payload.new.signed_at,
           }, ...prev]);
         }
-      )
-      .subscribe();
+      ).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Verificar vencimientos al cargar
   useEffect(() => {
     if (companies.length === 0) return;
     const today = new Date().toISOString().split('T')[0];
@@ -951,10 +1084,8 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       subscription_end_date: editForm.subscription_end_date || null,
     }).eq('id', selectedCompany.id);
     if (error) { toast.error(error.message); return; }
-    // Actualizar estado local inmediatamente
     setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? {
-      ...c,
-      name: editForm.name, nit: editForm.nit, email: editForm.email,
+      ...c, name: editForm.name, nit: editForm.nit, email: editForm.email,
       phone: editForm.phone, subscription_plan: editForm.plan,
       subscription_status: editForm.subscription_status,
       subscription_start_date: editForm.subscription_start_date || null,
@@ -1009,7 +1140,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const setStatus = async (id: string, status: string) => {
     const { error } = await supabase.from('companies').update({ subscription_status: status }).eq('id', id);
     if (error) { toast.error('Error al actualizar estado'); return; }
-    // Actualizar estado local inmediatamente sin esperar load()
     setCompanies(prev => prev.map(c => c.id === id ? { ...c, subscription_status: status } : c));
     toast.success(status === 'ACTIVE' ? 'Cuenta activada ✓' : 'Cuenta suspendida');
   };
@@ -1027,8 +1157,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
 
   const getDaysLeft = (endDate: string) => {
     if (!endDate) return null;
-    const diff = Math.ceil((new Date(endDate).getTime() - Date.now()) / 86400000);
-    return diff;
+    return Math.ceil((new Date(endDate).getTime() - Date.now()) / 86400000);
   };
 
   const planColors: Record<string, string> = { TRIAL: '#10b981', BASIC: '#64748b', PRO: '#3b82f6', ENTERPRISE: '#8b5cf6' };
@@ -1039,7 +1168,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
     PAST_DUE: { bg: '#ffedd5', color: '#ea580c', label: 'Vencido' },
   };
 
-  // Ordenar: principales primero, luego sus sucursales debajo
   const buildGrouped = () => {
     const principales = companies.filter(c => c.tipo !== 'sucursal' || !c.negocio_padre_id);
     const result: any[] = [];
@@ -1062,7 +1190,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 5 };
 
   const sendContract = async (company: any) => {
-    // Verificar si ya existe un contrato para este cliente
     const existing = contracts.find(x => x.company_id === company.id);
     if (existing) {
       const link = `${window.location.origin}/#/contrato/${existing.token}`;
@@ -1072,9 +1199,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
         navigator.clipboard.writeText(link).then(() => alert('✅ Enlace copiado')).catch(() => prompt('Copia el enlace:', link));
         return;
       }
-      // Si cancela, continúa y crea uno nuevo
     }
-    // Crear registro de contrato con token único
     const { data, error } = await supabase.from('contracts').insert({
       company_id: company.id,
       client_name: company.profiles?.[0]?.full_name || company.name,
@@ -1086,7 +1211,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       status: 'PENDING',
     }).select().single();
     if (error) { alert('Error: ' + error.message); return; }
-    // Actualizar lista local de contratos
     setContracts(prev => [data, ...prev]);
     const link = `${window.location.origin}/#/contrato/${data.token}`;
     navigator.clipboard.writeText(link).then(() => {
@@ -1095,7 +1219,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       prompt('Copia este enlace y envíalo al cliente:', link);
     });
   };
-
 
   return (
     <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
@@ -1114,7 +1237,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
 
       <div style={{ padding: 32, maxWidth: 1400, margin: '0 auto' }}>
 
-        {/* ── TABS ── */}
+        {/* TABS */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 28, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
           {[
             { key: 'clients', label: '🏢 Clientes', count: companies.length },
@@ -1132,7 +1255,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           ))}
         </div>
 
-        {/* ── TAB CONTRATOS ── */}
+        {/* TAB CONTRATOS */}
         {activeTab === 'contracts' && (
           <div>
             <h3 style={{ fontWeight: 800, fontSize: 20, color: '#0f172a', marginBottom: 20 }}>Contratos de Licencia</h3>
@@ -1166,29 +1289,24 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ background: '#dbeafe', color: '#2563eb', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>{c.plan}</span>
                         </td>
-                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12 }}>
-                          {new Date(c.created_at).toLocaleDateString('es-CO')}
-                        </td>
+                        <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12 }}>{new Date(c.created_at).toLocaleDateString('es-CO')}</td>
                         <td style={{ padding: '12px 16px', color: '#64748b', fontSize: 12 }}>
                           {c.signed_at ? new Date(c.signed_at).toLocaleDateString('es-CO') + ' ' + new Date(c.signed_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '—'}
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ display: 'flex', gap: 6 }}>
-                            {/* Copiar enlace */}
                             <button onClick={() => {
                               const link = `${window.location.origin}/#/contrato/${c.token}`;
                               navigator.clipboard.writeText(link).then(() => alert('✅ Enlace copiado')).catch(() => prompt('Copia el enlace:', link));
                             }} style={{ padding: '4px 10px', background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                               🔗 Enlace
                             </button>
-                            {/* Ver firma */}
                             {c.client_signature_url && (
                               <button onClick={() => window.open(c.client_signature_url, '_blank')}
                                 style={{ padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                                 ✍️ Firma
                               </button>
                             )}
-                            {/* Ver contrato completo */}
                             {c.status === 'SIGNED' && (
                               <button onClick={() => {
                                 const win = window.open('', '_blank');
@@ -1219,10 +1337,9 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         )}
 
-        {/* ── TAB CLIENTES (contenido original) ── */}
+        {/* TAB CLIENTES */}
         {activeTab === 'clients' && <div>
 
-        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 16, marginBottom: 32 }}>
           {[
             { label: 'Total Negocios', value: companies.length, color: '#3b82f6' },
@@ -1238,7 +1355,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           ))}
         </div>
 
-        {/* Toolbar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {['ALL', 'PENDING', 'ACTIVE', 'PAST_DUE', 'INACTIVE'].map(s => (
@@ -1258,7 +1374,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         </div>
 
-        {/* Table */}
         <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1100 }}>
             <thead>
@@ -1292,7 +1407,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                       <span style={{ background: planColors[c.subscription_plan] + '20', color: planColors[c.subscription_plan], padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
                         {c.subscription_plan === 'TRIAL' ? '🎁 TRIAL' : c.subscription_plan === 'BASIC' ? '⚡ BASIC' : c.subscription_plan === 'PRO' ? '⭐ PRO' : c.subscription_plan}
                       </span>
-                      {/* Badge contrato */}
                       {(() => {
                         const ct = contracts.find((x: any) => x.company_id === c.id);
                         if (!ct) return null;
@@ -1315,12 +1429,17 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                     </td>
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {/* 👤 GESTIÓN USUARIOS */}
+                        <button onClick={() => { setUserMgmtCompany(c); setShowUserMgmt(true); }}
+                          title="Gestionar usuarios (contraseña / correo)"
+                          style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e9d5ff', background: '#f5f3ff', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
+                          👤
+                        </button>
                         {/* Confirmar pago */}
                         <button onClick={() => { setSelectedCompany(c); setShowConfirmPayment(true); }}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>
                           💰 Pago
                         </button>
-                        {/* Activar / Suspender */}
                         {c.subscription_status !== 'ACTIVE' && (
                           <button onClick={() => setStatus(c.id, 'ACTIVE')}
                             style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }}>
@@ -1333,22 +1452,18 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                             Suspender
                           </button>
                         )}
-                        {/* Editar */}
                         <button onClick={() => openEdit(c)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e9d5ff', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
                           ✏️
                         </button>
-                        {/* Logs */}
                         <button onClick={() => handleViewLogs(c)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
                           📋
                         </button>
-                        {/* Botón contrato dinámico */}
                         {(() => {
                           const ct = contracts.find((x: any) => x.company_id === c.id && x.status === 'SIGNED');
                           const ctPending = contracts.find((x: any) => x.company_id === c.id);
                           if (ct) {
-                            // Ya firmado: mostrar botón para ver PDF
                             return (
                               <button onClick={() => {
                                 const win = window.open('', '_blank');
@@ -1384,7 +1499,6 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                               </button>
                             );
                           }
-                          // Sin contrato o pendiente: botón generar/copiar
                           return (
                             <button onClick={() => sendContract(c)}
                               style={{ padding: '4px 10px', background: ctPending ? '#d97706' : '#059669', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
@@ -1392,17 +1506,14 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                             </button>
                           );
                         })()}
-                        {/* Ver como cliente */}
                         <button onClick={() => onPreview(c.id)}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #ddd6fe', background: '#f5f3ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#7c3aed', whiteSpace: 'nowrap' }}>
                           👁️ Ver
                         </button>
-                        {/* WhatsApp */}
                         <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=Hola ${c.name}, te escribimos desde POSmaster.`} target="_blank" rel="noreferrer"
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#16a34a', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                           💬
                         </a>
-                        {/* Eliminar */}
                         <button onClick={() => { setSelectedCompany(c); setShowDelete(true); }}
                           style={{ padding: '4px 9px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff1f2', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}>
                           🗑️
@@ -1418,9 +1529,9 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
 
         </div>}{/* fin tab clientes */}
 
-      </div>{/* fin padding 32 */}
+      </div>
 
-      {/* ── MODAL CONFIRMAR PAGO ── */}
+      {/* MODAL CONFIRMAR PAGO */}
       {showConfirmPayment && selectedCompany && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 440, textAlign: 'center' }}>
@@ -1435,20 +1546,14 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
               <p style={{ color: '#64748b', fontSize: 13 }}>• Vencimiento: <strong>{new Date(Date.now() + 30 * 86400000).toLocaleDateString()}</strong></p>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setShowConfirmPayment(false)}
-                style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>
-                Cancelar
-              </button>
-              <button onClick={handleConfirmPayment}
-                style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 10, background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>
-                ✓ Confirmar Pago
-              </button>
+              <button onClick={() => setShowConfirmPayment(false)} style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancelar</button>
+              <button onClick={handleConfirmPayment} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 10, background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>✓ Confirmar Pago</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL CREAR ── */}
+      {/* MODAL CREAR */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto' }}>
@@ -1487,7 +1592,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
         </div>
       )}
 
-      {/* ── MODAL EDITAR ── */}
+      {/* MODAL EDITAR */}
       {showEdit && selectedCompany && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
@@ -1525,7 +1630,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
         </div>
       )}
 
-      {/* ── MODAL ELIMINAR ── */}
+      {/* MODAL ELIMINAR */}
       {showDelete && selectedCompany && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 36, width: '100%', maxWidth: 420, textAlign: 'center' }}>
@@ -1541,7 +1646,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
         </div>
       )}
 
-      {/* ── MODAL LOGS ── */}
+      {/* MODAL LOGS */}
       {showLogs && selectedCompany && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 32, width: '100%', maxWidth: 640, maxHeight: '85vh', overflowY: 'auto' }}>
@@ -1578,9 +1683,18 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         </div>
       )}
+
+      {/* PANEL GESTIÓN DE USUARIOS */}
+      {showUserMgmt && userMgmtCompany && (
+        <UserManagementPanel
+          company={userMgmtCompany}
+          onClose={() => { setShowUserMgmt(false); setUserMgmtCompany(null); }}
+        />
+      )}
     </div>
   );
 };
+
 // ── PORTAL DE CLIENTE ─────────────────────────────────────────────────────────
 export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [cedula,   setCedula]   = React.useState('');
@@ -1591,25 +1705,12 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const search = async () => {
     if (!cedula.trim()) { toast.error('Ingresa tu número de cédula'); return; }
     setLoading(true); setResults(null);
-
     const { data, error } = await supabase.rpc('buscar_por_cedula', { p_cedula: cedula.trim() });
-
-    if (error) {
-      toast.error('Error: ' + error.message);
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-
-    // La función SQL retorna JSON — Supabase puede devolverlo como string o como objeto
+    if (error) { toast.error('Error: ' + error.message); setResults([]); setLoading(false); return; }
     let parsed = data;
-    if (typeof data === 'string') {
-      try { parsed = JSON.parse(data); } catch { parsed = {}; }
-    }
-
+    if (typeof data === 'string') { try { parsed = JSON.parse(data); } catch { parsed = {}; } }
     const invoices = Array.isArray(parsed?.invoices) ? parsed.invoices : [];
     const shoes    = Array.isArray(parsed?.shoes)    ? parsed.shoes    : [];
-
     buildResults(invoices, shoes);
   };
 
@@ -1617,106 +1718,53 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const invoices = invoiceData.map((r: any) => {
       const pm = r.payment_method || {};
       const virtualItems = (pm.virtual_items || []).map((v: any) => v.name).filter(Boolean);
-      const service = virtualItems.length > 0
-        ? virtualItems.join(', ')
-        : pm.method === 'CASH' ? 'Venta en efectivo' : pm.method || 'Venta POS';
-      return {
-        ...r,
-        _type:  'invoice',
-        _label: 'Factura POS',
-        client_name:    pm.customer_name || '—',
-        total:          r.total_amount,
-        amount_paid:    pm.amount || r.total_amount || 0,
-        balance_due:    pm.balance_due ?? Math.max(0, (r.total_amount || 0) - (pm.amount || 0)),
-        payment_status: pm.payment_status || 'PAID',
-        service,
-      };
+      const service = virtualItems.length > 0 ? virtualItems.join(', ') : pm.method === 'CASH' ? 'Venta en efectivo' : pm.method || 'Venta POS';
+      return { ...r, _type: 'invoice', _label: 'Factura POS', client_name: pm.customer_name || '—', total: r.total_amount, amount_paid: pm.amount || r.total_amount || 0, balance_due: pm.balance_due ?? Math.max(0, (r.total_amount || 0) - (pm.amount || 0)), payment_status: pm.payment_status || 'PAID', service };
     });
-
     const shoeMap = new Map(shoeData.map((r: any) => [r.id, r]));
     const shoeItems = Array.from(shoeMap.values()).map((r: any) => {
       const isDelivered = r.status === 'DELIVERED';
       const balance = isDelivered ? 0 : Math.max(0, (r.estimated_price || 0) - (r.deposit_amount || 0));
-      return {
-        ...r,
-        _type:          'shoe',
-        _label:         'Reparación Calzado',
-        invoice_number: r.ticket_number || r.id?.slice(0, 8).toUpperCase(),
-        total:          r.estimated_price || 0,
-        amount_paid:    isDelivered ? (r.estimated_price || 0) : (r.deposit_amount || 0),
-        balance_due:    balance,
-        payment_status: isDelivered ? 'PAID' : (r.deposit_amount > 0) ? 'PARTIAL' : 'PENDING',
-        service:        r.service_type || '—',
-        client_name:    r.client_name  || '—',
-      };
+      return { ...r, _type: 'shoe', _label: 'Reparación Calzado', invoice_number: r.ticket_number || r.id?.slice(0, 8).toUpperCase(), total: r.estimated_price || 0, amount_paid: isDelivered ? (r.estimated_price || 0) : (r.deposit_amount || 0), balance_due: balance, payment_status: isDelivered ? 'PAID' : (r.deposit_amount > 0) ? 'PARTIAL' : 'PENDING', service: r.service_type || '—', client_name: r.client_name || '—' };
     });
-
-    const all = [...invoices, ...shoeItems].sort((a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    const all = [...invoices, ...shoeItems].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setResults(all);
     setLoading(false);
   };
 
-  const fmt = (n: number) =>
-    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+  const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 
   const statusLabel = (s: string) =>
-    s === 'PAID'             ? '✅ Pagado'          :
-    s === 'PARTIAL'          ? '⏳ Pago parcial'    :
-    s === 'DELIVERED'        ? '✅ Entregado'        :
-    s === 'IN_PROGRESS'      ? '🔧 En proceso'       :
-    s === 'PENDING_DELIVERY' ? '📦 Listo p/ entregar':
-    s === 'RECEIVED'         ? '📥 Recibido'         :
-    s === 'PENDING_ELECTRONIC'?'🧾 Pendiente'        : '⏳ Pendiente';
+    s === 'PAID' ? '✅ Pagado' : s === 'PARTIAL' ? '⏳ Pago parcial' : s === 'DELIVERED' ? '✅ Entregado' :
+    s === 'IN_PROGRESS' ? '🔧 En proceso' : s === 'PENDING_DELIVERY' ? '📦 Listo p/ entregar' :
+    s === 'RECEIVED' ? '📥 Recibido' : s === 'PENDING_ELECTRONIC' ? '🧾 Pendiente' : '⏳ Pendiente';
 
   const statusColor = (s: string) =>
-    (s === 'PAID' || s === 'DELIVERED')      ? '#059669' :
-    (s === 'PARTIAL' || s === 'PENDING_DELIVERY') ? '#d97706' : '#3b82f6';
+    (s === 'PAID' || s === 'DELIVERED') ? '#059669' : (s === 'PARTIAL' || s === 'PENDING_DELIVERY') ? '#d97706' : '#3b82f6';
 
-  const containerStyle: React.CSSProperties = {
-    minHeight: '100vh', background: 'linear-gradient(135deg,#0f172a,#1e293b)',
-    fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column',
-    alignItems: 'center', padding: '40px 16px'
-  };
-  const cardStyle: React.CSSProperties   = { background: '#fff', borderRadius: 20, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', width: '100%', maxWidth: 640, overflow: 'hidden' };
+  const containerStyle: React.CSSProperties = { minHeight: '100vh', background: 'linear-gradient(135deg,#0f172a,#1e293b)', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px' };
+  const cardStyle: React.CSSProperties = { background: '#fff', borderRadius: 20, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', width: '100%', maxWidth: 640, overflow: 'hidden' };
   const inputStyle: React.CSSProperties = { width: '100%', border: '2px solid #e2e8f0', borderRadius: 12, padding: '12px 16px', fontSize: 18, outline: 'none', boxSizing: 'border-box' as const, letterSpacing: 2, textAlign: 'center' as const };
 
   return (
     <div style={containerStyle}>
-      {/* Header */}
       <div style={{ width: '100%', maxWidth: 640, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <img src="https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png" alt="POSmaster" style={{ height: 32, filter: 'brightness(0) invert(1)' }} />
-        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          ← Volver
-        </button>
+        <button onClick={onBack} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>← Volver</button>
       </div>
-
       <div style={cardStyle}>
-        {/* Header card */}
         <div style={{ background: 'linear-gradient(135deg,#1e293b,#334155)', padding: '32px 32px 28px' }}>
           <p style={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Portal de consulta</p>
           <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, margin: '0 0 4px' }}>Mis facturas y servicios</h1>
           <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>Ingresa tu número de cédula o NIT para consultar tu historial</p>
         </div>
-
         <div style={{ padding: 32 }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-            <input
-              type="number"
-              placeholder="Número de cédula o NIT"
-              value={cedula}
-              onChange={e => setCedula(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && search()}
-              style={inputStyle}
-            />
-            <button onClick={search} disabled={loading}
-              style={{ padding: '12px 24px', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', border: 'none', borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' as const }}>
+            <input type="number" placeholder="Número de cédula o NIT" value={cedula} onChange={e => setCedula(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} style={inputStyle} />
+            <button onClick={search} disabled={loading} style={{ padding: '12px 24px', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: '#fff', border: 'none', borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' as const }}>
               {loading ? '...' : '🔍 Buscar'}
             </button>
           </div>
-
-          {/* Resultados */}
           {results !== null && (
             results.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
@@ -1726,15 +1774,12 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               </div>
             ) : (
               <div style={{ marginTop: 20 }}>
-                <p style={{ color: '#475569', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
-                  {results.length} registro{results.length > 1 ? 's' : ''} encontrado{results.length > 1 ? 's' : ''}
-                </p>
+                <p style={{ color: '#475569', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{results.length} registro{results.length > 1 ? 's' : ''} encontrado{results.length > 1 ? 's' : ''}</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {results.map((row, i) => {
                     const status = row.payment_status || row.status;
                     return (
-                      <div key={i}
-                        style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, cursor: 'pointer', background: '#fafafa', transition: 'border-color 0.15s' }}
+                      <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 14, padding: 16, cursor: 'pointer', background: '#fafafa', transition: 'border-color 0.15s' }}
                         onClick={() => setDetail(row)}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = '#3b82f6')}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
@@ -1749,12 +1794,8 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: '#1e293b' }}>{fmt(row.total)}</p>
-                            <span style={{ background: statusColor(status) + '18', color: statusColor(status), padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
-                              {statusLabel(status)}
-                            </span>
-                            {row.balance_due > 0 && (
-                              <p style={{ margin: '4px 0 0', color: '#dc2626', fontSize: 12, fontWeight: 600 }}>Saldo: {fmt(row.balance_due)}</p>
-                            )}
+                            <span style={{ background: statusColor(status) + '18', color: statusColor(status), padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>{statusLabel(status)}</span>
+                            {row.balance_due > 0 && <p style={{ margin: '4px 0 0', color: '#dc2626', fontSize: 12, fontWeight: 600 }}>Saldo: {fmt(row.balance_due)}</p>}
                           </div>
                         </div>
                         <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1769,8 +1810,6 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           )}
         </div>
       </div>
-
-      {/* Modal detalle */}
       {detail && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' }}>
@@ -1783,13 +1822,13 @@ export const ClientPortal: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
             <div style={{ padding: 24 }}>
               {[
-                ['Cliente',          detail.client_name],
+                ['Cliente', detail.client_name],
                 ['Servicio / Items', detail.service || '—'],
-                ['Fecha',            new Date(detail.created_at).toLocaleDateString('es-CO', { dateStyle: 'long' })],
-                ['Total',            fmt(detail.total)],
-                ['Abono pagado',     fmt(detail.amount_paid)],
-                ['Saldo pendiente',  fmt(detail.balance_due)],
-                ['Estado',           statusLabel(detail.payment_status || detail.status)],
+                ['Fecha', new Date(detail.created_at).toLocaleDateString('es-CO', { dateStyle: 'long' })],
+                ['Total', fmt(detail.total)],
+                ['Abono pagado', fmt(detail.amount_paid)],
+                ['Saldo pendiente', fmt(detail.balance_due)],
+                ['Estado', statusLabel(detail.payment_status || detail.status)],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b', fontSize: 13 }}>{l}</span>
