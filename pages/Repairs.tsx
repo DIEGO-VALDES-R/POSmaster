@@ -127,14 +127,22 @@ const Repairs: React.FC = () => {
     }
     setSaving(true);
     try {
-      const payload = {
-        ...form, company_id: companyId!, branch_id: branchId || undefined,
-        // Guardamos parts como campo especial en la tabla (requiere columna _parts_json)
-        // Si no existe la columna, se ignora silenciosamente
-        final_cost: form.final_cost || (form.estimated_cost || 0),
-      } as any;
-      // Intentar guardar parts — si la columna no existe se omite
-      try { payload._parts_json = JSON.stringify(form.parts || []); } catch {}
+      // Construir payload solo con columnas que existen en repair_orders
+      // 'parts' es un array virtual — no existe en la tabla, se serializa en _parts_json
+      const { parts, ...formWithoutParts } = form as any;
+
+      const payload: any = {
+        ...formWithoutParts,
+        company_id:  companyId!,
+        branch_id:   branchId || null,
+        final_cost:  form.final_cost || form.estimated_cost || 0,
+        _parts_json: JSON.stringify(parts || []),
+      };
+
+      // Eliminar campos que Supabase rechazaría (no existen en la tabla)
+      delete payload.id;
+      delete payload.created_at;
+      delete payload.updated_at;
 
       if (editingOrder?.id) {
         await repairService.update(editingOrder.id, payload);
@@ -145,7 +153,10 @@ const Repairs: React.FC = () => {
       }
       setShowModal(false);
       load();
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: any) {
+      console.error('Error guardando orden:', e);
+      toast.error(e.message || 'Error al guardar la orden');
+    }
     finally { setSaving(false); }
   };
 
