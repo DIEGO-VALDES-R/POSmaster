@@ -213,10 +213,18 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               <p className="font-bold text-blue-800 text-sm">¿Primera vez?</p>
               <p className="text-blue-600 text-xs mt-0.5">Descarga la plantilla con el formato correcto</p>
             </div>
-            <a href="/plantilla_inventario.xlsx" download
+            <button onClick={() => {
+              const wb = XLSX.utils.book_new();
+              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor'];
+              const example = ['Pantalla Samsung A11','SKU-001','7890123456789','PANTALLAS','SAMSUNG','Pantalla original','45000','30000','4','1','0','STANDARD','Mi Proveedor S.A.'];
+              const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+              ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 4, 15) }));
+              XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+              XLSX.writeFile(wb, 'plantilla_inventario.xlsx');
+            }}
               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors">
               <Download size={15} /> Plantilla Excel
-            </a>
+            </button>
           </div>
 
           {/* Upload area */}
@@ -654,6 +662,7 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
     stock_quantity: 0, stock_min_weight: 1000,
     description: '', is_active: true,
     type: 'WEIGHABLE', company_id: companyId,
+    business_context: 'supermercado',
   });
   const [pForm, setPForm] = useState<any>(emptyP());
 
@@ -943,18 +952,20 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Stock inicial (en gramos)</label>
-                  <input type="number" min="0" value={pForm.stock_quantity || ''}
-                    onChange={e => setPForm((f: any) => ({ ...f, stock_quantity: parseFloat(e.target.value) || 0 }))}
-                    placeholder="ej: 50000 = 50 kg"
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Stock inicial (kg)</label>
+                  <input type="number" min="0" step="0.01"
+                    value={pForm.stock_quantity ? (pForm.stock_quantity / 1000).toFixed(2) : ''}
+                    onChange={e => setPForm((f: any) => ({ ...f, stock_quantity: Math.round((parseFloat(e.target.value) || 0) * 1000) }))}
+                    placeholder="ej: 50 (= 50 kg)"
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
-                  <p className="text-[10px] text-slate-400 mt-0.5">El stock se guarda en gramos. 1 kg = 1000 g</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Ingresa en kg. Internamente se guarda en gramos.</p>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Alerta stock mínimo (gramos)</label>
-                  <input type="number" min="0" value={pForm.stock_min_weight || ''}
-                    onChange={e => setPForm((f: any) => ({ ...f, stock_min_weight: parseFloat(e.target.value) || 0 }))}
-                    placeholder="ej: 2000 = 2 kg"
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Alerta stock mínimo (kg)</label>
+                  <input type="number" min="0" step="0.1"
+                    value={pForm.stock_min_weight ? (pForm.stock_min_weight / 1000).toFixed(1) : ''}
+                    onChange={e => setPForm((f: any) => ({ ...f, stock_min_weight: Math.round((parseFloat(e.target.value) || 0) * 1000) }))}
+                    placeholder="ej: 2 (= 2 kg)"
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
                 </div>
               </div>
@@ -1012,12 +1023,13 @@ const Inventory: React.FC = () => {
 
   // Contexto activo: qué tipo de insumos/productos pertenecen a este negocio
   const currentBusinessContext =
-    isRestaurante ? 'restaurante' :
-    isZapateria   ? 'zapateria'   :
-    isSalon       ? 'salon'       :
-    isFarmacia    ? 'farmacia'    :
-    isVeterinaria ? 'veterinaria' :
-    isOdontologia ? 'odontologia' :
+    isRestaurante  ? 'restaurante'  :
+    isZapateria    ? 'zapateria'    :
+    isSalon        ? 'salon'        :
+    isFarmacia     ? 'farmacia'     :
+    isVeterinaria  ? 'veterinaria'  :
+    isOdontologia  ? 'odontologia'  :
+    isSupermercado ? 'supermercado' :
     'general';
 
   const inventoryLabel =
@@ -1055,6 +1067,7 @@ const Inventory: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showLowStock, setShowLowStock] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showInactive, setShowInactive] = useState(false);
 
   // Mostrar alerta de stock bajo UNA SOLA VEZ mientras la página esté abierta
   // sessionStorage se limpia al cerrar/recargar la pestaña
@@ -1173,16 +1186,22 @@ const Inventory: React.FC = () => {
   };
 
   const filtered = products.filter(p => {
-    // Filtrar por contexto de negocio:
-    // - Productos con business_context NULL o 'general' son visibles en negocios 'general'
-    // - Para otros tipos, solo mostrar los del mismo contexto
+    // Filtrar por is_active — los inactivos solo se muestran con el toggle
+    if (!showInactive && (p as any).is_active === false) return false;
+
+    // WEIGHABLE pertenece exclusivamente a supermercado — nunca mezclar
+    if ((p as any).type === 'WEIGHABLE') return false; // se gestionan en tab Pesables
+
+    // Filtrar por contexto de negocio (estricto — cada tipo solo ve el suyo)
     const ctx = (p as any).business_context || 'general';
     const contextMatch = currentBusinessContext === 'general'
-      ? ctx === 'general'
-      : ctx === currentBusinessContext || ctx === 'general' && false; // estricto: solo el propio contexto
+      ? (ctx === 'general' || ctx === null)
+      : ctx === currentBusinessContext;
     if (!contextMatch) return false;
 
-    if (p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= 0) return false;
+    // Ocultar productos activos sin stock (excepto servicios e inactivos que se muestran con toggle)
+    if ((p as any).is_active !== false && p.type !== 'SERVICE' && (p.stock_quantity ?? 0) <= 0) return false;
+
     return (
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku.toLowerCase().includes(search.toLowerCase()) ||
@@ -1210,8 +1229,9 @@ const Inventory: React.FC = () => {
   const ProductRow = ({ p }: { p: Product }) => {
     const supplier = suppliers.find(s => s.id === (p as any).supplier_id);
     const isChecked = selectedIds.has(p.id!);
+    const isInactive = (p as any).is_active === false;
     return (
-      <tr className={`hover:bg-slate-50 ${isChecked ? 'bg-blue-50' : ''}`}>
+      <tr className={`hover:bg-slate-50 ${isChecked ? 'bg-blue-50' : ''} ${isInactive ? 'opacity-60' : ''}`}>
         <td className="px-3 py-3">
           <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(p.id!)}
             className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
@@ -1223,7 +1243,10 @@ const Inventory: React.FC = () => {
             <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><Package size={16} className="text-slate-400" /></div>
           )}
         </td>
-        <td className="px-4 py-3 font-medium text-slate-900">{p.name}</td>
+        <td className="px-4 py-3 font-medium text-slate-900">
+          {p.name}
+          {isInactive && <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-slate-200 text-slate-500 rounded font-bold">INACTIVO</span>}
+        </td>
         <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku}</td>
         <td className="px-4 py-3 text-slate-500">{p.category || '—'}</td>
         <td className="px-4 py-3 font-semibold text-slate-800">{formatMoney(p.price)}</td>
@@ -1242,7 +1265,12 @@ const Inventory: React.FC = () => {
         <td className="px-4 py-3">
           <div className="flex gap-2">
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
-            <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
+            {isInactive ? (
+              <button onClick={async () => { await productService.reactivate(p.id!); toast.success('Producto reactivado'); load(); }}
+                className="text-green-600 hover:text-green-800 text-xs font-bold px-2 py-0.5 border border-green-300 rounded">Activar</button>
+            ) : (
+              <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
+            )}
           </div>
         </td>
       </tr>
@@ -1410,7 +1438,7 @@ const Inventory: React.FC = () => {
         </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap items-center">
         <button onClick={() => { setViewMode('list'); setSelectedCategory(null); }}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${viewMode === 'list' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
           <List size={16} /> Vista Lista
@@ -1419,6 +1447,15 @@ const Inventory: React.FC = () => {
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${viewMode === 'category' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
           <Grid3x3 size={16} /> Por Categoría
         </button>
+        <label className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm bg-slate-100 text-slate-700 cursor-pointer hover:bg-slate-200 transition-all select-none">
+          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded border-slate-300" />
+          Ver inactivos
+          {products.filter(p => (p as any).is_active === false).length > 0 && (
+            <span className="bg-slate-400 text-white text-xs px-1.5 py-0.5 rounded-full">
+              {products.filter(p => (p as any).is_active === false).length}
+            </span>
+          )}
+        </label>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
