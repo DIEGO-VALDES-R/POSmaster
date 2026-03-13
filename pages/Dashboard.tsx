@@ -144,10 +144,29 @@ const Dashboard: React.FC = () => {
   const prevTotal      = prevSales.reduce((s: number, v: any) => s + (v.total_amount || 0), 0);
   const salesTrend     = prevTotal > 0 ? ((totalSales - prevTotal) / prevTotal) * 100 : undefined;
 
-  const totalUnidades        = products.reduce((s, p) => s + (p.stock_quantity || 0), 0);
-  const inventoryValuePrecio = products.reduce((s, p) => s + (p.price * (p.stock_quantity || 0)), 0);
-  const inventoryValueCosto  = products.reduce((s, p) => s + ((p.cost || 0) * (p.stock_quantity || 0)), 0);
-  const gananciaPotencial    = inventoryValuePrecio - inventoryValueCosto;
+  // Productos pesables: stock en gramos → convertir a kg para valor y mostrar correctamente
+  const normalProducts  = products.filter((p: any) => p.type !== 'WEIGHABLE');
+  const weighableProducts = products.filter((p: any) => p.type === 'WEIGHABLE');
+
+  const totalUnidades = normalProducts.reduce((s, p) => s + (p.stock_quantity || 0), 0)
+    + weighableProducts.length; // pesables cuentan como 1 referencia c/u, no por gramos
+
+  const inventoryValuePrecio =
+    normalProducts.reduce((s, p) => s + (p.price * (p.stock_quantity || 0)), 0) +
+    weighableProducts.reduce((s, p: any) => {
+      const kg = (p.stock_quantity || 0) / 1000; // gramos → kg
+      const pricePerKg = p.price_per_unit || p.price || 0;
+      return s + (pricePerKg * kg);
+    }, 0);
+
+  const inventoryValueCosto =
+    normalProducts.reduce((s, p) => s + ((p.cost || 0) * (p.stock_quantity || 0)), 0) +
+    weighableProducts.reduce((s, p: any) => {
+      const kg = (p.stock_quantity || 0) / 1000;
+      return s + ((p.cost || 0) * kg);
+    }, 0);
+
+  const gananciaPotencial = inventoryValuePrecio - inventoryValueCosto;
 
   // Utilidad real = ventas - costo de los productos vendidos (aprox por margen promedio)
   const avgMarginRate = inventoryValuePrecio > 0
@@ -211,12 +230,12 @@ const Dashboard: React.FC = () => {
   }, [repairs]);
 
   // ── TOP PRODUCTOS ─────────────────────────────────────────────────────────
-  const topProducts = useMemo(() =>
-    [...products]
-      .sort((a, b) => (b.price - (b.cost||0)) - (a.price - (a.cost||0)))
-      .slice(0, 5),
-    [products]
-  );
+  const topProducts = useMemo(() => {
+    const effectivePrice = (p: any) => p.type === 'WEIGHABLE' ? (p.price_per_unit || p.price || 0) : (p.price || 0);
+    return [...products]
+      .sort((a: any, b: any) => (effectivePrice(b) - (b.cost||0)) - (effectivePrice(a) - (a.cost||0)))
+      .slice(0, 5);
+  }, [products]);
 
   if (isLoading) {
     return (
@@ -271,7 +290,7 @@ const Dashboard: React.FC = () => {
           <StatCard
             title="Inventario (precio venta)"
             value={formatMoney(inventoryValuePrecio)}
-            subtext={`${totalUnidades} uds · ${products.length} referencias`}
+            subtext={`${totalUnidades} uds · ${products.length} refs${weighableProducts.length > 0 ? ` · ${weighableProducts.length} pesables` : ''}`}
             icon={Package} color="purple"
           />
         )}
@@ -373,8 +392,9 @@ const Dashboard: React.FC = () => {
             {topProducts.length === 0 ? (
               <p className="text-slate-400 text-sm text-center py-8">Sin productos aún</p>
             ) : topProducts.map((p, i) => {
-              const margin = p.price - (p.cost || 0);
-              const marginPct = p.price > 0 ? (margin / p.price) * 100 : 0;
+              const effectivePx = (p as any).type === 'WEIGHABLE' ? ((p as any).price_per_unit || p.price || 0) : p.price;
+              const margin = effectivePx - (p.cost || 0);
+              const marginPct = effectivePx > 0 ? (margin / effectivePx) * 100 : 0;
               return (
                 <div key={p.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors">
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${
