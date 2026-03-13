@@ -8,6 +8,7 @@ import { useCurrency } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import InvoiceModal from '../components/InvoiceModal';
+import { VariantSelector, ProductVariant } from '../components/VariantManager';
 import PayPalCheckout from '../components/PayPalCheckout';
 import { supabase } from '../supabaseClient';
 
@@ -60,6 +61,7 @@ const POS: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [variantPending, setVariantPending] = useState<Product | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
@@ -259,6 +261,34 @@ const POS: React.FC = () => {
   useEffect(() => { loadRestaurantMenu(); }, [loadRestaurantMenu]);
   useEffect(() => { loadPharmaMeds(); }, [loadPharmaMeds]);
   useEffect(() => { loadSpecialtyServices(); }, [loadSpecialtyServices]);
+
+  // Prefill desde cotizacion aprobada
+  useEffect(() => {
+    const raw = sessionStorage.getItem('pos_prefill_quote');
+    if (!raw || !products.length) return;
+    try {
+      const prefill = JSON.parse(raw);
+      sessionStorage.removeItem('pos_prefill_quote');
+      if (prefill.customer_name)  setCustomerName(prefill.customer_name);
+      if (prefill.customer_doc)   setCustomerDoc(prefill.customer_doc);
+      if (prefill.customer_phone) setCustomerPhone(prefill.customer_phone);
+      if (prefill.customer_email) setCustomerEmail(prefill.customer_email);
+      const newCart: CartItem[] = (prefill.items || []).map((item: any) => {
+        const real = products.find(p => p.id === item.product_id);
+        const vp: any = real || {
+          id: item.product_id || ('quote-' + Math.random()),
+          name: item.description, price: item.price, cost: 0,
+          type: 'SERVICE', sku: 'COT', stock_quantity: 999,
+          tax_rate: item.tax_rate ?? 0, company_id: companyId,
+        };
+        return { product: vp, quantity: item.quantity ?? 1, price: item.price, tax_rate: item.tax_rate ?? 0, discount: item.discount ?? 0 };
+      });
+      if (newCart.length > 0) {
+        setCart(newCart);
+        toast.success('Cotizacion ' + prefill.quote_number + ' cargada en el carrito', { duration: 4000, icon: 'Carrito' });
+      }
+    } catch (e) { console.error('prefill error', e); }
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isSalon) return [];
@@ -499,24 +529,44 @@ const POS: React.FC = () => {
     }
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, variantOverride?: ProductVariant) => {
     if (session?.status !== 'OPEN') { toast.error('Debe abrir la caja primero'); return; }
+
+    // If product has variants and no variant chosen, show selector
+    if ((product as any).has_variants && !variantOverride) {
+      setVariantPending(product);
+      return;
+    }
     if (product.stock_quantity <= 0 && product.type !== ProductType.SERVICE) { toast.error('Producto sin stock'); return; }
 
-    if (product.type === ProductType.SERIALIZED) {
-      const serial = window.prompt(`Ingrese IMEI/Serial para ${product.name}:`);
+    // Build effective product with variant overrides
+    const effectiveProduct = variantOverride ? {
+      ...product,
+      id: product.id,        // keep parent id for invoice
+      _variant_id: variantOverride.id,
+      _variant_name: variantOverride.display_name,
+      _variant_sku: variantOverride.sku,
+      price: variantOverride.price_override ?? product.price,
+      cost: variantOverride.cost_override ?? product.cost,
+      stock_quantity: variantOverride.stock_quantity,
+      sku: variantOverride.sku,
+    } as any : product;
+    const checkId = variantOverride ? `${product.id}__${variantOverride.id}` : product.id;
+
+    if (effectiveProduct.type === ProductType.SERIALIZED) {
+      const serial = window.prompt(`Ingrese IMEI/Serial para ${effectiveProduct.name}:`);
       if (!serial) return;
-      if (cart.find(item => item.product.id === product.id && item.serial_number === serial)) {
+      if (cart.find(item => (item as any)._checkId === checkId && item.serial_number === serial)) {
         toast.error('Este serial ya esta en el carrito'); return;
       }
-      setCart([...cart, { product, quantity: 1, serial_number: serial, price: product.price, tax_rate: defaultTaxRate, discount: 0 }]);
+      setCart([...cart, { product: effectiveProduct, quantity: 1, serial_number: serial, price: effectiveProduct.price, tax_rate: defaultTaxRate, discount: 0, _checkId: checkId } as any]);
     } else {
-      const existing = cart.find(item => item.product.id === product.id);
+      const existing = cart.find(item => (item as any)._checkId === checkId || item.product.id === checkId);
       if (existing) {
-        if (existing.quantity >= product.stock_quantity) { toast.error('Stock insuficiente'); return; }
-        setCart(cart.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
+        if (existing.quantity >= effectiveProduct.stock_quantity) { toast.error('Stock insuficiente'); return; }
+        setCart(cart.map(item => (item as any)._checkId === checkId || item.product.id === checkId ? { ...item, quantity: item.quantity + 1 } : item));
       } else {
-        setCart([...cart, { product, quantity: 1, price: product.price, tax_rate: defaultTaxRate, discount: 0 }]);
+        setCart([...cart, { product: effectiveProduct, quantity: 1, price: effectiveProduct.price, tax_rate: defaultTaxRate, discount: 0, _checkId: checkId } as any]);
       }
     }
     toast.success('Agregado');
@@ -619,6 +669,17 @@ const POS: React.FC = () => {
       <Toaster position="bottom-right" />
 
       <InvoiceModal isOpen={showInvoice} onClose={() => setShowInvoice(false)} sale={lastSale} company={company} />
+      {variantPending && (
+        <VariantSelector
+          product={variantPending}
+          formatMoney={formatMoney}
+          onClose={() => setVariantPending(null)}
+          onSelect={(variant) => {
+            addToCart(variantPending, variant);
+            setVariantPending(null);
+          }}
+        />
+      )}
 
       {isScanning && (
         <div className="fixed top-4 left-4 flex items-center gap-2 px-4 py-2.5 bg-blue-50 border-2 border-blue-400 rounded-lg animate-pulse z-40">
@@ -880,6 +941,9 @@ const POS: React.FC = () => {
             <div key={idx} className="flex gap-2 p-2 rounded-lg border border-slate-100 bg-slate-50">
               <div className="flex-1">
                 <h4 className="text-sm font-medium text-slate-800">{item.product.name}</h4>
+                {(item.product as any)._variant_name && (
+                  <p className="text-xs text-indigo-500 font-semibold">{(item.product as any)._variant_name}</p>
+                )}
                 {item.serial_number && <p className="text-xs text-slate-500 font-mono bg-yellow-50 px-1 rounded inline-block">SN: {item.serial_number}</p>}
                 <span className="text-xs text-slate-500">{formatMoney(item.price)} x {item.quantity}</span>
               </div>

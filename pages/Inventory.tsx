@@ -39,6 +39,10 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ ok: 0, errors: 0 });
+  // Opciones de reimportación
+  const [updateStock, setUpdateStock] = useState(false);      // reemplazar stock
+  const [updatePrices, setUpdatePrices] = useState(true);     // actualizar precio/costo
+  const [updateSupplier, setUpdateSupplier] = useState(true); // actualizar proveedor
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -159,17 +163,27 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
 
         let error: any = null;
         if (existing) {
-          // Ya existe: actualizar precio, costo y SUMAR stock
-          const { error: e } = await supabase.from('products').update({
-            name: row.name, price: row.price, cost: row.cost,
-            category: row.category || null, brand: row.brand || null,
+          // Ya existe: actualizar según opciones del usuario
+          const updatePayload: any = {
+            name: row.name,
+            category: row.category || null,
+            brand: row.brand || null,
             description: row.description || null,
             barcode: row.barcode || null,
-            stock_quantity: (existing.stock_quantity ?? 0) + (row.stock_quantity ?? 0),
-            stock_min: row.stock_min ?? 0,
-            tax_rate: row.tax_rate ?? 19,
-            ...(supplier_id ? { supplier_id } : {}),
-          }).eq('id', existing.id);
+          };
+          if (updatePrices) {
+            updatePayload.price = row.price;
+            updatePayload.cost = row.cost;
+            updatePayload.tax_rate = row.tax_rate ?? 19;
+            updatePayload.stock_min = row.stock_min ?? 0;
+          }
+          if (updateStock) {
+            updatePayload.stock_quantity = row.stock_quantity ?? 0;
+          }
+          if (updateSupplier && supplier_id) {
+            updatePayload.supplier_id = supplier_id;
+          }
+          const { error: e } = await supabase.from('products').update(updatePayload).eq('id', existing.id);
           error = e;
         } else {
           // No existe: insertar nuevo
@@ -254,6 +268,34 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors">
               <Download size={15} /> Plantilla Excel
             </button>
+          </div>
+
+          {/* Opciones de importación */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">¿Qué hacer con productos que ya existen?</p>
+            {[
+              { key: 'updatePrices', state: updatePrices, set: setUpdatePrices, label: 'Actualizar precio, costo e IVA', desc: 'Sobreescribe los precios actuales con los del Excel', recommended: true },
+              { key: 'updateStock',  state: updateStock,  set: setUpdateStock,  label: 'Reemplazar stock', desc: 'Establece el stock exacto del Excel (útil para conteo físico)', recommended: false },
+              { key: 'updateSupplier', state: updateSupplier, set: setUpdateSupplier, label: 'Actualizar proveedor', desc: 'Asigna o cambia el proveedor según la columna "Proveedor"', recommended: true },
+            ].map(opt => (
+              <button key={opt.key} type="button"
+                onClick={() => opt.set(!opt.state)}
+                className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border transition-colors text-left ${opt.state ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 ${opt.state ? 'bg-blue-600' : 'bg-white border-2 border-slate-300'}`}>
+                  {opt.state && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round"/></svg>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-xs font-semibold ${opt.state ? 'text-blue-700' : 'text-slate-600'}`}>{opt.label}</p>
+                    {opt.recommended && <span className="text-[10px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold">Recomendado</span>}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{opt.desc}</p>
+                </div>
+              </button>
+            ))}
+            <p className="text-[10px] text-slate-400 pt-1">
+              💡 Productos nuevos (SKU no existe) siempre se insertan completos sin importar las opciones.
+            </p>
           </div>
 
           {/* Upload area */}
