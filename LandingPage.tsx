@@ -982,10 +982,36 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
     subscription_start_date: new Date().toISOString().split('T')[0],
     subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]
   });
+  const FEATURE_DEFS_LP = [
+    { id: 'credit_notes',    label: 'Devoluciones / NC',          cat: 'Ventas',     defaultPlans: ['BASIC','PRO','ENTERPRISE'] },
+    { id: 'quotes',          label: 'Cotizaciones',                cat: 'Ventas',     defaultPlans: ['BASIC','PRO','ENTERPRISE','TRIAL'] },
+    { id: 'dian',            label: 'Facturación DIAN',            cat: 'Ventas',     defaultPlans: ['ENTERPRISE'] },
+    { id: 'variants',        label: 'Variantes de producto',       cat: 'Inventario', defaultPlans: ['BASIC','PRO','ENTERPRISE'] },
+    { id: 'purchase_orders', label: 'Órdenes de compra',           cat: 'Inventario', defaultPlans: ['BASIC','PRO','ENTERPRISE'] },
+    { id: 'weighable',       label: 'Productos pesables',          cat: 'Inventario', defaultPlans: ['BASIC','PRO','ENTERPRISE'] },
+    { id: 'nomina',          label: 'Nómina y dotación',           cat: 'Finanzas',   defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'cash_expenses',   label: 'Egresos de caja',             cat: 'Finanzas',   defaultPlans: ['BASIC','PRO','ENTERPRISE','TRIAL'] },
+    { id: 'restaurant',      label: 'Módulo Restaurante',          cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'salon',           label: 'Módulo Salón',                cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'dental',          label: 'Módulo Odontología',          cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'vet',             label: 'Módulo Veterinaria',          cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'pharmacy',        label: 'Módulo Farmacia',             cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'shoe_repair',     label: 'Módulo Zapatería',            cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'catalog',         label: 'Catálogo WhatsApp',           cat: 'Marketing',  defaultPlans: ['BASIC','PRO','ENTERPRISE'] },
+    { id: 'branding',        label: 'Personalización marca',       cat: 'Marketing',  defaultPlans: ['PRO','ENTERPRISE'] },
+  ];
+
+  const getDefaultFlagsLP = (plan: string): Record<string,boolean> => {
+    const flags: Record<string,boolean> = {};
+    FEATURE_DEFS_LP.forEach(f => { flags[f.id] = f.defaultPlans.includes(plan); });
+    return flags;
+  };
+
   const [editForm, setEditForm] = useState({
     name: '', nit: '', email: '', phone: '', plan: 'BASIC',
     subscription_status: 'ACTIVE',
-    subscription_start_date: '', subscription_end_date: ''
+    subscription_start_date: '', subscription_end_date: '',
+    feature_flags: {} as Record<string,boolean>
   });
 
   const load = async () => {
@@ -1082,6 +1108,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       subscription_status: editForm.subscription_status,
       subscription_start_date: editForm.subscription_start_date || null,
       subscription_end_date: editForm.subscription_end_date || null,
+      feature_flags: editForm.feature_flags,
     }).eq('id', selectedCompany.id);
     if (error) { toast.error(error.message); return; }
     setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? {
@@ -1150,7 +1177,10 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '',
       plan: c.subscription_plan, subscription_status: c.subscription_status,
       subscription_start_date: c.subscription_start_date || '',
-      subscription_end_date: c.subscription_end_date || ''
+      subscription_end_date: c.subscription_end_date || '',
+      feature_flags: c.feature_flags && Object.keys(c.feature_flags).length > 0
+        ? c.feature_flags
+        : getDefaultFlagsLP(c.subscription_plan || 'BASIC')
     });
     setShowEdit(true);
   };
@@ -1620,6 +1650,61 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                 <select value={editForm.subscription_status} onChange={fe('subscription_status')} style={{ ...inputStyle, cursor: 'pointer' }}>
                   <option value="ACTIVE">Activo</option><option value="INACTIVE">Inactivo</option><option value="PENDING">Pendiente</option><option value="PAST_DUE">Vencido</option>
                 </select>
+              </div>
+
+              {/* ── Feature Flags ── */}
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16, marginTop: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ ...labelStyle, fontWeight: 700, color: '#0f172a' }}>Features habilitados</label>
+                  <button type="button"
+                    onClick={() => setEditForm(prev => ({ ...prev, feature_flags: getDefaultFlagsLP(prev.plan) }))}
+                    style={{ fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>
+                    Restaurar por plan
+                  </button>
+                </div>
+                <p style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>
+                  Activa o desactiva features individualmente para esta empresa
+                </p>
+                {(() => {
+                  const cats = [...new Set(FEATURE_DEFS_LP.map(f => f.cat))];
+                  const flags = editForm.feature_flags && Object.keys(editForm.feature_flags).length > 0
+                    ? editForm.feature_flags
+                    : getDefaultFlagsLP(editForm.plan);
+                  return cats.map(cat => (
+                    <div key={cat} style={{ marginBottom: 12 }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{cat}</p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {FEATURE_DEFS_LP.filter(f => f.cat === cat).map(feat => {
+                          const isOn = flags[feat.id] !== undefined ? flags[feat.id] : feat.defaultPlans.includes(editForm.plan);
+                          return (
+                            <button key={feat.id} type="button"
+                              onClick={() => setEditForm(prev => ({
+                                ...prev,
+                                feature_flags: { ...flags, [feat.id]: !isOn }
+                              }))}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
+                                border: isOn ? '1.5px solid #86efac' : '1.5px solid #e2e8f0',
+                                background: isOn ? '#f0fdf4' : '#f8fafc',
+                                color: isOn ? '#15803d' : '#94a3b8',
+                                fontSize: 12, fontWeight: 600, textAlign: 'left' as const,
+                              }}>
+                              <div style={{
+                                width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                                background: isOn ? '#22c55e' : '#e2e8f0',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                              }}>
+                                {isOn && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round"/></svg>}
+                              </div>
+                              {feat.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                 <button onClick={() => setShowEdit(false)} style={{ flex: 1, padding: '11px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancelar</button>
