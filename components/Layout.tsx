@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
+import NotificationBell from './NotificationBell';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
 
@@ -556,10 +557,11 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
             <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
               <User size={13} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-xs font-medium truncate" style={{ color: fontColor }}>{company?.name || companyName}</p>
               <p className="text-[10px]" style={{ color: fontColor, opacity: 0.6 }}>{roleDisplay}</p>
             </div>
+            <NotificationBell companyId={companyId || null} fontColor={fontColor} />
           </div>
 
           {onAdminPanel && (

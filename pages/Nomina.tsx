@@ -7,6 +7,7 @@ import {
   Shirt, Package, Bell, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import * as XLSX from 'xlsx';
 import { useDatabase } from '../contexts/DatabaseContext';
 import toast from 'react-hot-toast';
 
@@ -1250,6 +1251,31 @@ const Nomina: React.FC = () => {
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'reportes' && (
           <div className="space-y-6">
+            {/* Export button */}
+            <div className="flex justify-end">
+              <button onClick={() => {
+                const wb = XLSX.utils.book_new();
+                // Hoja empleados
+                const empRows = employees.map((e:any) => ({
+                  'Nombre': e.full_name, 'Cargo': e.position||'', 'Tipo': e.employee_type,
+                  'Salario Base': e.base_salary, 'Auxilio Transporte': e.transport_allowance||0,
+                  'Estado': e.is_active ? 'Activo' : 'Inactivo',
+                }));
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(empRows), 'Empleados');
+                // Hoja nóminas si existen
+                if (payrolls && payrolls.length > 0) {
+                  const payRows = payrolls.map((p:any) => ({
+                    'Período': p.period_label||p.period, 'Empleado': p.employee_name||'',
+                    'Salario': p.base_salary, 'Devengado': p.total_devengado,
+                    'Deducciones': p.total_deducciones, 'Neto': p.net_pay, 'Estado': p.status,
+                  }));
+                  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payRows), 'Nóminas');
+                }
+                XLSX.writeFile(wb, `Nomina_Reporte_${new Date().toISOString().slice(0,10)}.xlsx`);
+              }} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700">
+                <Download size={15} /> Exportar Excel
+              </button>
+            </div>
             {/* Resumen PILA */}
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <h3 className="font-bold text-slate-800 mb-1">Resumen PILA — Planilla Integrada de Liquidación</h3>

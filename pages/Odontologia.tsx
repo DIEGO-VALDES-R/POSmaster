@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, X, ChevronDown, Search, User, Users, Building2,
   Calendar, FileText, Stethoscope, DollarSign, CreditCard,
-  CheckCircle, Clock, XCircle, Edit2, Trash2, Eye,
+  CheckCircle, Clock, XCircle, Edit2, Trash2, Eye, Download,
   Phone, Mail, MapPin, Activity, Award, BarChart2, Star
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import * as XLSX from 'xlsx';
 import { useCompany } from '../hooks/useCompany';
 import { useCurrency } from '../contexts/CurrencyContext';
 import RefreshButton from '../components/RefreshButton';
@@ -1726,6 +1727,27 @@ const ReportesTab: React.FC<{
 
   return (
     <div className="space-y-6">
+      {/* Export button */}
+      <div className="flex justify-end">
+        <button onClick={() => {
+          const wb = XLSX.utils.book_new();
+          // Pacientes
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+            pacientes.map((p:any) => ({ 'Nombre': p.nombre, 'Doc': p.documento||'', 'Tel': p.telefono||'', 'Email': p.email||'', 'Fecha': p.fecha_registro?.slice(0,10)||'' }))
+          ), 'Pacientes');
+          // Citas
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+            citas.map((c:any) => ({ 'Paciente': c.paciente_nombre||'', 'Odontologo': c.odontologo_nombre||'', 'Fecha': c.fecha, 'Hora': c.hora, 'Estado': c.estado, 'Servicio': c.servicio_nombre||'' }))
+          ), 'Citas');
+          // Facturas
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+            facturas.map((f:any) => ({ 'Paciente': f.paciente_nombre||'', 'Servicio': f.servicio_nombre||'', 'Total': f.total, 'Abonado': f.abonado, 'Saldo': f.saldo, 'Estado': f.estado, 'Fecha': f.fecha?.slice(0,10)||'' }))
+          ), 'Facturas');
+          XLSX.writeFile(wb, `Odontologia_Reporte_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">
+          <Download size={15} /> Exportar Excel
+        </button>
+      </div>
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[

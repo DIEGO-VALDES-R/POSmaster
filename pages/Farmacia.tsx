@@ -7,6 +7,7 @@ import {
   Download, Clipboard, ShieldCheck, TrendingUp, Archive
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import * as XLSX from 'xlsx';
 import { useDatabase } from '../contexts/DatabaseContext';
 import toast from 'react-hot-toast';
 
@@ -848,7 +849,23 @@ const Farmacia: React.FC = () => {
         {/* ── REPORTS TAB ──────────────────────────────────────────────────── */}
         {tab === 'reports' && (
           <div>
-            <h2 style={{ margin: '0 0 20px', fontSize: 18, fontWeight: 700, color: '#1e293b' }}>Reportes del Módulo</h2>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', margin:0 }}>Reportes del Módulo</h2>
+              <button onClick={() => {
+                const wb = XLSX.utils.book_new();
+                const rows = medications.map(m => ({
+                  'Nombre': m.name, 'Categoría': m.category, 'Fabricante': m.manufacturer||'',
+                  'Stock Total': m.stock_total, 'Precio': m.sale_price,
+                  'Requiere Receta': m.requires_prescription ? 'Sí' : 'No',
+                  'Controlado': m.is_controlled ? 'Sí' : 'No',
+                  'Vencimiento': m.expiry_date || '',
+                }));
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Medicamentos');
+                XLSX.writeFile(wb, `Farmacia_Reporte_${new Date().toISOString().slice(0,10)}.xlsx`);
+              }} style={{ display:'flex', alignItems:'center', gap:6, background:'#16a34a', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', cursor:'pointer', fontWeight:700, fontSize:13 }}>
+                <Download size={14} /> Exportar Excel
+              </button>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
 
               {/* Medications by category */}
