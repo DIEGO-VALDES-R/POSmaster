@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, ShoppingCart, Package, Wrench,
+  LayoutDashboard, BarChart2, ShoppingCart, Package, Wrench,
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
