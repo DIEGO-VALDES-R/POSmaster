@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
+import OnboardingWizard from './OnboardingWizard';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
 
@@ -365,6 +366,14 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
   const plan      = company?.subscription_plan || 'BASIC';
+
+  // Onboarding — mostrar la primera vez que un ADMIN nuevo entra
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (!companyId || !company || userRole !== 'ADMIN') return;
+    const key = `onboarding_done_${companyId}`;
+    if (!localStorage.getItem(key)) setShowOnboarding(true);
+  }, [companyId, company, userRole]);
   // BUG FIX: branches are created with plan='BASIC' but their parent is PRO.
   // Employees who log into a branch must still see the full menu.
   const isBranch  = !!(company as any)?.negocio_padre_id;
@@ -571,11 +580,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <aside className="hidden md:flex flex-col w-60 text-white shadow-xl flex-shrink-0"
-        style={{ background: brandColor, transition: 'background 0.4s ease' }}>
-        <SidebarContent />
-      </aside>
+    <>
+      {showOnboarding && (
+        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+      )}
+      <div className="flex h-screen bg-slate-50">
+        <aside className="hidden md:flex flex-col w-60 text-white shadow-xl flex-shrink-0"
+          style={{ background: brandColor, transition: 'background 0.4s ease' }}>
+          <SidebarContent />
+        </aside>
 
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex flex-col"
@@ -645,6 +658,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
         </div>
       </main>
     </div>
+    </>
   );
 };
 
