@@ -1,38 +1,40 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { DatabaseProvider } from './contexts/DatabaseContext';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import POS from './pages/POS';
-import Inventory from './pages/Inventory';
-import Repairs from './pages/Repairs';
-import CashControl from './pages/CashControl';
-import AccountsReceivable from './pages/AccountsReceivable';
-import InvoiceHistory from './pages/InvoiceHistory';
-import Settings from './pages/Settings';
-import Branches from './pages/Branches';
-import Team from './pages/Team';
-import Tables from './pages/Tables';
-import KitchenDisplay from './pages/KitchenDisplay';
-import BeautySalon from './pages/BeautySalon';
-import ShoeRepair from './pages/ShoeRepair';
-import Odontologia from './pages/Odontologia';
-import Veterinaria from './pages/Veterinaria';
-import Supplies from './pages/Supplies';
-import Farmacia from './pages/Farmacia';
-import Customers from './pages/Customers';
-import Quotes from './pages/Quotes';
-import Nomina from './pages/Nomina';
-import PurchaseOrders from './pages/PurchaseOrders';
-import CreditNotes from './pages/CreditNotes';
-import Reports from './pages/Reports';
 import { LandingPage, RegisterPage, AdminPanel, ClientPortal } from './LandingPage';
 import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
 import { Toaster } from 'react-hot-toast';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
-import PublicCatalog from './pages/PublicCatalog';
+
+// ── CODE SPLITTING — cada página se descarga solo cuando el usuario la visita ──
+const Dashboard          = lazy(() => import('./pages/Dashboard'));
+const POS                = lazy(() => import('./pages/POS'));
+const Inventory          = lazy(() => import('./pages/Inventory'));
+const Repairs            = lazy(() => import('./pages/Repairs'));
+const CashControl        = lazy(() => import('./pages/CashControl'));
+const AccountsReceivable = lazy(() => import('./pages/AccountsReceivable'));
+const InvoiceHistory     = lazy(() => import('./pages/InvoiceHistory'));
+const Settings           = lazy(() => import('./pages/Settings'));
+const Branches           = lazy(() => import('./pages/Branches'));
+const Team               = lazy(() => import('./pages/Team'));
+const Tables             = lazy(() => import('./pages/Tables'));
+const KitchenDisplay     = lazy(() => import('./pages/KitchenDisplay'));
+const BeautySalon        = lazy(() => import('./pages/BeautySalon'));
+const ShoeRepair         = lazy(() => import('./pages/ShoeRepair'));
+const Odontologia        = lazy(() => import('./pages/Odontologia'));
+const Veterinaria        = lazy(() => import('./pages/Veterinaria'));
+const Supplies           = lazy(() => import('./pages/Supplies'));
+const Farmacia           = lazy(() => import('./pages/Farmacia'));
+const Customers          = lazy(() => import('./pages/Customers'));
+const Quotes             = lazy(() => import('./pages/Quotes'));
+const Nomina             = lazy(() => import('./pages/Nomina'));
+const PurchaseOrders     = lazy(() => import('./pages/PurchaseOrders'));
+const CreditNotes        = lazy(() => import('./pages/CreditNotes'));
+const Reports            = lazy(() => import('./pages/Reports'));
+const PublicCatalog      = lazy(() => import('./pages/PublicCatalog'));
 
 // ── CORRECCIÓN AUTH-04 / FRO-01 ───────────────────────────────────────────────
 // Las constantes sensibles se mueven a variables de entorno .env
@@ -439,33 +441,46 @@ const ResetPassword: React.FC = () => {
 };
 
 // ── RUTAS ─────────────────────────────────────────────────────────────────────
+// Spinner minimalista que se muestra mientras se descarga el chunk de la página
+const PageLoader: React.FC = () => (
+  <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 40, height: 40, border: '3px solid #e2e8f0', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+      <p style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600 }}>Cargando módulo...</p>
+    </div>
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
+
 const AppRoutes: React.FC = () => (
-  <Routes>
-    <Route path="/"             element={<Dashboard />} />
-    <Route path="/pos"          element={<POS />} />
-    <Route path="/inventory"    element={<Inventory />} />
-    <Route path="/repairs"      element={<Repairs />} />
-    <Route path="/cash-control" element={<CashControl />} />
-    <Route path="/receivables"  element={<AccountsReceivable />} />
-    <Route path="/invoices"     element={<InvoiceHistory />} />
-    <Route path="/settings"     element={<Settings />} />
-    <Route path="/branches"     element={<Branches />} />
-    <Route path="/team"         element={<Team />} />
-    <Route path="/tables"       element={<Tables />} />
-    <Route path="/kitchen"      element={<KitchenDisplay />} />
-    <Route path="/salon"        element={<BeautySalon />} />
-    <Route path="/shoe-repair"  element={<ShoeRepair />} />
-    <Route path="/dentistry"    element={<Odontologia />} />
-    <Route path="/veterinaria"  element={<Veterinaria />} />
-    <Route path="/supplies"     element={<Supplies />} />
-    <Route path="/farmacia"     element={<Farmacia />} />
-    <Route path="/customers"    element={<Customers />} />
-    <Route path="/quotes"       element={<Quotes />} />
-    <Route path="/nomina"       element={<Nomina />} />
-    <Route path="/purchases"    element={<PurchaseOrders />} />
-    <Route path="/credit-notes"  element={<CreditNotes />} />
-    <Route path="/reports"       element={<Reports />} />
-  </Routes>
+  <Suspense fallback={<PageLoader />}>
+    <Routes>
+      <Route path="/"             element={<Dashboard />} />
+      <Route path="/pos"          element={<POS />} />
+      <Route path="/inventory"    element={<Inventory />} />
+      <Route path="/repairs"      element={<Repairs />} />
+      <Route path="/cash-control" element={<CashControl />} />
+      <Route path="/receivables"  element={<AccountsReceivable />} />
+      <Route path="/invoices"     element={<InvoiceHistory />} />
+      <Route path="/settings"     element={<Settings />} />
+      <Route path="/branches"     element={<Branches />} />
+      <Route path="/team"         element={<Team />} />
+      <Route path="/tables"       element={<Tables />} />
+      <Route path="/kitchen"      element={<KitchenDisplay />} />
+      <Route path="/salon"        element={<BeautySalon />} />
+      <Route path="/shoe-repair"  element={<ShoeRepair />} />
+      <Route path="/dentistry"    element={<Odontologia />} />
+      <Route path="/veterinaria"  element={<Veterinaria />} />
+      <Route path="/supplies"     element={<Supplies />} />
+      <Route path="/farmacia"     element={<Farmacia />} />
+      <Route path="/customers"    element={<Customers />} />
+      <Route path="/quotes"       element={<Quotes />} />
+      <Route path="/nomina"       element={<Nomina />} />
+      <Route path="/purchases"    element={<PurchaseOrders />} />
+      <Route path="/credit-notes"  element={<CreditNotes />} />
+      <Route path="/reports"       element={<Reports />} />
+    </Routes>
+  </Suspense>
 );
 
 // ── APP ───────────────────────────────────────────────────────────────────────
@@ -602,7 +617,7 @@ const App: React.FC = () => {
       <Router>
         <Routes>
           {/* Ruta pública — sin autenticación ni DatabaseProvider */}
-          <Route path="/catalogo/:companyId" element={<PublicCatalog />} />
+          <Route path="/catalogo/:companyId" element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
           <Route path="/*" element={
             <DatabaseProvider>
               <Routes>
