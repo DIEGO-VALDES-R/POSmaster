@@ -236,6 +236,11 @@ const InvoiceHistory: React.FC = () => {
   const { formatMoney } = useCurrency();
   const { company, companyId, userRole, hasPermission, session, refreshAll } = useDatabase();
 
+  // Filtrar facturas por tipo de negocio activo
+  const businessTypes: string[] = Array.isArray((company?.config as any)?.business_types)
+    ? (company?.config as any).business_types
+    : (company?.config as any)?.business_type ? [(company?.config as any).business_type] : [];
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchDoc, setSearchDoc] = useState('');
@@ -278,6 +283,11 @@ const InvoiceHistory: React.FC = () => {
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE - 1);
+
+      // Filtrar por tipo de negocio activo si la empresa tiene uno específico
+      if (businessTypes.length > 0) {
+        query = query.or(`business_type.in.(${businessTypes.join(',')}),business_type.is.null`);
+      }
 
       if (searchInvoice.trim()) query = query.ilike('invoice_number', `%${searchInvoice.trim()}%`);
       if (searchDate) {

@@ -29,6 +29,7 @@ interface DatabaseContextType {
     customerPhone?: string; items: any[]; total: number;
     subtotal: number; taxAmount: number; applyIva?: boolean;
     discountPercent?: number; discountAmount?: number;
+    amountPaid?: number; shoeRepairId?: string; business_type?: string;
   }) => Promise<Sale>;
   updateCompanyConfig: (data: Partial<Company>) => Promise<void>;
   saveDianSettings: (settings: DianSettings) => void;
@@ -371,6 +372,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     discountPercent?: number; discountAmount?: number;
     amountPaid?: number;          // nuevo: monto efectivamente pagado
     shoeRepairId?: string;        // nuevo: id orden zapatería si aplica
+    business_type?: string;       // tipo de negocio desde el que se genera la factura
   }): Promise<Sale> => {
     if (!companyId) throw new Error('No company');
     const resolvedBranchId = branchId || await resolvebranchId(companyId);
@@ -390,6 +392,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       customer_id: null,
       subtotal: Math.round(saleData.subtotal), tax_amount: Math.round(saleData.taxAmount),
       total_amount: Math.round(saleData.total), status: 'PENDING_ELECTRONIC',
+      business_type: saleData.business_type || null,
       // Guardar toda la info del cliente y pago en el campo jsonb payment_method
       payment_method: {
         method: 'CASH', amount: amountPaid,

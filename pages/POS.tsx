@@ -215,9 +215,10 @@ const POS: React.FC = () => {
   const isFarmacia     = businessTypes.includes('farmacia');
   const isVeterinaria  = businessTypes.includes('veterinaria');
   const isOdontologia  = businessTypes.includes('odontologia');
+  const isOptometria   = businessTypes.includes('optometria');
   const isSalon        = businessTypes.some(t => ['salon', 'salón', 'belleza'].includes(t));
   const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
-  const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia;
+  const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia || isOptometria;
 
   // ── BALANZA / PESABLES ────────────────────────────────────────────────────
   const [scaleWeight,     setScaleWeight]     = useState<number | null>(null);   // kg leído de la balanza
@@ -306,7 +307,7 @@ const POS: React.FC = () => {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
-    if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isSalon) return [];
+    if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isOptometria || isSalon) return [];
     return products.filter(p => {
       if (isZapateria && p.type !== 'SERVICE') return false;
       return ((p.stock_quantity ?? 0) > 0 || p.type === 'SERVICE') &&
@@ -641,6 +642,7 @@ const POS: React.FC = () => {
         discountAmount:  totals.discountAmount,
         amountPaid:   amountPaid,
         shoeRepairId: shoeRepairId || undefined,
+        business_type: businessTypes[0] || 'general',
       });
 
       setLastSale({ ...sale, _cartItems: cart, discountPercent: clampedDiscount, discountAmount: totals.discountAmount } as any);
