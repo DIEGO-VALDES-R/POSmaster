@@ -140,7 +140,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   const loadSales = async (cid: string, bid?: string | null) => {
     const resolvedBid = bid ?? branchId;
     let query = supabase.from('invoices')
-      .select('id, invoice_number, total_amount, subtotal, tax_amount, status, payment_method, created_at, customer_id')
+      .select('id, invoice_number, total_amount, subtotal, tax_amount, status, payment_method, created_at, customer_id, business_type')
       .eq('company_id', cid).order('created_at', { ascending: false }).limit(50);
     if (resolvedBid) query = query.eq('branch_id', resolvedBid);
     const { data, error } = await query;

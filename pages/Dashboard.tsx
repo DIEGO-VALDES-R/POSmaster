@@ -131,13 +131,17 @@ const Dashboard: React.FC = () => {
   const { currentSales, prevSales } = useMemo(() => {
     const start = startOf(period);
     const prevStart = prevPeriodStart(period);
-    const current = sales.filter((s: any) => new Date(s.created_at) >= start);
-    const prev    = sales.filter((s: any) => {
+    // Solo mostrar ventas del tipo de negocio activo (o sin tipo = legacy)
+    const salesByType = sales.filter((s: any) =>
+      !s.business_type || businessTypes.includes(s.business_type)
+    );
+    const current = salesByType.filter((s: any) => new Date(s.created_at) >= start);
+    const prev    = salesByType.filter((s: any) => {
       const d = new Date(s.created_at);
       return d >= prevStart && d < start;
     });
     return { currentSales: current, prevSales: prev };
-  }, [sales, period]);
+  }, [sales, period, businessTypes]);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const totalSales     = currentSales.reduce((s: number, v: any) => s + (v.total_amount || 0), 0);
