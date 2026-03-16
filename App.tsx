@@ -28,6 +28,9 @@ const Odontologia        = lazy(() => import('./pages/Odontologia'));
 const Veterinaria        = lazy(() => import('./pages/Veterinaria'));
 const Supplies           = lazy(() => import('./pages/Supplies'));
 const Farmacia           = lazy(() => import('./pages/Farmacia'));
+const Optometria         = lazy(() => import('./pages/Optometria'));
+const PortalPropietario  = lazy(() => import('./PortalPropietario'));
+const BranchKiosk        = lazy(() => import('./BranchKiosk'));
 const Customers          = lazy(() => import('./pages/Customers'));
 const Quotes             = lazy(() => import('./pages/Quotes'));
 const Nomina             = lazy(() => import('./pages/Nomina'));
@@ -479,6 +482,9 @@ const AppRoutes: React.FC = () => (
       <Route path="/purchases"    element={<PurchaseOrders />} />
       <Route path="/credit-notes"  element={<CreditNotes />} />
       <Route path="/reports"       element={<Reports />} />
+      <Route path="/optometria"    element={<Optometria />} />
+      <Route path="/portal"        element={<PortalPropietario />} />
+      <Route path="/kiosk"         element={<BranchKiosk />} />
     </Routes>
   </Suspense>
 );

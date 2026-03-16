@@ -19,6 +19,7 @@ const BUSINESS_TYPES = [
   { id: 'salon',             label: 'Salón de Belleza',         emoji: '✂️' },
   { id: 'odontologia',       label: 'Odontología',              emoji: '🦷' },
   { id: 'veterinaria',       label: 'Veterinaria',              emoji: '🐾' },
+  { id: 'optometria',        label: 'Optometría',               emoji: '👁️' },
   { id: 'supermercado',      label: 'Supermercado / Abarrotes', emoji: '🛒' },
   { id: 'otro',              label: 'Otro',                     emoji: '🏢' },
 ];

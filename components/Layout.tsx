@@ -18,7 +18,7 @@ interface LayoutProps { children: React.ReactNode; onAdminPanel?: () => void; }
 const BUSINESS_ICONS: Record<string, string> = {
   general: '🏪', tienda_tecnologia: '📱', restaurante: '🍽️',
   ropa: '👗', zapateria: '👟', ferreteria: '🔧', farmacia: '💊',
-  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', otro: '📦',
+  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', otro: '📦',
 };
 const BUSINESS_LABELS: Record<string, string> = {
   general: 'Tienda General', tienda_tecnologia: 'Tecnología / Celulares',
@@ -26,7 +26,7 @@ const BUSINESS_LABELS: Record<string, string> = {
   zapateria: 'Zapatería / Marroquinería', ferreteria: 'Ferretería / Construcción',
   farmacia: 'Farmacia / Droguería', supermercado: 'Supermercado / Abarrotes',
   salon: 'Salón de Belleza / Spa', odontologia: 'Consultorio Odontológico',
-  veterinaria: 'Clínica Veterinaria', otro: 'Negocio',
+  veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', otro: 'Negocio',
 };
 
 // Rutas base de cada módulo (sin prefijo)
@@ -48,6 +48,7 @@ const MODULE_PATHS: Record<string, string> = {
   veterinaria: '/veterinaria',
   farmacia:    '/farmacia',
   shoe:        '/shoe-repair',
+  optometria:  '/optometria',
   receivables: '/receivables',
   supplies:    '/supplies',
   team:        '/team',
@@ -87,6 +88,7 @@ function getNavItems(
     type==='odontologia' ? 'Odontología' :
     type==='veterinaria' ? 'Veterinaria' :
     type==='farmacia'    ? 'Farmacia' :
+    type==='optometria'  ? 'Optometría' :
     type==='zapateria'   ? 'Zapatería' :
     'Servicio Técnico';
 
@@ -126,6 +128,8 @@ function getNavItems(
     if (p('can_sell'))                               moduloItems.push({ label: 'Veterinaria',    path: MODULE_PATHS.veterinaria, icon: PawPrint });
   } else if (type==='farmacia' && hasFeature('pharmacy')) {
     if (p('can_sell'))                               moduloItems.push({ label: 'Farmacia',       path: MODULE_PATHS.farmacia,    icon: Pill });
+  } else if (type==='optometria' && hasFeature('dental')) {
+    if (p('can_sell'))                               moduloItems.push({ label: 'Optometría',     path: MODULE_PATHS.optometria,  icon: Stethoscope });
   } else if (type==='zapateria' && hasFeature('shoe_repair')) {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Zapatería / Rep.', path: MODULE_PATHS.shoe,     icon: Wrench });
   } else if (type === 'general' || type === 'tienda_tecnologia' || type === 'otro') {
