@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import RefreshButton from '../components/RefreshButton';
 import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
+import VetFacturacionClinica from '../components/VetFacturacionClinica';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { useCurrency } from '../contexts/CurrencyContext';
 import toast from 'react-hot-toast';
@@ -1403,162 +1404,18 @@ const Veterinaria: React.FC = () => {
     </div>
   );
 
-  const renderFacturacion = () => {
-    const handleEnviarPOS = () => {
-      if (!formPOS.mascota_id || !formPOS.servicio.trim() || !parseFloat(formPOS.total)) {
-        toast.error('Completa mascota, servicio y total');
-        return;
-      }
-      const mascota = mascotas.find(m => m.id === formPOS.mascota_id);
-      const prop = propietarios.find(p => p.id === mascota?.propietario_id);
-      if (!mascota) return;
-      enviarAlPOS(mascota, prop, formPOS.servicio, parseFloat(formPOS.total));
-    };
-
-    return (
-    <div className="space-y-6">
-      {/* ── Enviar al POS ── */}
-      <div className="bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-100 rounded-2xl p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center">
-            <ShoppingCart size={20} className="text-white" />
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-800">Generar Factura en POS</h3>
-            <p className="text-xs text-slate-500">Envía el servicio directamente al Punto de Venta para facturar</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          {/* Mascota */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Mascota / Paciente <span className="text-red-400">*</span></label>
-            <select value={formPOS.mascota_id} onChange={e => setFormPOS(f => ({...f, mascota_id: e.target.value}))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none bg-white">
-              <option value="">Seleccionar mascota...</option>
-              {mascotas.map(m => {
-                const prop = propietarios.find(p => p.id === m.propietario_id);
-                return <option key={m.id} value={m.id}>{m.nombre} ({m.especie}){prop ? ` — ${prop.nombre}` : ''}</option>;
-              })}
-            </select>
-          </div>
-
-          {/* Servicio */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Servicio / Descripción <span className="text-red-400">*</span></label>
-            <select value={formPOS.servicio} onChange={e => setFormPOS(f => ({...f, servicio: e.target.value}))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none bg-white">
-              <option value="">Seleccionar o escribir...</option>
-              {servicios.filter(s => s.activo).map(s => (
-                <option key={s.id} value={s.nombre}>{s.nombre} — {fmtCurrency(s.precio)}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              placeholder="O escribe el servicio manualmente..."
-              value={formPOS.servicio}
-              onChange={e => setFormPOS(f => ({...f, servicio: e.target.value}))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none mt-1"
-            />
-          </div>
-
-          {/* Total */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Total a cobrar <span className="text-red-400">*</span></label>
-            <input
-              type="number"
-              placeholder="0"
-              value={formPOS.total}
-              onChange={e => {
-                const v = e.target.value;
-                setFormPOS(f => ({...f, total: v}));
-                // Auto-fill from selected service
-              }}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* Preview propietario */}
-        {formPOS.mascota_id && (() => {
-          const m = mascotas.find(x => x.id === formPOS.mascota_id);
-          const p = propietarios.find(x => x.id === m?.propietario_id);
-          return m ? (
-            <div className="bg-white rounded-xl border border-sky-100 p-3 mb-4 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center"><PawPrint size={16} className="text-sky-500" /></div>
-              <div className="flex-1">
-                <p className="font-semibold text-slate-800 text-sm">{m.nombre} <span className="text-slate-400 font-normal">({m.especie} · {m.raza})</span></p>
-                {p && <p className="text-xs text-slate-500">Propietario: {p.nombre} · {p.telefono}</p>}
-              </div>
-              {formPOS.total && <p className="font-bold text-lg text-sky-600">{fmtCurrency(parseFloat(formPOS.total) || 0)}</p>}
-            </div>
-          ) : null;
-        })()}
-
-        <button onClick={handleEnviarPOS}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl text-white font-bold shadow-lg hover:opacity-90 transition-opacity"
-          style={{ background: `linear-gradient(135deg, ${brandColor}, #6366f1)` }}>
-          <ShoppingCart size={18} /> Ir al POS y Facturar
-        </button>
-      </div>
-
-      {/* ── Historial de cobros internos / abonos ── */}
-      <div>
-        <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
-          <Receipt size={16} style={{ color: brandColor }} /> Historial de Cobros Veterinarios
-        </h3>
-        <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                {['Mascota','Propietario','Fecha','Servicio','Atención','Total','Abonado','Saldo','Estado','Acciones'].map(h =>
-                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase">{h}</th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {facturas.sort((a,b) => a.fecha > b.fecha ? -1 : 1).map(f => (
-                <tr key={f.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-semibold">{f.mascota_nombre || '-'}</td>
-                  <td className="px-4 py-3">{f.propietario_nombre || '-'}</td>
-                  <td className="px-4 py-3">{f.fecha}</td>
-                  <td className="px-4 py-3 max-w-[160px] truncate">{f.servicio_descripcion}</td>
-                  <td className="px-4 py-3"><AtencionBadge tipo={(f.tipo_atencion as TipoAtencion) || 'PARTICULAR'} zona={f.zona} /></td>
-                  <td className="px-4 py-3 font-bold">{fmtCurrency(f.total)}</td>
-                  <td className="px-4 py-3 text-emerald-600 font-semibold">{fmtCurrency(f.abonado)}</td>
-                  <td className="px-4 py-3 text-red-500 font-semibold">{fmtCurrency(f.saldo)}</td>
-                  <td className="px-4 py-3">{statusPill(f.estado)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      {f.estado !== 'PAGADA' && (
-                        <button
-                          onClick={() => {
-                            const mascota = mascotas.find(m => m.id === f.mascota_id);
-                            const prop = propietarios.find(p => p.id === mascota?.propietario_id);
-                            const saldo = f.saldo || (f.total - (f.abonado || 0));
-                            if (mascota) enviarAlPOS(mascota, prop, f.servicio_descripcion, saldo);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white"
-                          style={{ background: brandColor }}>
-                          <ShoppingCart size={11} /> Cobrar Saldo
-                        </button>
-                      )}
-                      <button onClick={() => deleteItem('facturas', f.id!)} className="p-1.5 rounded hover:bg-red-50 text-red-400">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {facturas.length === 0 && (
-                <tr><td colSpan={9} className="text-center py-8 text-slate-400">Las facturas generadas desde el POS aparecerán aquí</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );};
+  const renderFacturacion = () => (
+    <VetFacturacionClinica
+      companyId={companyId || ''}
+      mascotas={mascotas}
+      propietarios={propietarios}
+      medicamentos={medicamentos}
+      servicios={servicios}
+      onFacturaCreada={reloadAll}
+      fmtCurrency={fmtCurrency}
+      brandColor={brandColor}
+    />
+  );
 
   // ─── REPORTE DE CONVENIOS ────────────────────────────────────────────────────
 
