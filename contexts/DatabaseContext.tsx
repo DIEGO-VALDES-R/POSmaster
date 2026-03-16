@@ -453,11 +453,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       }
     }
 
-    // Solo insertar items con product_id real (UUID válido, no ids virtuales de zapatería/salón)
+    // Solo insertar items con product_id real (UUID válido)
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const realItems = saleData.items.filter((i: any) =>
-      !String(i.product.id).startsWith('shoe-') &&
-      !String(i.product.id).startsWith('salon-') &&
-      !String(i.product.id).startsWith('vet-')
+      UUID_REGEX.test(String(i.product.id))
     );
     if (realItems.length > 0) {
       const itemsToInsert = realItems.map((i: any) => ({
