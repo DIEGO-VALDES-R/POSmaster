@@ -676,11 +676,29 @@ const Veterinaria: React.FC = () => {
 
   // ── SUPABASE CRUD HELPERS ─────────────────────────────────────────────────
 
-  const upsertDB = async (key: string, row: any) => {
+  // Convierte strings vacíos en campos UUID a null para evitar
+  // "invalid input syntax for type uuid: ''" en PostgreSQL
+  const sanitizeRow = (row: any): any => {
+    const UUID_FIELDS = [
+      'veterinario_id', 'auxiliar_id', 'consultorio_id', 'mascota_id',
+      'propietario_id', 'personal_id', 'empresa_id', 'plan_id'
+    ];
+    const clean = { ...row };
+    UUID_FIELDS.forEach(f => { if (clean[f] === '') clean[f] = null; });
+    return clean;
+  };
+
+  // Retorna true si el upsert fue exitoso, false si hubo error
+  const upsertDB = async (key: string, row: any): Promise<boolean> => {
     const table = TABLE[key];
-    if (!table) return;
-    const { error } = await supabase.from(table).upsert({ ...row, company_id: companyId });
-    if (error) { console.error(`❌ upsert ${table}:`, error.message); toast.error('Error al guardar: ' + error.message); }
+    if (!table) return false;
+    const { error } = await supabase.from(table).upsert(sanitizeRow({ ...row, company_id: companyId }));
+    if (error) {
+      console.error('upsert error:', table, error.message);
+      toast.error('Error al guardar: ' + error.message);
+      return false;
+    }
+    return true;
   };
 
   const deleteDB = async (key: string, id: string) => {
@@ -695,7 +713,7 @@ const Veterinaria: React.FC = () => {
   const savePropietario = async () => {
     if (!formPropietario.nombre.trim()) return toast.error('El nombre es requerido');
     const row = { ...formPropietario, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('propietarios', row);
+    if (!(await upsertDB('propietarios', row))) return;
     await loadTable('vet_propietarios', setPropietarios);
     toast.success(editing?.id ? 'Propietario actualizado' : 'Propietario registrado');
     closeModal();
@@ -705,7 +723,7 @@ const Veterinaria: React.FC = () => {
     if (!formMascota.nombre.trim() || !formMascota.propietario_id) return toast.error('Nombre y propietario son requeridos');
     const prop = propietarios.find(p => p.id === formMascota.propietario_id);
     const row = { ...formMascota, id: editing?.id || uid(), company_id: companyId, propietario_nombre: prop?.nombre };
-    await upsertDB('mascotas', row);
+    if (!(await upsertDB('mascotas', row))) return;
     await loadTable('vet_mascotas', setMascotas);
     toast.success(editing?.id ? 'Mascota actualizada' : 'Mascota registrada');
     closeModal();
@@ -714,7 +732,7 @@ const Veterinaria: React.FC = () => {
   const savePersonal = async () => {
     if (!formPersonal.nombre.trim()) return toast.error('El nombre es requerido');
     const row = { ...formPersonal, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('personal', row);
+    if (!(await upsertDB('personal', row))) return;
     await loadTable('vet_personal', setPersonal);
     toast.success('Personal guardado'); closeModal();
   };
@@ -722,7 +740,7 @@ const Veterinaria: React.FC = () => {
   const saveConsultorio = async () => {
     if (!formConsultorio.nombre.trim()) return toast.error('El nombre es requerido');
     const row = { ...formConsultorio, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('consultorios', row);
+    if (!(await upsertDB('consultorios', row))) return;
     await loadTable('vet_consultorios', setConsultorios);
     toast.success('Consultorio guardado'); closeModal();
   };
@@ -733,7 +751,7 @@ const Veterinaria: React.FC = () => {
     const prop = propietarios.find(p => p.id === formCita.propietario_id);
     const vet  = personal.find(p => p.id === formCita.veterinario_id);
     const row = { ...formCita, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre, veterinario_nombre: vet?.nombre, company_id: companyId };
-    await upsertDB('citas', row);
+    if (!(await upsertDB('citas', row))) return;
     await loadTable('vet_citas', setCitas);
     toast.success('Cita guardada'); closeModal();
   };
@@ -742,7 +760,7 @@ const Veterinaria: React.FC = () => {
     if (!formHistoria.mascota_id || !formHistoria.diagnostico.trim()) return toast.error('Mascota y diagnóstico requeridos');
     const mascota = mascotas.find(m => m.id === formHistoria.mascota_id);
     const row = { ...formHistoria, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
-    await upsertDB('historias', row);
+    if (!(await upsertDB('historias', row))) return;
     if (formHistoria.medicamentos && !editing?.id) await descontarStock(formHistoria.medicamentos);
     if (formHistoria.peso > 0 && !editing?.id) {
       const pesoRow = { id: uid(), company_id: companyId, mascota_id: formHistoria.mascota_id, fecha: formHistoria.fecha, peso: formHistoria.peso, observaciones: 'Registrado desde historia clínica' };
@@ -757,7 +775,7 @@ const Veterinaria: React.FC = () => {
     if (!formLab.mascota_id) return toast.error('Mascota requerida');
     const mascota = mascotas.find(m => m.id === formLab.mascota_id);
     const row = { ...formLab, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
-    await upsertDB('laboratorio', row);
+    if (!(await upsertDB('laboratorio', row))) return;
     await loadTable('vet_resultados_lab', setResultadosLab);
     toast.success('Resultado guardado'); closeModal();
   };
@@ -765,7 +783,7 @@ const Veterinaria: React.FC = () => {
   const saveMonitoreo = async (hospId: string) => {
     if (!formMonitoreo.temperatura) return toast.error('Temperatura requerida');
     const row = { ...formMonitoreo, id: uid(), company_id: companyId, hospitalizacion_id: hospId };
-    await upsertDB('monitoreos', row);
+    if (!(await upsertDB('monitoreos', row))) return;
     await loadTable('vet_monitoreos_hosp', setMonitoreos);
     toast.success('Monitoreo guardado'); setFormMonitoreo(emptyMonitoreo()); setModal(null);
   };
@@ -775,7 +793,7 @@ const Veterinaria: React.FC = () => {
     const mascota = mascotas.find(m => m.id === formConsentimiento.mascota_id);
     const prop = propietarios.find(p => p.id === formConsentimiento.propietario_id);
     const row = { ...formConsentimiento, id: editing?.id || uid(), company_id: companyId, mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre };
-    await upsertDB('consentimientos', row);
+    if (!(await upsertDB('consentimientos', row))) return;
     await loadTable('vet_consentimientos', setConsentimientos);
     toast.success('Consentimiento guardado'); closeModal();
   };
@@ -784,7 +802,7 @@ const Veterinaria: React.FC = () => {
     if (!formVacuna.mascota_id || !formVacuna.nombre_vacuna.trim()) return toast.error('Mascota y vacuna requeridos');
     const mascota = mascotas.find(m => m.id === formVacuna.mascota_id);
     const row = { ...formVacuna, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
-    await upsertDB('vacunas', row);
+    if (!(await upsertDB('vacunas', row))) return;
     await loadTable('vet_vacunas', setVacunas);
     toast.success('Vacuna registrada'); closeModal();
   };
@@ -792,7 +810,7 @@ const Veterinaria: React.FC = () => {
   const savePeso = async () => {
     if (!formPeso.mascota_id || formPeso.peso <= 0) return toast.error('Mascota y peso requeridos');
     const row = { ...formPeso, id: uid(), company_id: companyId };
-    await upsertDB('pesos', row);
+    if (!(await upsertDB('pesos', row))) return;
     await loadTable('vet_control_peso', setPesos);
     toast.success('Peso registrado'); closeModal();
   };
@@ -801,7 +819,7 @@ const Veterinaria: React.FC = () => {
     if (!formHospitalizacion.mascota_id || !formHospitalizacion.motivo.trim()) return toast.error('Mascota y motivo requeridos');
     const mascota = mascotas.find(m => m.id === formHospitalizacion.mascota_id);
     const row = { ...formHospitalizacion, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
-    await upsertDB('hospitalizaciones', row);
+    if (!(await upsertDB('hospitalizaciones', row))) return;
     await loadTable('vet_hospitalizaciones', setHospitalizaciones);
     toast.success('Hospitalización guardada'); closeModal();
   };
@@ -809,7 +827,7 @@ const Veterinaria: React.FC = () => {
   const saveMedicamento = async () => {
     if (!formMedicamento.nombre.trim()) return toast.error('Nombre requerido');
     const row = { ...formMedicamento, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('medicamentos', row);
+    if (!(await upsertDB('medicamentos', row))) return;
     await loadTable('vet_medicamentos', setMedicamentos);
     toast.success('Medicamento guardado'); closeModal();
   };
@@ -817,7 +835,7 @@ const Veterinaria: React.FC = () => {
   const saveServicio = async () => {
     if (!formServicio.nombre.trim()) return toast.error('Nombre requerido');
     const row = { ...formServicio, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('servicios', row);
+    if (!(await upsertDB('servicios', row))) return;
     await loadTable('vet_servicios', setServicios);
     toast.success('Servicio guardado'); closeModal();
   };
@@ -825,7 +843,7 @@ const Veterinaria: React.FC = () => {
   const savePlan = async () => {
     if (!formPlan.nombre.trim()) return toast.error('Nombre requerido');
     const row = { ...formPlan, id: editing?.id || uid(), company_id: companyId };
-    await upsertDB('planes', row);
+    if (!(await upsertDB('planes', row))) return;
     await loadTable('vet_planes', setPlanes);
     toast.success('Plan guardado'); closeModal();
   };
@@ -837,7 +855,7 @@ const Veterinaria: React.FC = () => {
     const saldo = formFactura.total - formFactura.abonado;
     const estado: FacturaStatus = formFactura.abonado >= formFactura.total ? 'PAGADA' : formFactura.abonado > 0 ? 'ABONO' : 'PENDIENTE';
     const row = { ...formFactura, id: uid(), company_id: companyId, saldo, estado, mascota_nombre: mascota?.nombre, propietario_nombre: prop?.nombre };
-    await upsertDB('facturas', row);
+    if (!(await upsertDB('facturas', row))) return;
     await loadTable('vet_facturas', setFacturas);
     toast.success('Factura generada'); closeModal();
   };
@@ -850,7 +868,7 @@ const Veterinaria: React.FC = () => {
     const nuevoSaldo = f.total - nuevoAbonado;
     const nuevoEstado: FacturaStatus = nuevoSaldo <= 0 ? 'PAGADA' : 'ABONO';
     const row = { ...f, abonado: nuevoAbonado, saldo: Math.max(0, nuevoSaldo), estado: nuevoEstado };
-    await upsertDB('facturas', row);
+    if (!(await upsertDB('facturas', row))) return;
     await loadTable('vet_facturas', setFacturas);
     toast.success('Abono registrado'); setModal(null); setFormAbono(0);
   };

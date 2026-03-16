@@ -512,12 +512,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
       }
     }
 
-    for (const i of saleData.items.filter((i: any) => i.product.type !== 'SERVICE')) {
-      const currentStock = i.product.stock_quantity ?? 0;
-      const newStock = Math.max(0, currentStock - i.quantity);
-      await supabase.from('products').update({ stock_quantity: newStock }).eq('id', i.product.id);
-    }
-
+    // ── Stock: el trigger trg_update_stock en invoice_items lo descuenta
+    // atómicamente en la BD. Aquí solo actualizamos el estado local (UI)
+    // para que el cajero vea el cambio sin esperar el loadProducts().
     setProducts(prev => prev.map(p => {
       const soldItem = saleData.items.find((i: any) => i.product.id === p.id && i.product.type !== 'SERVICE');
       if (!soldItem) return p;
