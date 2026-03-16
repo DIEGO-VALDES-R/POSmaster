@@ -29,7 +29,7 @@ const Veterinaria        = lazy(() => import('./pages/Veterinaria'));
 const Supplies           = lazy(() => import('./pages/Supplies'));
 const Farmacia           = lazy(() => import('./pages/Farmacia'));
 const Optometria         = lazy(() => import('./pages/Optometria'));
-const PortalPropietario  = lazy(() => import('./PortalPropietario'));
+const PortalPropietario  = lazy(() => import('./pages/PortalPropietario'));
 const BranchKiosk        = lazy(() => import('./BranchKiosk'));
 const Customers          = lazy(() => import('./pages/Customers'));
 const Quotes             = lazy(() => import('./pages/Quotes'));
