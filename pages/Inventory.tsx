@@ -524,7 +524,7 @@ const LowStockModal: React.FC<{
 // ─────────────────────────────────────────────
 // TAB PROVEEDORES
 // ─────────────────────────────────────────────
-const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
+const SuppliersTab: React.FC<{ companyId: string; businessContext: string }> = ({ companyId, businessContext }) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -536,12 +536,16 @@ const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+    let query = supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+    if (businessContext !== 'general') {
+      query = query.or(`business_context.eq.${businessContext},business_context.is.null,business_context.eq.general`);
+    }
+    const { data } = await query;
     setSuppliers(data || []);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [companyId]);
+  useEffect(() => { load(); }, [companyId, businessContext]);
 
   const openCreate = () => { setEditing(null); setForm({ ...EMPTY_SUPPLIER }); setShowModal(true); };
   const openEdit = (s: Supplier) => { setEditing(s); setForm({ ...s }); setShowModal(true); };
@@ -555,7 +559,7 @@ const SuppliersTab: React.FC<{ companyId: string }> = ({ companyId }) => {
         if (error) throw error;
         toast.success('Proveedor actualizado');
       } else {
-        const { error } = await supabase.from('suppliers').insert({ ...form, company_id: companyId });
+        const { error } = await supabase.from('suppliers').insert({ ...form, company_id: companyId, business_context: businessContext });
         if (error) throw error;
         toast.success('Proveedor creado');
       }
@@ -1639,7 +1643,7 @@ const Inventory: React.FC = () => {
       )}
 
       {/* TAB PROVEEDORES */}
-      {activeTab === 'suppliers' && companyId && <SuppliersTab companyId={companyId} />}
+      {activeTab === 'suppliers' && companyId && <SuppliersTab companyId={companyId} businessContext={currentBusinessContext} />}
 
       {/* MODAL STOCK BAJO */}
       {variantProduct && (

@@ -36,7 +36,7 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
 
   // ── ODONTOLOGÍA ──────────────────────────────────────────────────────────
   odontologia_insumos: {
-    label: 'Insumos Dentales', table: 'odonto_insumos', color: '#0ea5e9',
+    label: 'Insumos Dentales', table: 'products', color: '#0ea5e9',
     templateHeaders: ['Nombre *','SKU *','Categoría','Marca','Precio Venta *','Costo *','Stock','Stock Mínimo','IVA (%)','Proveedor'],
     templateColWidths: [28,14,18,16,14,12,10,12,8,22],
     templateFn: () => [
@@ -45,19 +45,19 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
       ['Ácido Grabador 37% 3ml','INS-ACID','Adhesivos','Kerr','25000','12000','30','5','19','Insumedical'],
     ],
     columns: [
-      { key: 'nombre', aliases: ['nombre','name'], required: true },
+      { key: 'name', aliases: ['nombre','name'], required: true },
       { key: 'sku', aliases: ['sku','código','codigo'], required: true },
-      { key: 'categoria', aliases: ['categoría','categoria','category'] },
-      { key: 'marca', aliases: ['marca','brand'] },
-      { key: 'precio', aliases: ['precio venta','precio','price'], required: true, type: 'number' },
-      { key: 'costo', aliases: ['costo','cost'], type: 'number' },
-      { key: 'stock', aliases: ['stock','stock inicial'], type: 'int' },
-      { key: 'stock_minimo', aliases: ['stock mínimo','stock minimo'], type: 'int' },
-      { key: 'iva', aliases: ['iva (%)','iva'], type: 'number' },
-      { key: 'proveedor', aliases: ['proveedor','supplier'] },
+      { key: 'category', aliases: ['categoría','categoria','category'] },
+      { key: 'brand', aliases: ['marca','brand'] },
+      { key: 'price', aliases: ['precio venta','precio','price'], required: true, type: 'number' },
+      { key: 'cost', aliases: ['costo','cost'], type: 'number' },
+      { key: 'stock_quantity', aliases: ['stock','stock inicial'], type: 'int' },
+      { key: 'stock_min', aliases: ['stock mínimo','stock minimo'], type: 'int' },
+      { key: 'tax_rate', aliases: ['iva (%)','iva'], type: 'number' },
+      { key: 'supplier_name', aliases: ['proveedor','supplier'] },
     ],
-    validate: (r) => !r.nombre ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : !r.precio ? 'Precio requerido' : null,
-    transform: (r, cid) => ({ company_id: cid, nombre: r.nombre, sku: r.sku, categoria: r.categoria||null, marca: r.marca||null, precio: r.precio||0, costo: r.costo||0, stock: r.stock||0, stock_minimo: r.stock_minimo||0, iva: r.iva??19, proveedor: r.proveedor||null }),
+    validate: (r) => !r.name ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : !r.price ? 'Precio requerido' : null,
+    transform: (r, cid) => ({ company_id: cid, name: r.name, sku: r.sku, category: r.category||null, brand: r.brand||null, price: r.price||0, cost: r.cost||0, stock_quantity: r.stock_quantity||0, stock_min: r.stock_min||0, tax_rate: r.tax_rate??19, type: 'STANDARD', is_active: true, business_context: 'odontologia' }),
   },
 
   odontologia_servicios: {
@@ -110,27 +110,26 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
   // ── VETERINARIA ──────────────────────────────────────────────────────────
   veterinaria_medicamentos: {
     label: 'Medicamentos Veterinarios', table: 'vet_medicamentos', color: '#10b981',
-    templateHeaders: ['Nombre *','SKU *','Tipo','Presentación','Precio Venta *','Costo *','Stock','Stock Mínimo','Laboratorio'],
-    templateColWidths: [30,14,18,18,14,12,10,12,20],
+    templateHeaders: ['Nombre *','Tipo *','Presentación','Precio Venta *','Stock','Stock Mínimo','Laboratorio'],
+    templateColWidths: [32,18,20,14,10,12,22],
     templateFn: () => [
-      ['Amoxicilina 250mg x100','VET-AMOX-250','Antibiótico','Tabletas x100','22000','10000','50','10','Labfarve'],
-      ['Ivermectina 1% 50ml','VET-IVER-50','Antiparasitario','Frasco x50ml','35000','16000','15','3','MSD'],
-      ['Vacuna Canina Múltiple','VET-VAC-CAN','Vacuna','Frasco + diluyente','35000','16000','25','5','MSD'],
-      ['Meloxicam 1mg x30','VET-MELOX','Analgésico','Tabletas x30','32000','15000','20','4','Boehringer'],
+      ['Amoxicilina 250mg x100','Antibiótico','Tabletas x100','22000','50','10','Labfarve'],
+      ['Ivermectina 1% 50ml','Antiparasitario','Frasco x50ml','35000','15','3','MSD'],
+      ['Vacuna Canina Múltiple','Vacuna','Frasco + diluyente','35000','25','5','MSD'],
+      ['Meloxicam 1mg x30','Analgésico','Tabletas x30','32000','20','4','Boehringer'],
+      ['Frontline Pipeta Grande','Antipulgas','Pipeta x1','55000','15','3','Boehringer'],
     ],
     columns: [
       { key: 'nombre', aliases: ['nombre','name'], required: true },
-      { key: 'sku', aliases: ['sku'], required: true },
-      { key: 'tipo', aliases: ['tipo'] },
+      { key: 'tipo', aliases: ['tipo *','tipo','type'], required: true },
       { key: 'presentacion', aliases: ['presentación','presentacion'] },
       { key: 'precio', aliases: ['precio venta *','precio venta','precio'], required: true, type: 'number' },
-      { key: 'costo', aliases: ['costo *','costo'], type: 'number' },
       { key: 'stock', aliases: ['stock'], type: 'int' },
       { key: 'stock_minimo', aliases: ['stock mínimo','stock minimo'], type: 'int' },
       { key: 'laboratorio', aliases: ['laboratorio'] },
     ],
-    validate: (r) => !r.nombre ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
-    transform: (r, cid) => ({ company_id: cid, nombre: r.nombre, sku: r.sku, tipo: r.tipo||'Otro', presentacion: r.presentacion||null, precio: r.precio||0, costo: r.costo||0, stock: r.stock||0, stock_minimo: r.stock_minimo||5, laboratorio: r.laboratorio||null }),
+    validate: (r) => !r.nombre ? 'Nombre requerido' : !r.tipo ? 'Tipo requerido' : !r.precio ? 'Precio requerido' : null,
+    transform: (r, cid) => ({ company_id: cid, nombre: r.nombre, tipo: r.tipo||'Otro', presentacion: r.presentacion||null, precio: r.precio||0, costo: 0, stock: r.stock||0, stock_minimo: r.stock_minimo||5, laboratorio: r.laboratorio||null }),
   },
 
   veterinaria_servicios: {
@@ -156,26 +155,26 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
   },
 
   veterinaria_insumos: {
-    label: 'Insumos Veterinarios', table: 'vet_medicamentos', color: '#10b981',
+    label: 'Insumos Veterinarios', table: 'products', color: '#10b981',
     templateHeaders: ['Nombre *','SKU *','Categoría','Precio Venta *','Costo *','Stock','Stock Mínimo','Proveedor'],
     templateColWidths: [30,14,18,14,12,10,12,22],
     templateFn: () => [
-      ['Jeringa 3ml x100','INS-JER-3','Desechables','18000','8000','20','4','Insuvet'],
-      ['Guantes Latex M x100','INS-GUA-M','Protección','25000','11000','20','4','Insuvet'],
-      ['Sutura Nylon 3-0','INS-SUT-NY','Cirugía','30000','14000','10','2','Insuvet'],
+      ['Jeringa 3ml x100','INS-VET-JER-3','Desechables','18000','8000','20','4','Insuvet'],
+      ['Guantes Latex M x100','INS-VET-GUA-M','Protección','25000','11000','20','4','Insuvet'],
+      ['Sutura Nylon 3-0','INS-VET-SUT-NY','Cirugía','30000','14000','10','2','Insuvet'],
     ],
     columns: [
-      { key: 'nombre', aliases: ['nombre'], required: true },
+      { key: 'name', aliases: ['nombre'], required: true },
       { key: 'sku', aliases: ['sku'], required: true },
-      { key: 'tipo', aliases: ['categoría','categoria','tipo'] },
-      { key: 'precio', aliases: ['precio venta *','precio venta','precio'], required: true, type: 'number' },
-      { key: 'costo', aliases: ['costo *','costo'], type: 'number' },
-      { key: 'stock', aliases: ['stock'], type: 'int' },
-      { key: 'stock_minimo', aliases: ['stock mínimo','stock minimo'], type: 'int' },
-      { key: 'laboratorio', aliases: ['proveedor','laboratorio'] },
+      { key: 'category', aliases: ['categoría','categoria','tipo'] },
+      { key: 'price', aliases: ['precio venta *','precio venta','precio'], required: true, type: 'number' },
+      { key: 'cost', aliases: ['costo *','costo'], type: 'number' },
+      { key: 'stock_quantity', aliases: ['stock'], type: 'int' },
+      { key: 'stock_min', aliases: ['stock mínimo','stock minimo'], type: 'int' },
+      { key: 'supplier_name', aliases: ['proveedor','laboratorio'] },
     ],
-    validate: (r) => !r.nombre ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
-    transform: (r, cid) => ({ company_id: cid, nombre: r.nombre, sku: r.sku, tipo: r.tipo||'Insumo', presentacion: null, precio: r.precio||0, costo: r.costo||0, stock: r.stock||0, stock_minimo: r.stock_minimo||3, laboratorio: r.laboratorio||null }),
+    validate: (r) => !r.name ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
+    transform: (r, cid) => ({ company_id: cid, name: r.name, sku: r.sku, category: r.category||null, price: r.price||0, cost: r.cost||0, stock_quantity: r.stock_quantity||0, stock_min: r.stock_min||3, tax_rate: 19, type: 'STANDARD', is_active: true, business_context: 'veterinaria' }),
   },
 
   // ── OPTOMETRÍA ───────────────────────────────────────────────────────────
