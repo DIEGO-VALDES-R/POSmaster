@@ -665,10 +665,16 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
         }).select().single();
       if (companyError) throw companyError;
 
+      // onConflict:'id' garantiza que si el trigger ya creó el perfil, se actualiza con company_id
       await supabase.from('profiles').upsert({
         id: authData.user.id, company_id: company.id,
         role: 'ADMIN', full_name: form.businessName,
         email: form.email, is_active: true
+      }, { onConflict: 'id' });
+
+      // Actualizar metadata del JWT con company_id y role
+      await supabase.auth.updateUser({
+        data: { company_id: company.id, role: 'ADMIN', full_name: form.businessName }
       });
 
       const { data: branch } = await supabase.from('branches')
@@ -1135,10 +1141,11 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
       }).select().single();
       if (companyError) throw companyError;
       if (authData.user) {
+        // onConflict:'id' garantiza que si el trigger ya creó el perfil, se actualiza con company_id
         await supabase.from('profiles').upsert({
           id: authData.user.id, company_id: company.id,
           role: 'ADMIN', full_name: newCompany.name, email: newCompany.adminEmail, is_active: true
-        });
+        }, { onConflict: 'id' });
         const { data: branch } = await supabase.from('branches')
           .insert({ company_id: company.id, name: 'Sede Principal', is_active: true }).select().single();
         if (branch) await supabase.from('profiles').update({ branch_id: branch.id }).eq('id', authData.user.id);

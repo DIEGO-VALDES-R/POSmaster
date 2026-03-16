@@ -257,7 +257,34 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
         setBranchId(bid);
         await loadAllData(profile.company_id, bid);
       } else {
-        setIsLoading(false);
+        // ── SANACIÓN: perfil existe pero sin company_id (registro anterior al fix) ──
+        console.warn('⚠️ Perfil sin company_id, intentando sanar por email:', user.email);
+        try {
+          const { data: company } = await supabase
+            .from('companies')
+            .select('id')
+            .eq('email', user.email)
+            .maybeSingle();
+
+          if (company) {
+            await supabase.from('profiles').update({
+              company_id: company.id,
+              role: profile.role || 'ADMIN',
+              is_active: true
+            }).eq('id', user.id);
+            console.info('✅ Perfil sanado con company_id:', company.id);
+            setCompanyId(company.id);
+            const bid = await resolvebranchId(company.id);
+            setBranchId(bid);
+            await loadAllData(company.id, bid);
+          } else {
+            console.warn('⚠️ No se encontró empresa para el email:', user.email);
+            setIsLoading(false);
+          }
+        } catch (healErr) {
+          console.error('Error al intentar sanar perfil:', healErr);
+          setIsLoading(false);
+        }
       }
     };
     init();
