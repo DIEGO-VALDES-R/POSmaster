@@ -2,6 +2,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BarChart2, ShoppingCart, Package, Wrench,
+  Tag,
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
@@ -54,6 +55,7 @@ const MODULE_PATHS: Record<string, string> = {
   team:        '/team',
   nomina:      '/nomina',
   reports:     '/reports',
+  apartados:   '/apartados',
 };
 
 // Tipo para items del menú con soporte de grupos
@@ -101,6 +103,7 @@ function getNavItems(
                                 ventasItems.push({ label: 'Cotizaciones',       path: MODULE_PATHS.quotes,      icon: FileText });
   if (p('can_refund') && hasFeature('credit_notes'))
                                 ventasItems.push({ label: 'Devoluciones / NC',  path: MODULE_PATHS.creditNotes, icon: RotateCcw });
+  if (p('can_sell'))            ventasItems.push({ label: 'Apartados',          path: MODULE_PATHS.apartados,   icon: Tag });
 
   // ── Grupo Inventario ─────────────────────────────────────────
   const inventarioItems: NavItem[] = [];
