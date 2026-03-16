@@ -8,6 +8,7 @@ import {
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { useNavigate } from 'react-router-dom';
+import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
 import toast from 'react-hot-toast';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ const BeautySalon: React.FC = () => {
   const brandColor = (company?.config as any)?.primary_color || '#8b5cf6';
 
   const [activeTab, setActiveTab] = useState<TabId>('panel');
+  const [importModal, setImportModal] = useState<ModuleType | null>(null);
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [services, setServices] = useState<SalonService[]>([]);
   const [stylists, setStylists] = useState<Stylist[]>([]);
@@ -323,13 +325,21 @@ const BeautySalon: React.FC = () => {
       </div>
 
       {/* ── TABS ── */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 self-start">
-        {TABS.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
-            {tab.icon} {tab.label}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 self-start">
+          {TABS.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+              {tab.icon} {tab.label}
+            </button>
+          ))}
+        </div>
+        {activeTab === 'servicios' && (
+          <button onClick={() => setImportModal('salon_servicios')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-pink-600 text-white text-xs font-bold rounded-lg hover:bg-pink-700">
+            📥 Importar Servicios
           </button>
-        ))}
+        )}
       </div>
 
       {/* ══════════════ TAB: PANEL OPERATIVO ══════════════ */}
@@ -771,6 +781,16 @@ const BeautySalon: React.FC = () => {
             </button>
           </div>
         </Modal>
+      )}
+
+      {importModal && companyId && (
+        <ImportModuleModal
+          isOpen={!!importModal}
+          onClose={() => setImportModal(null)}
+          moduleType={importModal}
+          companyId={companyId}
+          onSuccess={() => { setImportModal(null); loadServices(); }}
+        />
       )}
 
     </div>

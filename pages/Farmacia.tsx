@@ -9,6 +9,7 @@ import {
 import { supabase } from '../supabaseClient';
 import * as XLSX from 'xlsx';
 import { useDatabase } from '../contexts/DatabaseContext';
+import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
 import toast from 'react-hot-toast';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ const EMPTY_CONTROLLED: Omit<PharmaControlledSale, 'id' | 'company_id' | 'create
 const Farmacia: React.FC = () => {
   const { companyId } = useDatabase();
   const [tab, setTab] = useState<TabId>('medications');
+  const [importModal, setImportModal] = useState<ModuleType | null>(null);
 
   // Data
   const [medications, setMedications] = useState<PharmaMedication[]>([]);
@@ -450,9 +452,17 @@ const Farmacia: React.FC = () => {
               </p>
             </div>
           </div>
-          <button onClick={load} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '8px 16px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <RefreshCw size={14} /> Actualizar
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {tab === 'medications' && (
+              <button onClick={() => setImportModal('farmacia_medicamentos')}
+                style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 8, padding: '8px 14px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700 }}>
+                📥 Importar Medicamentos
+              </button>
+            )}
+            <button onClick={load} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '8px 16px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <RefreshCw size={14} /> Actualizar
+            </button>
+          </div>
         </div>
 
         {/* Stat Cards */}
@@ -1190,6 +1200,15 @@ const Farmacia: React.FC = () => {
           </div>
           <ModalFooter onCancel={() => setControlledModal({ open: false, data: {} })} onSave={saveControlled} saveLabel="Registrar" saveColor="#dc2626" />
         </Modal>
+      )}
+      {importModal && companyId && (
+        <ImportModuleModal
+          isOpen={!!importModal}
+          onClose={() => setImportModal(null)}
+          moduleType={importModal}
+          companyId={companyId}
+          onSuccess={() => { setImportModal(null); load(); }}
+        />
       )}
     </div>
   );

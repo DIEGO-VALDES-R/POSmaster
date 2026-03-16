@@ -13,6 +13,7 @@ import { useDatabase } from '../contexts/DatabaseContext';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useNavigate } from 'react-router-dom';
 import RefreshButton from '../components/RefreshButton';
+import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
 import toast from 'react-hot-toast';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -280,6 +281,7 @@ const Optometria: React.FC = () => {
   const navigate   = useNavigate();
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [importModal, setImportModal] = useState<ModuleType | null>(null);
   const [loading,   setLoading]   = useState(false);
   const [searchQ,   setSearchQ]   = useState('');
   const [modal,     setModal]     = useState<string|null>(null);
@@ -1167,6 +1169,18 @@ const Optometria: React.FC = () => {
         <div className="flex items-center gap-2">
           {stats.stockBajo>0&&<div onClick={()=>setActiveTab('monturas')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-50 border border-red-100 text-red-600 text-xs font-semibold cursor-pointer"><AlertTriangle size={14}/> {stats.stockBajo} stock bajo</div>}
           {stats.ordenesListas>0&&<div onClick={()=>setActiveTab('ordenes')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-50 border border-green-100 text-green-600 text-xs font-semibold cursor-pointer"><Glasses size={14}/> {stats.ordenesListas} lista{stats.ordenesListas>1?'s':''}</div>}
+          {activeTab === 'monturas' && (
+            <button onClick={() => setImportModal('optometria_monturas')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700">
+              📥 Importar Monturas
+            </button>
+          )}
+          {activeTab === 'servicios' && (
+            <button onClick={() => setImportModal('optometria_servicios')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700">
+              📥 Importar Servicios
+            </button>
+          )}
           <RefreshButton onRefresh={reloadAll}/>
         </div>
       </div>
@@ -1193,6 +1207,15 @@ const Optometria: React.FC = () => {
 
       {renderModals()}
       {detailItem && renderDetail()}
+      {importModal && companyId && (
+        <ImportModuleModal
+          isOpen={!!importModal}
+          onClose={() => setImportModal(null)}
+          moduleType={importModal}
+          companyId={companyId}
+          onSuccess={() => { setImportModal(null); reloadAll(); }}
+        />
+      )}
     </div>
   );
 };

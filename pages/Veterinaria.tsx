@@ -13,6 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import RefreshButton from '../components/RefreshButton';
+import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { useCurrency } from '../contexts/CurrencyContext';
 import toast from 'react-hot-toast';
@@ -450,6 +451,7 @@ const Veterinaria: React.FC = () => {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [importModal, setImportModal] = useState<ModuleType | null>(null);
   const [loading, setLoading] = useState(false);
 
   // ── DATA STATE ──
@@ -2245,7 +2247,21 @@ const Veterinaria: React.FC = () => {
             <p className="text-sm text-slate-400">Gestión integral de clínica veterinaria</p>
           </div>
         </div>
-        <RefreshButton onRefresh={reloadAll} />
+        <div className="flex items-center gap-2">
+          {activeTab === 'farmacia' && (
+            <button onClick={() => setImportModal('veterinaria_medicamentos')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">
+              📥 Importar Medicamentos
+            </button>
+          )}
+          {activeTab === 'servicios' && (
+            <button onClick={() => setImportModal('veterinaria_servicios')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">
+              📥 Importar Servicios
+            </button>
+          )}
+          <RefreshButton onRefresh={reloadAll} />
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -2272,6 +2288,17 @@ const Veterinaria: React.FC = () => {
 
       {/* Detail Views */}
       {detailItem && renderDetail()}
+
+      {/* Import Modal */}
+      {importModal && companyId && (
+        <ImportModuleModal
+          isOpen={!!importModal}
+          onClose={() => setImportModal(null)}
+          moduleType={importModal}
+          companyId={companyId}
+          onSuccess={() => { setImportModal(null); reloadAll(); }}
+        />
+      )}
     </div>
   );
 };

@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import { useCompany } from '../hooks/useCompany';
 import { useCurrency } from '../contexts/CurrencyContext';
 import RefreshButton from '../components/RefreshButton';
+import ImportModuleModal, { ModuleType } from '../components/ImportModuleModal';
 import toast from 'react-hot-toast';
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ const Odontologia: React.FC = () => {
   const { companyId } = useCompany();
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [importModal, setImportModal] = useState<ModuleType | null>(null);
 
   // Estado global compartido
   const [personal,     setPersonal]     = useState<Personal[]>([]);
@@ -279,11 +281,35 @@ const Odontologia: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <RefreshButton onRefresh={loadAll} />
+          {/* Botones importar según tab activo */}
+          {activeTab === 'servicios' && (
+            <button onClick={() => setImportModal('odontologia_servicios')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-xs font-bold rounded-lg hover:bg-teal-700">
+              📥 Importar Servicios
+            </button>
+          )}
+          {activeTab === 'personal' && (
+            <button onClick={() => setImportModal('odontologia_personal')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-xs font-bold rounded-lg hover:bg-teal-700">
+              📥 Importar Personal
+            </button>
+          )}
           <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             {pacientes.length} pacientes · {citas.filter(c => c.estado === 'PROGRAMADA').length} citas hoy
           </div>
         </div>
       </div>
+
+      {/* Modal importar */}
+      {importModal && companyId && (
+        <ImportModuleModal
+          isOpen={!!importModal}
+          onClose={() => setImportModal(null)}
+          moduleType={importModal}
+          companyId={companyId}
+          onSuccess={() => { setImportModal(null); loadAll(); }}
+        />
+      )}
 
       {/* Tabs de navegación */}
       <div className="flex gap-1 overflow-x-auto pb-1 bg-white border border-slate-200 rounded-xl p-1.5">
