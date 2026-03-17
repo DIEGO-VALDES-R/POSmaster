@@ -218,6 +218,7 @@ const POS: React.FC = () => {
   const isOptometria   = businessTypes.includes('optometria');
   const isSalon        = businessTypes.some(t => ['salon', 'salón', 'belleza'].includes(t));
   const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
+  const isLavadero     = businessTypes.includes('lavadero');
   const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia || isOptometria;
 
   // ── BALANZA / PESABLES ────────────────────────────────────────────────────
@@ -263,7 +264,17 @@ const POS: React.FC = () => {
   }, [company?.id, isFarmacia]);
 
   const loadSpecialtyServices = useCallback(async () => {
-    if (!company?.id || (!isVeterinaria && !isOdontologia && !isSalon)) return;
+    if (!company?.id || (!isVeterinaria && !isOdontologia && !isSalon && !isLavadero)) return;
+    if (isLavadero) {
+      const { data } = await supabase
+        .from('lavadero_servicios')
+        .select('*')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+        .order('tipo_vehiculo').order('precio');
+      if (data) setSpecialtyServices(data);
+      return;
+    }
     const table = isVeterinaria ? 'vet_servicios' : isOdontologia ? 'odonto_servicios' : 'salon_servicios';
     const { data } = await supabase
       .from(table)
@@ -272,7 +283,7 @@ const POS: React.FC = () => {
       .eq('activo', true)
       .order('nombre');
     if (data) setSpecialtyServices(data);
-  }, [company?.id, isVeterinaria, isOdontologia, isSalon]);
+  }, [company?.id, isVeterinaria, isOdontologia, isSalon, isLavadero]);
 
   useEffect(() => { loadRestaurantMenu(); }, [loadRestaurantMenu]);
   useEffect(() => { loadPharmaMeds(); }, [loadPharmaMeds]);
@@ -307,7 +318,7 @@ const POS: React.FC = () => {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
-    if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isOptometria || isSalon) return [];
+    if (isRestaurante || isFarmacia || isVeterinaria || isOdontologia || isOptometria || isSalon || isLavadero) return [];
     return products.filter(p => {
       if (isZapateria && p.type !== 'SERVICE') return false;
       return ((p.stock_quantity ?? 0) > 0 || p.type === 'SERVICE') &&
@@ -763,6 +774,7 @@ const POS: React.FC = () => {
                 isFarmacia       ? 'Buscar medicamento, SKU o código de barras...' :
                 isVeterinaria    ? 'Buscar servicio veterinario...' :
                 isOdontologia    ? 'Buscar servicio odontológico...' :
+                isLavadero       ? 'Buscar servicio de lavadero...' :
                 isSalon          ? 'Buscar servicio del salón...' :
                 isZapateria      ? 'Buscar servicio de zapatería...' :
                 isSupermercado   ? 'Código PLU (ej: F1) o escanear etiqueta de balanza...' :
@@ -874,26 +886,29 @@ const POS: React.FC = () => {
             </>
           )}
 
-          {/* ── CATÁLOGO VETERINARIA / ODONTOLOGÍA / SALÓN ── */}
-          {isServiceBusiness && !isFarmacia && (
+          {/* ── CATÁLOGO VETERINARIA / ODONTOLOGÍA / SALÓN / LAVADERO ── */}
+          {(isServiceBusiness || isLavadero) && !isFarmacia && (
             <>
               {filteredSpecialtyServices.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
-                  <span className="text-5xl mb-2 opacity-30">{isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}</span>
+                  <span className="text-5xl mb-2 opacity-30">{isVeterinaria ? '🐾' : isOdontologia ? '🦷' : isLavadero ? '🚿' : '✂️'}</span>
                   <p className="font-medium">No hay servicios registrados</p>
-                  <p className="text-sm">Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : 'Salón de Belleza'}</p>
+                  <p className="text-sm">Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : isLavadero ? 'Lavadero' : 'Salón de Belleza'}</p>
                 </div>
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {filteredSpecialtyServices.map(svc => (
                   <button key={svc.id} onClick={() => addSpecialtyServiceToCart(svc)}
-                    className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-purple-400 hover:shadow-md transition-all bg-white group">
-                    <div className="w-full aspect-square bg-purple-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">
-                      {isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}
+                    className={`flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:shadow-md transition-all bg-white group ${isLavadero ? 'hover:border-blue-400' : 'hover:border-purple-400'}`}>
+                    <div className={`w-full aspect-square rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform ${isLavadero ? 'bg-blue-50' : 'bg-purple-50'}`}>
+                      {isLavadero
+                        ? (svc.tipo_vehiculo === 'moto' ? '🏍️' : svc.tipo_vehiculo === 'camioneta' ? '🛻' : svc.tipo_vehiculo === 'bus' ? '🚌' : '🚗')
+                        : isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}
                     </div>
                     <h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{svc.nombre}</h4>
+                    {isLavadero && svc.tipo_vehiculo && <p className="text-[10px] text-slate-400 mb-1 capitalize">{svc.tipo_vehiculo}</p>}
                     {svc.descripcion && <p className="text-xs text-slate-400 line-clamp-2 mb-2">{svc.descripcion}</p>}
-                    <div className="mt-auto w-full"><span className="font-bold text-purple-600">{formatMoney(svc.precio)}</span></div>
+                    <div className="mt-auto w-full"><span className={`font-bold ${isLavadero ? 'text-blue-600' : 'text-purple-600'}`}>{formatMoney(svc.precio)}</span></div>
                   </button>
                 ))}
               </div>

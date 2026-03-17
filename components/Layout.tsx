@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
-  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw,
+  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, Droplets,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -19,7 +19,7 @@ interface LayoutProps { children: React.ReactNode; onAdminPanel?: () => void; }
 const BUSINESS_ICONS: Record<string, string> = {
   general: '🏪', tienda_tecnologia: '📱', restaurante: '🍽️',
   ropa: '👗', zapateria: '👟', ferreteria: '🔧', farmacia: '💊',
-  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', otro: '📦',
+  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', lavadero: '🚿', otro: '📦',
 };
 const BUSINESS_LABELS: Record<string, string> = {
   general: 'Tienda General', tienda_tecnologia: 'Tecnología / Celulares',
@@ -27,7 +27,7 @@ const BUSINESS_LABELS: Record<string, string> = {
   zapateria: 'Zapatería / Marroquinería', ferreteria: 'Ferretería / Construcción',
   farmacia: 'Farmacia / Droguería', supermercado: 'Supermercado / Abarrotes',
   salon: 'Salón de Belleza / Spa', odontologia: 'Consultorio Odontológico',
-  veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', otro: 'Negocio',
+  veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', lavadero: 'Lavadero de Vehículos', otro: 'Negocio',
 };
 
 // Rutas base de cada módulo (sin prefijo)
@@ -56,6 +56,7 @@ const MODULE_PATHS: Record<string, string> = {
   nomina:      '/nomina',
   reports:     '/reports',
   apartados:   '/apartados',
+  lavadero:    '/lavadero',
 };
 
 // Tipo para items del menú con soporte de grupos
@@ -137,6 +138,8 @@ function getNavItems(
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Zapatería / Rep.', path: MODULE_PATHS.shoe,     icon: Wrench });
   } else if (type === 'general' || type === 'tienda_tecnologia' || type === 'otro') {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Servicio Técnico', path: MODULE_PATHS.repairs,  icon: Wrench });
+  } else if (type === 'lavadero') {
+    if (p('can_sell'))                               moduloItems.push({ label: 'Lavadero',         path: MODULE_PATHS.lavadero, icon: Droplets });
   }
 
   // ── Grupo Administración ─────────────────────────────────────

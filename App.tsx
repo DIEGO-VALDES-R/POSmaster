@@ -32,6 +32,9 @@ const Optometria         = lazy(() => import('./pages/Optometria'));
 const PortalPropietario  = lazy(() => import('./pages/PortalPropietario'));
 const BranchKiosk        = lazy(() => import('./BranchKiosk'));
 const Apartados          = lazy(() => import('./pages/Apartados'));
+const Lavadero           = lazy(() => import('./pages/Lavadero'));
+const LavaderoEmpleados  = lazy(() => import('./LavaderoEmpleados'));
+const LavaderoSalaEspera = lazy(() => import('./LavaderoSalaEspera'));
 const Customers          = lazy(() => import('./pages/Customers'));
 const Quotes             = lazy(() => import('./pages/Quotes'));
 const Nomina             = lazy(() => import('./pages/Nomina'));
@@ -487,6 +490,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/portal"        element={<PortalPropietario />} />
       <Route path="/kiosk"         element={<BranchKiosk />} />
       <Route path="/apartados"     element={<Apartados />} />
+      <Route path="/lavadero"      element={<Lavadero />} />
     </Routes>
   </Suspense>
 );
@@ -624,8 +628,10 @@ const App: React.FC = () => {
       <PWAInstallPrompt />
       <Router>
         <Routes>
-          {/* Ruta pública — sin autenticación ni DatabaseProvider */}
-          <Route path="/catalogo/:companyId" element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
+          {/* Rutas públicas — sin autenticación ni DatabaseProvider */}
+          <Route path="/catalogo/:companyId"     element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
+          <Route path="/lavadero-display/:companyId" element={<Suspense fallback={<PageLoader />}><LavaderoEmpleados /></Suspense>} />
+          <Route path="/lavadero-espera/:companyId"  element={<Suspense fallback={<PageLoader />}><LavaderoSalaEspera /></Suspense>} />
           <Route path="/*" element={
             <DatabaseProvider>
               <Routes>

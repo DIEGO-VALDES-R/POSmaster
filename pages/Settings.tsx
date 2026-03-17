@@ -29,6 +29,7 @@ const BUSINESS_TYPES = [
   { id: 'odontologia',       label: '🦷 Consultorio Odontológico' },
   { id: 'veterinaria',       label: '🐾 Clínica Veterinaria' },
   { id: 'optometria',        label: '👁️ Consultorio Optométrico' },
+  { id: 'lavadero',          label: '🚿 Lavadero de Vehículos' },
   { id: 'otro',              label: '📦 Otro' },
 ];
 
