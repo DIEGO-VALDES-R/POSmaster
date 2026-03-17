@@ -103,22 +103,43 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
 
   const loadProducts = async (cid: string, bid?: string | null) => {
     const resolvedBid = bid ?? branchId;
+
+    // Leer el tipo de negocio activo desde localStorage (lo escribe Layout al cambiar sección)
+    const activeBt = localStorage.getItem('posmaster_active_business_type') || null;
+
+    // Negocios que NO usan inventario físico de products — no cargar nada para ellos
+    const SIN_INVENTARIO = ['lavadero', 'restaurante', 'restaurant', 'cocina', 'cafeteria'];
+    if (activeBt && SIN_INVENTARIO.includes(activeBt)) {
+      setProducts([]);
+      return;
+    }
+
     let data: any[] = [];
     let error: any = null;
 
+    // Construir query base con filtro de business_type
+    const buildQuery = (query: any) => {
+      // Si hay tipo activo Y ese tipo tiene productos clasificados → filtrar
+      // null = productos sin clasificar (legacy) → mostrarlos siempre como fallback
+      if (activeBt) {
+        return query.or(`business_type.eq.${activeBt},business_type.is.null`);
+      }
+      return query;
+    };
+
     if (resolvedBid) {
-      // Traer productos de esta sucursal + productos sin sucursal asignada
       const [r1, r2] = await Promise.all([
-        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).eq('branch_id', resolvedBid).order('name'),
-        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).is('branch_id', null).order('name'),
+        buildQuery(supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).eq('branch_id', resolvedBid)).order('name'),
+        buildQuery(supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).is('branch_id', null)).order('name'),
       ]);
       error = r1.error || r2.error;
-      // Combinar y deduplicar por id
       const combined = [...(r1.data || []), ...(r2.data || [])];
       const seen = new Set<string>();
       data = combined.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
     } else {
-      const r = await supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).order('name');
+      const r = await buildQuery(
+        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true)
+      ).order('name');
       error = r.error;
       data = r.data || [];
     }
@@ -309,6 +330,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
   const refreshCompany = useCallback(async () => {
     if (companyId) await loadCompany(companyId);
   }, [companyId]);
+
+  // Recargar productos cuando Layout cambia el tipo de negocio activo
+  useEffect(() => {
+    const handleBusinessTypeChange = () => {
+      if (companyId) loadProducts(companyId, branchId);
+    };
+    window.addEventListener('posmaster_business_type_changed', handleBusinessTypeChange);
+    return () => window.removeEventListener('posmaster_business_type_changed', handleBusinessTypeChange);
+  }, [companyId, branchId]);
 
   const refreshAll = useCallback(async () => {
     if (!companyId) return;

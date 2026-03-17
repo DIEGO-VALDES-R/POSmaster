@@ -5,10 +5,12 @@ import {
 } from 'recharts';
 import {
   DollarSign, TrendingUp, Package, AlertCircle,
-  ShoppingCart, Wrench, ArrowUpRight, ArrowDownRight, Calendar
+  ShoppingCart, Wrench, ArrowUpRight, ArrowDownRight, Calendar,
+  Droplets, Car, Clock, CheckCircle
 } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { useDatabase } from '../contexts/DatabaseContext';
+import { supabase } from '../supabaseClient';
 import RefreshButton from '../components/RefreshButton';
 
 // ── TIPOS DE PERÍODO ──────────────────────────────────────────────────────────
@@ -112,15 +114,80 @@ const Dashboard: React.FC = () => {
   const [period, setPeriod] = useState<Period>('week');
   const [chartReady, setChartReady] = useState(false);
 
-  // Tipo de negocio
+  // ── Tipo de negocio ACTIVO (lee el que está seleccionado en el sidebar) ──────
+  // Layout guarda en localStorage el tipo activo cuando el usuario cambia de sección
+  const [activeBusinessType, setActiveBusinessType] = useState<string>(() => {
+    return localStorage.getItem('posmaster_active_business_type') || 'general';
+  });
+
+  // Escuchar cambios de sección mientras el Dashboard está montado
+  useEffect(() => {
+    const check = () => {
+      const bt = localStorage.getItem('posmaster_active_business_type') || 'general';
+      setActiveBusinessType(bt);
+    };
+    // Chequear al montar y cada vez que el storage cambia
+    check();
+    window.addEventListener('storage', check);
+    // También chequear periódicamente por si cambia en la misma pestaña
+    const t = setInterval(check, 500);
+    return () => { window.removeEventListener('storage', check); clearInterval(t); };
+  }, []);
+
   const cfg = (company?.config as any) || {};
   const businessTypes: string[] = Array.isArray(cfg.business_types)
     ? cfg.business_types
     : cfg.business_type ? [cfg.business_type] : ['general'];
-  const isZapateria  = businessTypes.includes('zapateria');
-  const isSalon      = businessTypes.includes('salon');
-  const isRestaurant = businessTypes.includes('restaurante');
-  const showRepairs  = !isZapateria && !isSalon && !isRestaurant;
+
+  // Usar el tipo ACTIVO del sidebar, no todos los tipos del negocio
+  const activeType = activeBusinessType;
+  const isZapateria  = activeType === 'zapateria';
+  const isSalon      = activeType === 'salon';
+  const isRestaurant = activeType === 'restaurante';
+  const isLavadero   = activeType === 'lavadero';
+  const isVeterinaria = activeType === 'veterinaria';
+  const isOdontologia = activeType === 'odontologia';
+  const isFarmacia   = activeType === 'farmacia';
+  const showRepairs  = !isZapateria && !isSalon && !isRestaurant && !isLavadero && !isVeterinaria && !isOdontologia;
+  // Negocios que tienen inventario físico relevante
+  const TIPOS_CON_INVENTARIO = ['general','tienda_tecnologia','ropa','zapateria','ferreteria','supermercado','otro'];
+  const showInventory = TIPOS_CON_INVENTARIO.includes(activeType);
+  const showTop5      = TIPOS_CON_INVENTARIO.includes(activeType);
+
+  // ── Stats de lavadero ─────────────────────────────────────────────────────
+  const [lavaderoStats, setLavaderoStats] = useState({
+    esperando: 0, enProceso: 0, listos: 0,
+    totalHoy: 0, totalMes: 0, ordenesHoy: 0,
+  });
+
+  useEffect(() => {
+    if (!isLavadero || !company?.id) return;
+    const load = async () => {
+      const hoy = new Date().toISOString().split('T')[0];
+      const mesInicio = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+      const [{ data: activas }, { data: hoyOrd }, { data: mesOrd }] = await Promise.all([
+        supabase.from('lavadero_ordenes').select('estado')
+          .eq('company_id', company.id).in('estado', ['ESPERANDO','EN_PROCESO','LISTO']),
+        supabase.from('lavadero_ordenes').select('servicio_precio')
+          .eq('company_id', company.id).eq('estado', 'ENTREGADO')
+          .gte('created_at', hoy),
+        supabase.from('lavadero_ordenes').select('servicio_precio')
+          .eq('company_id', company.id).eq('estado', 'ENTREGADO')
+          .gte('created_at', mesInicio),
+      ]);
+      setLavaderoStats({
+        esperando: activas?.filter(o => o.estado === 'ESPERANDO').length || 0,
+        enProceso: activas?.filter(o => o.estado === 'EN_PROCESO').length || 0,
+        listos:    activas?.filter(o => o.estado === 'LISTO').length || 0,
+        totalHoy:  hoyOrd?.reduce((s, o) => s + (o.servicio_precio || 0), 0) || 0,
+        totalMes:  mesOrd?.reduce((s, o) => s + (o.servicio_precio || 0), 0) || 0,
+        ordenesHoy: hoyOrd?.length || 0,
+      });
+    };
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [isLavadero, company?.id]);
 
   useEffect(() => {
     const t = setTimeout(() => setChartReady(true), 80);
@@ -254,7 +321,14 @@ const Dashboard: React.FC = () => {
       {/* ── HEADER ── */}
       <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            {isLavadero ? '🚿' : isVeterinaria ? '🐾' : isOdontologia ? '🦷' : isSalon ? '💇' : isFarmacia ? '💊' : isRestaurant ? '🍽️' : '📊'}
+            {' '}Dashboard
+            {isLavadero && <span className="text-sm font-normal text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Lavadero</span>}
+            {isVeterinaria && <span className="text-sm font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Veterinaria</span>}
+            {isOdontologia && <span className="text-sm font-normal text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-full">Odontología</span>}
+            {isSalon && <span className="text-sm font-normal text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full">Salón</span>}
+          </h2>
           <p className="text-slate-500 text-sm">{company?.name || 'POSmaster'}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -275,56 +349,92 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── KPI CARDS ── */}
+      {/* ── KPI CARDS — cambian según el tipo de negocio activo ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Ventas del período"
-          value={formatMoney(totalSales)}
-          subtext={`${currentSales.length} facturas`}
-          icon={DollarSign} color="blue"
-          trend={salesTrend}
-        />
-        <StatCard
-          title="Utilidad estimada"
-          value={formatMoney(utilidadEstimada)}
-          subtext={`Margen ~${(avgMarginRate * 100).toFixed(0)}% sobre ventas`}
-          icon={TrendingUp} color="green"
-        />
-        {!isZapateria && (
-          <StatCard
-            title="Inventario (precio venta)"
-            value={formatMoney(inventoryValuePrecio)}
-            subtext={`${totalUnidades} uds · ${products.length} refs${weighableProducts.length > 0 ? ` · ${weighableProducts.length} pesables` : ''}`}
-            icon={Package} color="purple"
-          />
-        )}
-        {showRepairs && (
-          <StatCard
-            title="Reparaciones activas"
-            value={activeRepairs.toString()}
-            subtext={`${readyRepairs} listas para entregar`}
-            icon={Wrench} color="orange"
-          />
-        )}
-        {isZapateria && (
-          <StatCard
-            title="Órdenes activas"
-            value={activeRepairs.toString()}
-            subtext={`${readyRepairs} pendientes de entrega`}
-            icon={ShoppingCart} color="orange"
-          />
-        )}
-        {isSalon && (
-          <StatCard
-            title="Servicios del período"
-            value={currentSales.length.toString()}
-            subtext="Atenciones realizadas"
-            icon={ShoppingCart} color="purple"
-          />
+
+        {/* ── LAVADERO ── */}
+        {isLavadero ? (
+          <>
+            <StatCard
+              title="Ingresos hoy"
+              value={formatMoney(lavaderoStats.totalHoy)}
+              subtext={`${lavaderoStats.ordenesHoy} vehículos entregados hoy`}
+              icon={DollarSign} color="blue"
+            />
+            <StatCard
+              title="Ingresos del mes"
+              value={formatMoney(lavaderoStats.totalMes)}
+              subtext="Total cobrado este mes"
+              icon={TrendingUp} color="green"
+            />
+            <StatCard
+              title="En proceso ahora"
+              value={lavaderoStats.enProceso.toString()}
+              subtext={`${lavaderoStats.esperando} esperando · ${lavaderoStats.listos} listos`}
+              icon={Droplets} color="purple"
+            />
+            <StatCard
+              title="Ventas del período"
+              value={formatMoney(totalSales)}
+              subtext={`${currentSales.length} servicios facturados`}
+              icon={Car} color="orange"
+              trend={salesTrend}
+            />
+          </>
+        ) : (
+          <>
+            {/* ── RESTO DE NEGOCIOS ── */}
+            <StatCard
+              title="Ventas del período"
+              value={formatMoney(totalSales)}
+              subtext={`${currentSales.length} facturas`}
+              icon={DollarSign} color="blue"
+              trend={salesTrend}
+            />
+            <StatCard
+              title="Utilidad estimada"
+              value={formatMoney(utilidadEstimada)}
+              subtext={`Margen ~${(avgMarginRate * 100).toFixed(0)}% sobre ventas`}
+              icon={TrendingUp} color="green"
+            />
+            {showTop5 && (
+              <StatCard
+                title="Inventario (precio venta)"
+                value={formatMoney(inventoryValuePrecio)}
+                subtext={`${totalUnidades} uds · ${products.length} refs${weighableProducts.length > 0 ? ` · ${weighableProducts.length} pesables` : ''}`}
+                icon={Package} color="purple"
+              />
+            )}
+            {showRepairs && (
+              <StatCard
+                title="Reparaciones activas"
+                value={activeRepairs.toString()}
+                subtext={`${readyRepairs} listas para entregar`}
+                icon={Wrench} color="orange"
+              />
+            )}
+            {isZapateria && (
+              <StatCard
+                title="Órdenes activas"
+                value={activeRepairs.toString()}
+                subtext={`${readyRepairs} pendientes de entrega`}
+                icon={ShoppingCart} color="orange"
+              />
+            )}
+            {(isSalon || isVeterinaria || isOdontologia) && (
+              <StatCard
+                title="Servicios del período"
+                value={currentSales.length.toString()}
+                subtext="Atenciones realizadas"
+                icon={ShoppingCart} color="purple"
+              />
+            )}
+          </>
         )}
       </div>
 
-      {/* ── FILA INVENTARIO ── */}
+      {/* ── FILA INVENTARIO — solo negocios con stock físico ── */}
+      {showInventory && (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex justify-between items-center">
           <div>
@@ -349,6 +459,27 @@ const Dashboard: React.FC = () => {
           <span className="text-3xl">💰</span>
         </div>
       </div>
+      )}
+
+      {/* ── Panel especial lavadero — órdenes activas en tiempo real ── */}
+      {isLavadero && (
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: 'En espera', value: lavaderoStats.esperando, color: '#f59e0b', bg: '#fffbeb', icon: '⏳' },
+            { label: 'Lavando',   value: lavaderoStats.enProceso, color: '#3b82f6', bg: '#eff6ff', icon: '🧼' },
+            { label: 'Listos',    value: lavaderoStats.listos,    color: '#10b981', bg: '#f0fdf4', icon: '✅' },
+          ].map(s => (
+            <div key={s.label} className="rounded-xl p-5 border-2 flex items-center gap-4"
+              style={{ background: s.bg, borderColor: s.color + '60' }}>
+              <span className="text-4xl">{s.icon}</span>
+              <div>
+                <p className="text-3xl font-extrabold" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-sm font-semibold" style={{ color: s.color }}>{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── GRÁFICAS FILA 1 ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -389,7 +520,8 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Top productos */}
+        {/* Top productos — solo para negocios con inventario físico */}
+        {showTop5 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-800 mb-5">Top 5 por margen</h3>
           <div className="space-y-3">
@@ -424,10 +556,11 @@ const Dashboard: React.FC = () => {
             })}
           </div>
         </div>
+        )}
       </div>
 
       {/* ── GRÁFICAS FILA 2 ── */}
-      {showRepairs && repairs.length > 0 && (
+      {showRepairs && !isLavadero && repairs.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           {/* Tendencia de ventas - LineChart */}

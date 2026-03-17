@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
-  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, Droplets,
+  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -19,7 +19,7 @@ interface LayoutProps { children: React.ReactNode; onAdminPanel?: () => void; }
 const BUSINESS_ICONS: Record<string, string> = {
   general: '🏪', tienda_tecnologia: '📱', restaurante: '🍽️',
   ropa: '👗', zapateria: '👟', ferreteria: '🔧', farmacia: '💊',
-  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', lavadero: '🚿', otro: '📦',
+  supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', otro: '📦',
 };
 const BUSINESS_LABELS: Record<string, string> = {
   general: 'Tienda General', tienda_tecnologia: 'Tecnología / Celulares',
@@ -27,7 +27,7 @@ const BUSINESS_LABELS: Record<string, string> = {
   zapateria: 'Zapatería / Marroquinería', ferreteria: 'Ferretería / Construcción',
   farmacia: 'Farmacia / Droguería', supermercado: 'Supermercado / Abarrotes',
   salon: 'Salón de Belleza / Spa', odontologia: 'Consultorio Odontológico',
-  veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', lavadero: 'Lavadero de Vehículos', otro: 'Negocio',
+  veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', otro: 'Negocio',
 };
 
 // Rutas base de cada módulo (sin prefijo)
@@ -56,7 +56,6 @@ const MODULE_PATHS: Record<string, string> = {
   nomina:      '/nomina',
   reports:     '/reports',
   apartados:   '/apartados',
-  lavadero:    '/lavadero',
 };
 
 // Tipo para items del menú con soporte de grupos
@@ -138,8 +137,6 @@ function getNavItems(
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Zapatería / Rep.', path: MODULE_PATHS.shoe,     icon: Wrench });
   } else if (type === 'general' || type === 'tienda_tecnologia' || type === 'otro') {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Servicio Técnico', path: MODULE_PATHS.repairs,  icon: Wrench });
-  } else if (type === 'lavadero') {
-    if (p('can_sell'))                               moduloItems.push({ label: 'Lavadero',         path: MODULE_PATHS.lavadero, icon: Droplets });
   }
 
   // ── Grupo Administración ─────────────────────────────────────
@@ -363,6 +360,13 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     : '';
   const [activeSectionId, setActiveSectionIdState] = useState(defaultSectionId);
 
+  // Sincronizar tipo de negocio activo con localStorage al inicializar
+  useEffect(() => {
+    const bt = defaultSectionId.split('__')[1] || mainBusinessTypes[0] || 'general';
+    localStorage.setItem('posmaster_active_business_type', bt);
+    window.dispatchEvent(new Event('posmaster_business_type_changed'));
+  }, [defaultSectionId]);
+
   // Cuando el companyId cambia (switchCompany), actualizar el sectionId activo
   const prevCompanyId = useRef<string | null>(null);
   useEffect(() => {
@@ -418,6 +422,11 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   // Activar una sección: si es otra empresa → switchCompany, luego setActiveSectionId
   const handleActivate = useCallback(async (cid: string, sid: string) => {
     setActiveSectionIdState(sid);
+    // Extraer el businessType del sectionId (formato: "companyId__businessType")
+    const activeBt = sid.split('__')[1] || 'general';
+    localStorage.setItem('posmaster_active_business_type', activeBt);
+    // Notificar a DatabaseContext para que recargue los productos del nuevo tipo
+    window.dispatchEvent(new Event('posmaster_business_type_changed'));
     if (cid !== companyId) {
       setSwitching(true);
       await switchCompany(cid);
