@@ -43,11 +43,30 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     ACCEPTED:           { label: 'DIAN: Aceptada',  cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle size={11} /> },
     REJECTED:           { label: 'DIAN: Rechazada', cls: 'bg-red-100 text-red-700 border-red-200',             icon: <XCircle size={11} /> },
     PENDING_ELECTRONIC: { label: 'Pend. Envio',     cls: 'bg-amber-100 text-amber-700 border-amber-200',       icon: <Clock size={11} /> },
+    COMPLETED:          { label: 'Completado',       cls: 'bg-blue-100 text-blue-700 border-blue-200',          icon: <CheckCircle size={11} /> },
+    PAID:               { label: 'Pagado',           cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle size={11} /> },
   };
   const s = map[status] || { label: status, cls: 'bg-slate-100 text-slate-600 border-slate-200', icon: <FileText size={11} /> };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${s.cls}`}>
       {s.icon}{s.label}
+    </span>
+  );
+};
+
+// ── Badge para tipo de documento de apartado ───────────────────────────────
+const ApartadoBadge: React.FC<{ saleType?: string }> = ({ saleType }) => {
+  if (!saleType) return null;
+  const map: Record<string, { label: string; cls: string }> = {
+    APARTADO_INICIAL: { label: 'Abono inicial', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    CUOTA:            { label: 'Cuota',          cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+    ENTREGA_FINAL:    { label: 'Entrega final',  cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+  };
+  const cfg = map[saleType];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${cfg.cls}`}>
+      📦 {cfg.label}
     </span>
   );
 };
@@ -64,6 +83,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
   const companyName = company?.name ?? 'IPHONESHOP USA';
   const showIva = (invoice.tax_amount ?? 0) > 0;
   const dianEnabled = company?.dian_settings?.is_active || false;
+  const isApartado = (invoice as any).business_type === 'apartado';
 
   const handlePrint = () => setTimeout(() => window.print(), 200);
 
@@ -87,7 +107,10 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
         <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 print:hidden flex-shrink-0">
           <div className="flex flex-col gap-1">
             <h3 className="font-bold text-slate-800 text-sm">Detalle de Factura</h3>
-            <StatusBadge status={invoice.status} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <StatusBadge status={invoice.status} />
+              {isApartado && <ApartadoBadge saleType={(invoice as any).sale_type} />}
+            </div>
           </div>
           <div className="flex gap-2">
             <button onClick={handleWhatsApp} className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600" title="WhatsApp"><MessageCircle size={16} /></button>
@@ -110,7 +133,14 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
             <p className="text-xs">Tel: {company?.phone ?? ''}</p>
             <p className="text-xs text-slate-500">{company?.email ?? ''}</p>
             <div className="my-4 border-t border-b border-slate-300 py-2">
-              <p className="font-bold text-xs">FACTURA ELECTRONICA DE VENTA</p>
+              {isApartado ? (
+                <>
+                  <p className="font-bold text-xs">COMPROBANTE DE APARTADO</p>
+                  <ApartadoBadge saleType={(invoice as any).sale_type} />
+                </>
+              ) : (
+                <p className="font-bold text-xs">FACTURA ELECTRONICA DE VENTA</p>
+              )}
               <p className="font-bold text-lg">{invoice.invoice_number}</p>
             </div>
           </div>
@@ -120,6 +150,13 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
             <div className="flex justify-between"><span className="text-slate-500">Cliente:</span><span className="font-bold uppercase">{invoice._customer_name || 'Consumidor Final'}</span></div>
             <div className="flex justify-between"><span className="text-slate-500">C.C./NIT:</span><span>{invoice._customer_document || '222222222222'}</span></div>
             {invoice._customer_phone && <div className="flex justify-between"><span className="text-slate-500">Telefono:</span><span>{invoice._customer_phone}</span></div>}
+            {/* Referencia apartado si aplica */}
+            {isApartado && (invoice as any).reference_id && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Ref. apartado:</span>
+                <span className="font-mono text-xs">#{(invoice as any).reference_id.slice(-8).toUpperCase()}</span>
+              </div>
+            )}
           </div>
 
           <table className="w-full mb-6 text-xs border-collapse">
@@ -134,10 +171,27 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
               {(() => {
                 const realItems = invoice.invoice_items || [];
                 const virtualItems = (invoice.payment_method as any)?.virtual_items || [];
+                // Para apartados, construir item desde las notas de la factura
                 const allItems = [
                   ...realItems.map((item: any) => ({ name: item.products?.name || 'Producto', qty: item.quantity, price: item.price, serial: item.serial_number })),
                   ...virtualItems.map((v: any) => ({ name: v.name || 'Servicio', qty: v.quantity, price: v.price, serial: null })),
                 ];
+                // Si es apartado y no hay items, mostrar descripción desde notas
+                if (allItems.length === 0 && isApartado) {
+                  const notes = (invoice as any).notes || '';
+                  const productMatch = notes.match(/^[^|—]+/);
+                  const productName = productMatch ? productMatch[0].trim() : 'Apartado';
+                  return (
+                    <tr className="border-b border-slate-100">
+                      <td className="py-2 align-top">1</td>
+                      <td className="py-2 align-top">
+                        <div>{productName}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{notes}</div>
+                      </td>
+                      <td className="py-2 text-right align-top">{formatMoney(invoice.total_amount)}</td>
+                    </tr>
+                  );
+                }
                 if (allItems.length === 0) {
                   return <tr><td colSpan={3} className="text-center text-slate-400 py-4">Sin items registrados</td></tr>;
                 }
@@ -171,30 +225,25 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
               <div className="text-[10px] text-slate-400 break-all bg-slate-50 p-2 rounded"><span className="font-bold">CUFE:</span> {invoice.dian_cufe}</div>
               <div className="flex justify-center my-4"><QrCode size={80} className="text-slate-900" /></div>
             </div>
-          ) : (
+          ) : !isApartado ? (
             <div className="text-center bg-amber-50 p-4 rounded-lg border border-amber-100">
               <AlertTriangle size={24} className="text-amber-500 mx-auto mb-2" />
               <p className="text-xs font-bold text-amber-700">Factura en Proceso de Envio</p>
               <p className="text-[10px] text-amber-600">El CUFE se generara una vez la DIAN valide el documento.</p>
             </div>
-          )}
+          ) : null}
 
           {/* ── BOTÓN DIAN dentro del modal ── */}
-          {dianEnabled && invoice.status === 'PENDING_ELECTRONIC' && (
+          {dianEnabled && !isApartado && invoice.status === 'PENDING_ELECTRONIC' && (
             <div className="mt-4 print:hidden">
               <BotonFacturaDian
                 invoiceId={invoice.id}
                 invoiceNumber={invoice.invoice_number}
                 currentStatus={invoice.status}
                 cufe={invoice.dian_cufe}
-                tipo={invoice.customers?.document_number ? 'FEV' : 'POS'}
-                onSuccess={(cufe, pdfUrl) => {
-                  // Actualizar estado local sin recargar
-                  setInvoices(prev => prev.map(inv =>
-                    inv.id === invoice.id
-                      ? { ...inv, status: 'ACCEPTED', dian_cufe: cufe }
-                      : inv
-                  ));
+                tipo={(invoice as any).customers?.document_number ? 'FEV' : 'POS'}
+                onSuccess={(cufe: string, pdfUrl: string) => {
+                  onDianSuccess(invoice.id);
                 }}
               />
             </div>
@@ -252,6 +301,9 @@ const InvoiceHistory: React.FC = () => {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
+  // ── Filtro de tipo de documento ───────────────────────────────────────────
+  const [filterType, setFilterType] = useState<'TODOS' | 'VENTA' | 'APARTADO'>('TODOS');
+
   // ── PIN DELETE STATE ──────────────────────────────────────────────────────
   const [pendingDelete, setPendingDelete] = useState<Invoice | null>(null);
   const [pinInput, setPinInput] = useState('');
@@ -284,9 +336,20 @@ const InvoiceHistory: React.FC = () => {
         .order('created_at', { ascending: false })
         .range(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE - 1);
 
-      // Filtrar por tipo de negocio activo si la empresa tiene uno específico
+      // ── FIX: siempre incluir 'apartado' en el filtro de business_type ──
+      // Las facturas de apartados tienen business_type='apartado' y deben
+      // aparecer siempre en el historial, sin importar el tipo de negocio.
       if (businessTypes.length > 0) {
-        query = query.or(`business_type.in.(${businessTypes.join(',')}),business_type.is.null`);
+        // Agregar 'apartado' a los tipos permitidos para que siempre se muestren
+        const allAllowedTypes = [...new Set([...businessTypes, 'apartado'])].join(',');
+        query = query.or(`business_type.in.(${allAllowedTypes}),business_type.is.null`);
+      }
+
+      // ── Filtro por tipo de documento (venta normal vs apartado) ──
+      if (filterType === 'VENTA') {
+        query = query.neq('business_type', 'apartado');
+      } else if (filterType === 'APARTADO') {
+        query = query.eq('business_type', 'apartado');
       }
 
       if (searchInvoice.trim()) query = query.ilike('invoice_number', `%${searchInvoice.trim()}%`);
@@ -314,13 +377,16 @@ const InvoiceHistory: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [companyId, searchInvoice, searchDate, page, searchDoc]);
+  }, [companyId, searchInvoice, searchDate, page, searchDoc, filterType, businessTypes]);
 
   useEffect(() => { loadInvoices(true); }, [companyId]);
 
   const handleSearch = () => loadInvoices(true);
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSearch(); };
   useEffect(() => { if (page > 0) loadInvoices(false); }, [page]);
+
+  // Re-cargar cuando cambia el filtro de tipo
+  useEffect(() => { loadInvoices(true); }, [filterType]);
 
   // Cuando DIAN confirma éxito, actualizar status en lista sin recargar todo
   const handleDianSuccess = (invoiceId: string) => {
@@ -333,13 +399,9 @@ const InvoiceHistory: React.FC = () => {
   const handleDeleteInvoice = async (inv: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // Solo el MASTER (propietario) puede eliminar sin restricciones de permiso.
-    // ADMIN y todos los demás necesitan tener can_delete_invoices = true.
     const isMaster = userRole === 'MASTER';
     const canDelete = isMaster || hasPermission('can_delete_invoices');
     if (!canDelete) {
-      setPinError('');
-      // Show "no permission" feedback via toast - handled below
       import('react-hot-toast').then(({ default: toast }) =>
         toast.error('No tienes permiso para eliminar facturas')
       );
@@ -350,13 +412,11 @@ const InvoiceHistory: React.FC = () => {
     const deletePin: string = companyConfig.delete_invoice_pin || '';
 
     if (deletePin && deletePin.length === 4) {
-      // PIN is configured — open PIN modal
       setPendingDelete(inv);
       setPinInput('');
       setPinError('');
       setPinAttempts(0);
     } else {
-      // No PIN configured — confirm dialog fallback (admin-only)
       if (!confirm(`¿Eliminar la factura ${inv.invoice_number}? Esta acción no se puede deshacer.`)) return;
       await doDeleteInvoice(inv);
     }
@@ -403,7 +463,7 @@ const InvoiceHistory: React.FC = () => {
       setTotal(t => t - 1);
       if (selectedInvoice?.id === inv.id) setSelectedInvoice(null);
 
-      // 6. Refrescar contexto global (dashboard, caja)
+      // 6. Refrescar contexto global
       await refreshAll();
 
     } catch (e: any) {
@@ -440,17 +500,45 @@ const InvoiceHistory: React.FC = () => {
   const hasMore = invoices.length < total;
   const totalShown = invoices.reduce((s, inv) => s + inv.total_amount, 0);
 
+  // Contadores por tipo para los badges de los tabs
+  const countApartados = invoices.filter(inv => (inv as any).business_type === 'apartado').length;
+  const countVentas    = invoices.filter(inv => (inv as any).business_type !== 'apartado').length;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Historial de Facturas</h2>
-          <p className="text-slate-500 text-sm">Consulta, reimpresion y validacion de garantias</p>
+          <p className="text-slate-500 text-sm">Consulta, reimpresion, apartados y validacion de garantias</p>
         </div>
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
           <FileText size={16} className="text-blue-600" />
           <span className="text-sm font-bold text-blue-700">{total} facturas en total</span>
         </div>
+      </div>
+
+      {/* ── FILTROS TIPO DOCUMENTO ─────────────────────────────────────────── */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        {[
+          { key: 'TODOS',    label: 'Todas',    count: total },
+          { key: 'VENTA',    label: 'Ventas',   count: countVentas },
+          { key: 'APARTADO', label: 'Apartados', count: countApartados },
+        ].map(tab => (
+          <button key={tab.key}
+            onClick={() => setFilterType(tab.key as any)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              filterType === tab.key ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}>
+            {tab.label}
+            {tab.count > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                filterType === tab.key ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'
+              }`}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
@@ -481,7 +569,7 @@ const InvoiceHistory: React.FC = () => {
             className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
             <Search size={15} />{loading ? 'Buscando...' : 'Buscar'}
           </button>
-          <button onClick={() => { setSearchDoc(''); setSearchInvoice(''); setSearchDate(''); setTimeout(() => loadInvoices(true), 50); }}
+          <button onClick={() => { setSearchDoc(''); setSearchInvoice(''); setSearchDate(''); setFilterType('TODOS'); setTimeout(() => loadInvoices(true), 50); }}
             className="px-5 py-2.5 border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">
             Limpiar
           </button>
@@ -525,12 +613,21 @@ const InvoiceHistory: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {invoices.map(inv => {
-                  const isExpanded = expandedId === inv.id;
-                  const isPending = inv.status === 'PENDING_ELECTRONIC';
+                  const isExpanded  = expandedId === inv.id;
+                  const isPending   = inv.status === 'PENDING_ELECTRONIC';
+                  const isApartado  = (inv as any).business_type === 'apartado';
                   return (
                     <React.Fragment key={inv.id}>
-                      <tr className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
-                        <td className="px-4 py-3"><span className="font-mono text-xs font-bold text-blue-600">{inv.invoice_number}</span></td>
+                      <tr
+                        className={`hover:bg-slate-50 transition-colors cursor-pointer ${isApartado ? 'border-l-2 border-l-indigo-300' : ''}`}
+                        onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-mono text-xs font-bold text-blue-600">{inv.invoice_number}</span>
+                            {/* Badge de apartado visible en la fila */}
+                            {isApartado && <ApartadoBadge saleType={(inv as any).sale_type} />}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-slate-500 text-xs">
                           {new Date(inv.created_at).toLocaleDateString()}<br />
                           <span className="text-slate-400">{new Date(inv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -547,20 +644,22 @@ const InvoiceHistory: React.FC = () => {
                         <td className="px-4 py-3 font-bold text-slate-800">{formatMoney(inv.total_amount)}</td>
                         <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
 
-                        {/* ── COLUMNA DIAN ── solo visible si DIAN habilitado */}
+                        {/* ── COLUMNA DIAN — solo para ventas normales ── */}
                         {dianEnabled && (
                           <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                            {isPending ? (
+                            {!isApartado && isPending ? (
                               <button
                                 onClick={() => setSelectedInvoice(inv)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
                                 title="Enviar a DIAN">
                                 <Zap size={12} /> Facturar
                               </button>
-                            ) : inv.status === 'ACCEPTED' ? (
+                            ) : !isApartado && inv.status === 'ACCEPTED' ? (
                               <span className="flex items-center gap-1 text-emerald-600 text-xs font-bold">
                                 <CheckCircle size={13} /> OK
                               </span>
+                            ) : isApartado ? (
+                              <span className="text-xs text-slate-400">—</span>
                             ) : null}
                           </td>
                         )}
@@ -585,8 +684,29 @@ const InvoiceHistory: React.FC = () => {
                           <td colSpan={dianEnabled ? 8 : 7} className="px-6 py-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
-                                <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Package size={12} /> Productos</p>
-                                {!inv.invoice_items || inv.invoice_items.length === 0 ? (
+                                <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                                  <Package size={12} /> {isApartado ? 'Detalle del Apartado' : 'Productos'}
+                                </p>
+                                {isApartado ? (
+                                  // Vista especial para apartados
+                                  <div className="bg-white rounded-lg border border-indigo-100 px-4 py-3 space-y-1.5 text-xs">
+                                    {(inv as any).notes && (
+                                      <p className="text-slate-600">{(inv as any).notes}</p>
+                                    )}
+                                    {(inv as any).reference_id && (
+                                      <div className="flex justify-between">
+                                        <span className="text-slate-400">Ref. apartado:</span>
+                                        <span className="font-mono font-bold text-indigo-700">
+                                          #{(inv as any).reference_id.slice(-8).toUpperCase()}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Tipo:</span>
+                                      <ApartadoBadge saleType={(inv as any).sale_type} />
+                                    </div>
+                                  </div>
+                                ) : !inv.invoice_items || inv.invoice_items.length === 0 ? (
                                   <p className="text-xs text-slate-400 italic">Sin detalle disponible</p>
                                 ) : (
                                   <div className="space-y-1">
@@ -609,16 +729,23 @@ const InvoiceHistory: React.FC = () => {
                                   <div className="flex justify-between text-slate-600"><span>Subtotal</span><span>{formatMoney(inv.subtotal)}</span></div>
                                   <div className="flex justify-between text-slate-500"><span>IVA</span><span>{inv.tax_amount > 0 ? formatMoney(inv.tax_amount) : 'No aplica'}</span></div>
                                   <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-100"><span>Total</span><span className="text-blue-600">{formatMoney(inv.total_amount)}</span></div>
-                                  <div className="flex justify-between text-slate-400 pt-1"><span>Metodo</span><span className="font-mono text-[10px] bg-slate-100 px-1 rounded">{inv.payment_method?.method || 'CASH'}</span></div>
+                                  <div className="flex justify-between text-slate-400 pt-1">
+                                    <span>Metodo</span>
+                                    <span className="font-mono text-[10px] bg-slate-100 px-1 rounded">
+                                      {inv.payment_method?.method || 'CASH'}
+                                    </span>
+                                  </div>
                                 </div>
-                                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                  <p className="text-[10px] font-bold text-amber-700 uppercase flex items-center gap-1"><AlertCircle size={11} /> Info Garantia</p>
-                                  <p className="text-[10px] text-amber-600 mt-1">
-                                    Compra: {new Date(inv.created_at).toLocaleDateString()}<br />
-                                    Garantia accesorios: {new Date(new Date(inv.created_at).getTime() + 30 * 86400000).toLocaleDateString()}<br />
-                                    Proceso garantia: 8 dias habiles - Solo con factura original
-                                  </p>
-                                </div>
+                                {!isApartado && (
+                                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                    <p className="text-[10px] font-bold text-amber-700 uppercase flex items-center gap-1"><AlertCircle size={11} /> Info Garantia</p>
+                                    <p className="text-[10px] text-amber-600 mt-1">
+                                      Compra: {new Date(inv.created_at).toLocaleDateString()}<br />
+                                      Garantia accesorios: {new Date(new Date(inv.created_at).getTime() + 30 * 86400000).toLocaleDateString()}<br />
+                                      Proceso garantia: 8 dias habiles - Solo con factura original
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -655,7 +782,6 @@ const InvoiceHistory: React.FC = () => {
       {pendingDelete && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 360, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
-            {/* Header */}
             <div style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '24px 24px 20px', textAlign: 'center' }}>
               <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '50%', width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
                 <ShieldAlert size={28} color="#fff" />
@@ -666,14 +792,12 @@ const InvoiceHistory: React.FC = () => {
               </p>
             </div>
 
-            {/* Body */}
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 13, color: '#64748b', textAlign: 'center', margin: '0 0 20px' }}>
                 Ingresa el PIN de 4 dígitos para confirmar la eliminación de esta factura.
                 <br /><span style={{ color: '#dc2626', fontWeight: 600 }}>Esta acción no se puede deshacer.</span>
               </p>
 
-              {/* PIN input dots */}
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
                 {[0, 1, 2, 3].map(i => (
                   <div key={i} style={{
@@ -694,7 +818,6 @@ const InvoiceHistory: React.FC = () => {
                 </div>
               )}
 
-              {/* Numpad */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
                 {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
                   <button key={idx} disabled={!k}
@@ -707,7 +830,6 @@ const InvoiceHistory: React.FC = () => {
                         setPinInput(next);
                         setPinError('');
                         if (next.length === 4) {
-                          // Auto-confirm after short delay for UX
                           setTimeout(() => {
                             const companyConfig = (company as any)?.config || {};
                             const deletePin: string = companyConfig.delete_invoice_pin || '';
