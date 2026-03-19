@@ -45,6 +45,7 @@ const Reports            = lazy(() => import('./pages/Reports'));
 const PublicCatalog      = lazy(() => import('./pages/PublicCatalog'));
 const WarehouseDisplay   = lazy(() => import('./pages/WarehouseDisplay'));
 const Gimnasio           = lazy(() => import('./pages/Gimnasio'));
+const GymKiosk           = lazy(() => import('./pages/GymKiosk'));
 const Panaderia          = lazy(() => import('./pages/Panaderia'));
 
 // ── CORRECCIÓN AUTH-04 / FRO-01 ───────────────────────────────────────────────
@@ -658,6 +659,7 @@ const App: React.FC = () => {
         <Routes>
           {/* Rutas públicas — sin autenticación ni DatabaseProvider */}
           <Route path="/catalogo/:companyId"     element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
+          <Route path="/gimnasio-kiosk/:companyId" element={<Suspense fallback={<PageLoader />}><GymKiosk /></Suspense>} />
           <Route path="/lavadero-display/:companyId" element={<Suspense fallback={<PageLoader />}><LavaderoEmpleados /></Suspense>} />
           <Route path="/lavadero-espera/:companyId"  element={<Suspense fallback={<PageLoader />}><LavaderoSalaEspera /></Suspense>} />
           <Route path="/*" element={

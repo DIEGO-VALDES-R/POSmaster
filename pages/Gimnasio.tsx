@@ -346,6 +346,15 @@ const Gimnasio: React.FC = () => {
           <button onClick={load} className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 text-sm">
             <RefreshCw size={14} /> Actualizar
           </button>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}${window.location.pathname}#/gimnasio-kiosk/${companyId}`;
+              navigator.clipboard.writeText(url).then(() => toast.success('🔗 Link del kiosk copiado'));
+            }}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 text-sm"
+            title="Copiar link para la tablet de recepción">
+            📟 Link Kiosk
+          </button>
           <button onClick={openNewMember}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
             <Plus size={16} /> Nuevo socio
