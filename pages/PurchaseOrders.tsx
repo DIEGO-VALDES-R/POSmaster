@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Search, Truck, Package, CheckCircle, XCircle, Clock,
   Edit3, Trash2, Eye, Download, Send, X, Save, AlertCircle,
-  ChevronDown, ArrowRight, ReceiptText, RefreshCw
+  ChevronDown, ArrowRight, ReceiptText, RefreshCw, Banknote
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -41,15 +41,17 @@ interface PurchaseOrder {
   total_amount: number;
   notes?: string;
   created_at: string;
+  company_id?: string;
+  branch_id?: string;
   purchase_order_items?: POItem[];
 }
 
 const STATUS_CFG = {
-  DRAFT:     { label: 'Borrador',   cls: 'bg-slate-100 text-slate-600',    icon: <Edit3 size={11} /> },
-  SENT:      { label: 'Enviada',    cls: 'bg-blue-100 text-blue-700',      icon: <Send size={11} /> },
-  PARTIAL:   { label: 'Parcial',    cls: 'bg-amber-100 text-amber-700',    icon: <Clock size={11} /> },
-  RECEIVED:  { label: 'Recibida',   cls: 'bg-emerald-100 text-emerald-700',icon: <CheckCircle size={11} /> },
-  CANCELLED: { label: 'Cancelada',  cls: 'bg-red-100 text-red-700',        icon: <XCircle size={11} /> },
+  DRAFT:     { label: 'Borrador',  cls: 'bg-slate-100 text-slate-600',     icon: <Edit3 size={11} /> },
+  SENT:      { label: 'Enviada',   cls: 'bg-blue-100 text-blue-700',       icon: <Send size={11} /> },
+  PARTIAL:   { label: 'Parcial',   cls: 'bg-amber-100 text-amber-700',     icon: <Clock size={11} /> },
+  RECEIVED:  { label: 'Recibida',  cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={11} /> },
+  CANCELLED: { label: 'Cancelada', cls: 'bg-red-100 text-red-700',         icon: <XCircle size={11} /> },
 };
 
 const EMPTY_ITEM: POItem = { description: '', sku: '', quantity_ordered: 1, quantity_received: 0, unit_cost: 0, tax_rate: 19 };
@@ -140,17 +142,20 @@ function generatePOPDF(order: PurchaseOrder, company: any, formatMoney: (n: numb
 // ─── Receive Modal ────────────────────────────────────────────────────────────
 interface ReceiveModalProps {
   order: PurchaseOrder;
+  sessionId: string | null;
   onClose: () => void;
   onDone: (updatedOrder: PurchaseOrder) => void;
   formatMoney: (n: number) => string;
 }
 
-const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, formatMoney }) => {
+const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, onDone, formatMoney }) => {
   const [items, setItems] = useState<POItem[]>(
     (order.purchase_order_items || []).map(i => ({ ...i, quantity_received: i.quantity_received || 0 }))
   );
   const [saving, setSaving] = useState(false);
   const [receiveDate, setReceiveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [payWithCash, setPayWithCash] = useState(false);
+  const [cashAmount, setCashAmount] = useState(order.total_amount || 0);
 
   const allReceived = items.every(i => i.quantity_received >= i.quantity_ordered);
   const someReceived = items.some(i => i.quantity_received > 0);
@@ -158,7 +163,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 1. Update each item's received qty
+      // 1. Actualizar cantidad recibida en cada item
       for (const item of items) {
         if (!item.id) continue;
         await supabase.from('purchase_order_items')
@@ -166,21 +171,64 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
           .eq('id', item.id);
       }
 
-      // 2. Update stock_quantity for each product
+      // 2. Actualizar stock + Kardex por cada item recibido
       for (const item of items) {
-        if (!item.product_id) continue;
-        const newQty = item.quantity_received - (order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0);
+        const prevReceived = order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0;
+        const newQty = item.quantity_received - prevReceived;
         if (newQty <= 0) continue;
-        const { data: prod } = await supabase.from('products').select('stock_quantity, cost').eq('id', item.product_id).single();
-        if (prod) {
-          await supabase.from('products').update({
-            stock_quantity: (prod.stock_quantity || 0) + newQty,
-            cost: item.unit_cost > 0 ? item.unit_cost : prod.cost, // update cost
-          }).eq('id', item.product_id);
+
+        // Buscar producto por product_id, luego por SKU como fallback
+        let prodId: string | null = item.product_id || null;
+        let prod: any = null;
+
+        if (prodId) {
+          const { data } = await supabase
+            .from('products')
+            .select('id, stock_quantity, cost, company_id, branch_id')
+            .eq('id', prodId).single();
+          prod = data;
+        } else if (item.sku) {
+          const { data } = await supabase
+            .from('products')
+            .select('id, stock_quantity, cost, company_id, branch_id')
+            .eq('sku', item.sku).maybeSingle();
+          prod = data;
+          if (prod) prodId = prod.id;
+        }
+
+        if (!prod || !prodId) {
+          console.warn(`Item sin producto en inventario: ${item.description}`);
+          continue;
+        }
+
+        // Actualizar stock y costo
+        await supabase.from('products').update({
+          stock_quantity: (prod.stock_quantity || 0) + newQty,
+          cost: item.unit_cost > 0 ? item.unit_cost : prod.cost,
+        }).eq('id', prodId);
+
+        // Kardex
+        await supabase.from('inventory_movements').insert({
+          company_id:     prod.company_id,
+          branch_id:      prod.branch_id || null,
+          product_id:     prodId,
+          type:           'COMPRA',
+          quantity:       newQty,
+          unit_cost:      item.unit_cost,
+          total_cost:     newQty * item.unit_cost,
+          reference_id:   order.id,
+          reference_type: 'purchase_order',
+          notes:          `OC ${order.order_number} — ${item.description}`,
+        });
+
+        // Guardar product_id si se encontró por SKU
+        if (!item.product_id && prodId && item.id) {
+          await supabase.from('purchase_order_items')
+            .update({ product_id: prodId }).eq('id', item.id);
         }
       }
 
-      // 3. Update order status
+      // 3. Actualizar estado de la OC
       const newStatus = allReceived ? 'RECEIVED' : 'PARTIAL';
       const { data: updated } = await supabase.from('purchase_orders')
         .update({ status: newStatus, received_date: receiveDate })
@@ -188,7 +236,21 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
         .select('*, purchase_order_items(*)')
         .single();
 
-      toast.success(allReceived ? '✅ Orden recibida completa — stock actualizado' : '📦 Recepción parcial registrada');
+      // 4. Registrar egreso en caja si el usuario activó esa opción
+      if (payWithCash && cashAmount > 0 && sessionId) {
+        await supabase.from('cash_expenses').insert({
+          company_id:   order.company_id || updated?.company_id,
+          branch_id:    order.branch_id  || updated?.branch_id || null,
+          session_id:   sessionId,
+          concept:      `Pago OC ${order.order_number} — ${order.supplier_name}`,
+          amount:       cashAmount,
+          category:     'compra_mercancia',
+          reference_id: order.id,
+        });
+        toast.success('💵 Egreso de compra registrado en caja');
+      }
+
+      toast.success(allReceived ? '✅ Orden recibida — stock y kardex actualizados' : '📦 Recepción parcial registrada');
       onDone(updated);
     } catch (err: any) {
       toast.error('Error: ' + err.message);
@@ -219,7 +281,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
 
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-700">
             <p className="font-bold mb-0.5">💡 Cómo funciona</p>
-            <p>Ingresa la cantidad que realmente llegó. El stock se actualizará automáticamente con la diferencia.</p>
+            <p>Ingresa la cantidad que realmente llegó. El stock y el Kardex se actualizarán automáticamente.</p>
           </div>
 
           <div>
@@ -231,7 +293,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => {
-                const pending = item.quantity_ordered - (order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0);
+                const prevReceived = order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0;
                 const isComplete = item.quantity_received >= item.quantity_ordered;
                 return (
                   <div key={idx} className={`grid grid-cols-12 gap-1 items-center p-2 rounded-lg ${isComplete ? 'bg-emerald-50' : 'bg-slate-50'}`}>
@@ -240,9 +302,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
                       {item.sku && <p className="text-[10px] text-slate-400">{item.sku}</p>}
                     </div>
                     <div className="col-span-2 text-right text-xs text-slate-500">{item.quantity_ordered}</div>
-                    <div className="col-span-2 text-right text-xs text-slate-500">
-                      {order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0}
-                    </div>
+                    <div className="col-span-2 text-right text-xs text-slate-500">{prevReceived}</div>
                     <div className="col-span-3">
                       <input type="number" min="0" max={item.quantity_ordered} step="0.001"
                         className={inputCls}
@@ -257,7 +317,15 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
             </div>
           </div>
 
-          {/* Quick fill buttons */}
+          {/* Aviso items sin producto vinculado */}
+          {items.some(i => !i.product_id && !i.sku) && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-800">
+              <p className="font-bold mb-1">⚠️ Algunos productos no tienen SKU ni están vinculados al inventario</p>
+              <p>Esos items <strong>no actualizarán el stock</strong>. Para que funcione, edita la OC y selecciona cada producto desde el buscador del inventario.</p>
+            </div>
+          )}
+
+          {/* Quick fill */}
           <div className="flex gap-2">
             <button onClick={() => setItems(prev => prev.map(i => ({ ...i, quantity_received: i.quantity_ordered })))}
               className="flex-1 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 rounded-xl hover:bg-emerald-200">
@@ -267,6 +335,42 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, onClose, onDone, for
               className="px-4 py-2 text-xs font-bold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200">
               Limpiar
             </button>
+          </div>
+
+          {/* Pago en efectivo */}
+          <div className={`rounded-xl border-2 p-4 transition-all ${payWithCash ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Banknote size={16} className={payWithCash ? 'text-emerald-600' : 'text-slate-400'} />
+                <span className="text-sm font-bold text-slate-700">Registrar pago en caja (efectivo)</span>
+                {!sessionId && (
+                  <span className="text-[10px] bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full font-semibold">
+                    Caja cerrada
+                  </span>
+                )}
+              </div>
+              <div
+                onClick={() => sessionId && setPayWithCash(p => !p)}
+                className={`relative w-11 h-6 rounded-full transition-colors ${!sessionId ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${payWithCash ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${payWithCash ? 'left-5' : 'left-0.5'}`} />
+              </div>
+            </div>
+            {payWithCash && (
+              <div className="space-y-2">
+                <p className="text-xs text-emerald-700">Se registrará un egreso automático en el turno de caja activo.</p>
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Monto pagado ($)</label>
+                  <input
+                    type="number" min="0" step="1000"
+                    value={cashAmount}
+                    onChange={e => setCashAmount(parseFloat(e.target.value) || 0)}
+                    className="flex-1 px-3 py-2 border border-emerald-300 rounded-lg text-sm font-bold text-emerald-800 bg-white outline-none focus:ring-2 focus:ring-emerald-400 text-right"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400">Total OC: {formatMoney(order.total_amount)}</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -316,12 +420,14 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
     initial?.purchase_order_items?.length ? initial.purchase_order_items : [{ ...EMPTY_ITEM }]
   );
 
-  const subtotal = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost, 0);
-  const taxAmount = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost * (i.tax_rate / 100), 0);
+  const subtotal    = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost, 0);
+  const taxAmount   = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost * (i.tax_rate / 100), 0);
   const totalAmount = subtotal + taxAmount;
 
   const filteredProducts = products.filter(p =>
-    !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.sku?.toLowerCase().includes(productSearch.toLowerCase())
+    !productSearch ||
+    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+    p.sku?.toLowerCase().includes(productSearch.toLowerCase())
   ).slice(0, 8);
 
   const selectSupplier = (id: string) => {
@@ -397,7 +503,6 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
         </div>
 
         <div className="p-5 space-y-5">
-          {/* Proveedor + Meta */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-3">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Proveedor</p>
@@ -435,7 +540,6 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
             </div>
           </div>
 
-          {/* Items */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Productos a pedir</p>
@@ -487,12 +591,10 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
                       }} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={13} /></button>
                     </div>
                   </div>
-                  {/* Total línea */}
                   <div className="text-right text-[10px] text-slate-400 pr-6 mt-0.5">
                     {formatMoney(item.quantity_ordered * item.unit_cost)}
                     {item.tax_rate > 0 && <span className="ml-1 text-amber-500">+IVA {item.tax_rate}%</span>}
                   </div>
-                  {/* Product dropdown */}
                   {showProductList && activeItemIdx === idx && filteredProducts.length > 0 && (
                     <div className="absolute top-full left-0 w-72 bg-white border border-slate-200 rounded-xl shadow-xl z-20 mt-1 overflow-hidden">
                       {filteredProducts.map(p => (
@@ -512,7 +614,6 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
             </div>
           </div>
 
-          {/* Totals */}
           <div className="flex justify-end">
             <div className="w-64 space-y-1.5 text-sm">
               <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(subtotal)}</span></div>
@@ -538,7 +639,7 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const PurchaseOrders: React.FC = () => {
-  const { products, company, companyId, branchId } = useDatabase();
+  const { products, company, companyId, branchId, session } = useDatabase();
   const { formatMoney } = useCurrency();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -571,10 +672,10 @@ const PurchaseOrders: React.FC = () => {
   });
 
   const kpis = {
-    draft: orders.filter(o => o.status === 'DRAFT').length,
-    sent: orders.filter(o => o.status === 'SENT').length,
-    pending: orders.filter(o => ['DRAFT', 'SENT', 'PARTIAL'].includes(o.status)).length,
-    totalPending: orders.filter(o => ['SENT', 'PARTIAL'].includes(o.status)).reduce((s, o) => s + o.total_amount, 0),
+    draft:        orders.filter(o => o.status === 'DRAFT').length,
+    sent:         orders.filter(o => o.status === 'SENT').length,
+    pending:      orders.filter(o => ['DRAFT','SENT','PARTIAL'].includes(o.status)).length,
+    totalPending: orders.filter(o => ['SENT','PARTIAL'].includes(o.status)).reduce((s, o) => s + o.total_amount, 0),
   };
 
   const handleDelete = async (order: PurchaseOrder) => {
@@ -610,10 +711,10 @@ const PurchaseOrders: React.FC = () => {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Borradores', value: kpis.draft, icon: <Edit3 size={16} />, color: 'bg-slate-100 text-slate-600' },
-          { label: 'Enviadas', value: kpis.sent, icon: <Send size={16} />, color: 'bg-blue-100 text-blue-600' },
-          { label: 'Pendientes', value: kpis.pending, icon: <Clock size={16} />, color: 'bg-amber-100 text-amber-600' },
-          { label: 'Por pagar', value: formatMoney(kpis.totalPending), icon: <ReceiptText size={16} />, color: 'bg-purple-100 text-purple-600' },
+          { label: 'Borradores', value: kpis.draft,                     icon: <Edit3 size={16} />,        color: 'bg-slate-100 text-slate-600'   },
+          { label: 'Enviadas',   value: kpis.sent,                      icon: <Send size={16} />,         color: 'bg-blue-100 text-blue-600'     },
+          { label: 'Pendientes', value: kpis.pending,                    icon: <Clock size={16} />,        color: 'bg-amber-100 text-amber-600'   },
+          { label: 'Por pagar',  value: formatMoney(kpis.totalPending),  icon: <ReceiptText size={16} />,  color: 'bg-purple-100 text-purple-600' },
         ].map((k, i) => (
           <div key={i} className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${k.color}`}>{k.icon}</div>
@@ -671,7 +772,7 @@ const PurchaseOrders: React.FC = () => {
                   return (
                     <tr key={order.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
-                        <button onClick={() => setDetailOrder(order)} className="font-bold text-slate-700 hover:text-slate-900 text-sm">
+                        <button onClick={() => setDetailOrder(order)} className="font-bold text-slate-700 hover:text-blue-600 text-sm underline-offset-2 hover:underline">
                           {order.order_number}
                         </button>
                       </td>
@@ -742,13 +843,138 @@ const PurchaseOrders: React.FC = () => {
 
       {receiveOrder && (
         <ReceiveModal
-          order={receiveOrder} formatMoney={formatMoney}
+          order={receiveOrder}
+          sessionId={session?.id || null}
+          formatMoney={formatMoney}
           onClose={() => setReceiveOrder(null)}
           onDone={updated => {
             setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
             setReceiveOrder(null);
           }}
         />
+      )}
+
+      {/* Modal detalle OC */}
+      {detailOrder && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h2 className="font-bold text-slate-800 text-lg">{detailOrder.order_number}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {detailOrder.supplier_name}{detailOrder.supplier_nit ? ` · NIT: ${detailOrder.supplier_nit}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => generatePOPDF(detailOrder, company, formatMoney)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900">
+                  <Download size={13} /> PDF
+                </button>
+                {!['RECEIVED','CANCELLED'].includes(detailOrder.status) && (
+                  <button onClick={() => { setEditOrder(detailOrder); setShowForm(true); setDetailOrder(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700">
+                    <Edit3 size={13} /> Editar
+                  </button>
+                )}
+                {['SENT','PARTIAL'].includes(detailOrder.status) && (
+                  <button onClick={() => { setReceiveOrder(detailOrder); setDetailOrder(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">
+                    <Package size={13} /> Recibir
+                  </button>
+                )}
+                <button onClick={() => setDetailOrder(null)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                {[
+                  { label: 'Estado',           value: <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_CFG[detailOrder.status].cls}`}>{STATUS_CFG[detailOrder.status].icon} {STATUS_CFG[detailOrder.status].label}</span> },
+                  { label: 'Fecha creación',   value: new Date(detailOrder.created_at).toLocaleDateString('es-CO') },
+                  { label: 'Entrega esperada', value: detailOrder.expected_date ? new Date(detailOrder.expected_date + 'T12:00:00').toLocaleDateString('es-CO') : '—' },
+                  { label: 'Fecha recibido',   value: detailOrder.received_date  ? new Date(detailOrder.received_date).toLocaleDateString('es-CO') : '—' },
+                ].map((f, i) => (
+                  <div key={i} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-slate-400 mb-1">{f.label}</p>
+                    <div className="font-semibold text-slate-800">{f.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                  <Package size={12} /> Productos
+                </p>
+                <div className="border border-slate-100 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50">
+                      <tr className="text-slate-500 font-bold uppercase tracking-wide">
+                        <th className="text-left px-3 py-2">Descripción</th>
+                        <th className="text-right px-3 py-2">Pedido</th>
+                        <th className="text-right px-3 py-2">Recibido</th>
+                        <th className="text-right px-3 py-2">Costo u.</th>
+                        <th className="text-right px-3 py-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {(detailOrder.purchase_order_items || []).map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <p className="font-medium text-slate-800">{item.description}</p>
+                            {item.sku && <p className="text-slate-400">{item.sku}</p>}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-600">{item.quantity_ordered}</td>
+                          <td className="px-3 py-2 text-right">
+                            <span className={item.quantity_received >= item.quantity_ordered ? 'text-emerald-600 font-bold' : item.quantity_received > 0 ? 'text-amber-600 font-bold' : 'text-slate-400'}>
+                              {item.quantity_received}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-600">{formatMoney(item.unit_cost)}</td>
+                          <td className="px-3 py-2 text-right font-bold text-slate-800">{formatMoney(item.quantity_ordered * item.unit_cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <div className="w-56 space-y-1.5 text-sm bg-slate-50 rounded-xl p-4">
+                  <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatMoney(detailOrder.subtotal)}</span></div>
+                  <div className="flex justify-between text-slate-500"><span>IVA</span><span>{formatMoney(detailOrder.tax_amount)}</span></div>
+                  <div className="flex justify-between font-bold text-slate-800 border-t border-slate-200 pt-1.5">
+                    <span>Total</span><span className="text-blue-700">{formatMoney(detailOrder.total_amount)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {detailOrder.notes && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                  <p className="text-xs font-bold text-amber-700 mb-1">Notas</p>
+                  <p className="text-xs text-amber-800">{detailOrder.notes}</p>
+                </div>
+              )}
+
+              {!['RECEIVED','CANCELLED'].includes(detailOrder.status) && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Cambiar estado</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(['DRAFT','SENT','PARTIAL','RECEIVED','CANCELLED'] as PurchaseOrder['status'][])
+                      .filter(s => s !== detailOrder.status)
+                      .map(s => (
+                        <button key={s} onClick={() => handleStatusChange(detailOrder, s)}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${STATUS_CFG[s].cls} hover:opacity-80`}>
+                          {STATUS_CFG[s].icon} {STATUS_CFG[s].label}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -13,6 +13,7 @@ import BotonFacturaDian from '../components/BotonFacturaDian';
 interface InvoiceItem {
   id: string;
   product_id: string;
+  description?: string;
   quantity: number;
   price: number;
   tax_rate: number;
@@ -173,7 +174,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
                 const virtualItems = (invoice.payment_method as any)?.virtual_items || [];
                 // Para apartados, construir item desde las notas de la factura
                 const allItems = [
-                  ...realItems.map((item: any) => ({ name: item.products?.name || 'Producto', qty: item.quantity, price: item.price, serial: item.serial_number })),
+                  ...realItems.map((item: any) => ({ name: item.description || item.products?.name || 'Producto', qty: item.quantity, price: item.price, serial: item.serial_number })),
                   ...virtualItems.map((v: any) => ({ name: v.name || 'Servicio', qty: v.quantity, price: v.price, serial: null })),
                 ];
                 // Si es apartado y no hay items, mostrar descripción desde notas
@@ -331,7 +332,7 @@ const InvoiceHistory: React.FC = () => {
     try {
       let query = supabase
         .from('invoices')
-        .select('*, invoice_items(*, products(name))', { count: 'exact' })
+        .select('*, invoice_items(id, product_id, description, quantity, price, tax_rate, serial_number, products(name))', { count: 'exact' })
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE - 1);
@@ -706,22 +707,46 @@ const InvoiceHistory: React.FC = () => {
                                       <ApartadoBadge saleType={(inv as any).sale_type} />
                                     </div>
                                   </div>
-                                ) : !inv.invoice_items || inv.invoice_items.length === 0 ? (
-                                  <p className="text-xs text-slate-400 italic">Sin detalle disponible</p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {inv.invoice_items.map((item, idx) => (
-                                      <div key={idx} className="flex justify-between text-xs bg-white rounded-lg px-3 py-2 border border-slate-100">
-                                        <div>
-                                          <span className="font-medium text-slate-700">{item.products?.name || 'Producto'}</span>
-                                          {item.serial_number && <span className="ml-2 text-[10px] bg-yellow-50 text-yellow-700 px-1 rounded font-mono">SN: {item.serial_number}</span>}
-                                          <span className="text-slate-400 ml-2">x{item.quantity}</span>
-                                        </div>
-                                        <span className="font-bold text-slate-800">{formatMoney(item.price * item.quantity)}</span>
+                                ) : (() => {
+                                  const realItems = inv.invoice_items || [];
+                                  const virtualItems: any[] = (inv.payment_method as any)?.virtual_items || [];
+                                  const allItems = [
+                                    ...realItems.map((item: any) => ({
+                                      name: item.description || item.products?.name || 'Producto',
+                                      qty: item.quantity,
+                                      price: item.price,
+                                      serial: item.serial_number,
+                                    })),
+                                    ...virtualItems.map((v: any) => ({
+                                      name: v.name || 'Servicio',
+                                      qty: v.quantity || 1,
+                                      price: v.price || 0,
+                                      serial: null,
+                                    })),
+                                  ];
+                                  if (allItems.length === 0) {
+                                    return (
+                                      <div className="text-xs text-slate-400 italic space-y-1 p-2">
+                                        <p>Sin detalle disponible.</p>
+                                        <p className="text-[10px]">Facturas anteriores a la actualización del sistema. El total es correcto.</p>
                                       </div>
-                                    ))}
-                                  </div>
-                                )}
+                                    );
+                                  }
+                                  return (
+                                    <div className="space-y-1">
+                                      {allItems.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between text-xs bg-white rounded-lg px-3 py-2 border border-slate-100">
+                                          <div>
+                                            <span className="font-medium text-slate-700">{item.name}</span>
+                                            {item.serial && <span className="ml-2 text-[10px] bg-yellow-50 text-yellow-700 px-1 rounded font-mono">SN: {item.serial}</span>}
+                                            <span className="text-slate-400 ml-2">x{item.qty}</span>
+                                          </div>
+                                          <span className="font-bold text-slate-800">{formatMoney(item.price * item.qty)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               <div>
                                 <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><DollarSign size={12} /> Resumen de pago</p>

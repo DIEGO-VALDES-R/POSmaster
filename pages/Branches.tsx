@@ -14,10 +14,25 @@ interface Invitation   { id: string; email: string; custom_role: string; branch_
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BUSINESS_TYPE_LABELS: Record<string, string> = {
-  general:'Tienda General', tienda_tecnologia:'Tecnología / Celulares', restaurante:'Restaurante / Cafetería',
-  ropa:'Ropa / Calzado', zapateria:'Zapatería / Marroquinería', ferreteria:'Ferretería / Construcción',
-  farmacia:'Farmacia / Droguería', supermercado:'Supermercado / Abarrotes', salon:'Salón de Belleza / Spa',
-  odontologia:'Consultorio Odontológico', veterinaria:'Clínica Veterinaria', otro:'Negocio',
+  general:          'Tienda General',
+  tienda_tecnologia:'Tecnología / Celulares',
+  restaurante:      'Restaurante / Cafetería',
+  ropa:             'Ropa / Calzado',
+  zapateria:        'Zapatería / Marroquinería',
+  ferreteria:       'Ferretería / Construcción',
+  farmacia:         'Farmacia / Droguería',
+  supermercado:     'Supermercado / Abarrotes',
+  salon:            'Salón de Belleza / Spa',
+  odontologia:      'Consultorio Odontológico',
+  veterinaria:      'Clínica Veterinaria',
+  lavadero:         'Lavadero de Vehículos',
+  optica:           'Óptica / Optometría',
+  joyeria:          'Joyería / Relojería',
+  papeleria:        'Papelería / Miscelánea',
+  gym:              'Gimnasio / Fitness',
+  peluqueria:       'Peluquería / Barbería',
+  panaderia:        'Panadería / Pastelería',
+  otro:             'Otro Negocio',
 };
 
 const ROLES_DEFAULT = [

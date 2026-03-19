@@ -32,7 +32,7 @@ interface ImportRow {
   _status?: 'pending' | 'ok' | 'error'; _error?: string;
 }
 
-const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppliers: Supplier[]; onClose: () => void; onSuccess: () => void }> = ({ companyId, branchId, suppliers, onClose, onSuccess }) => {
+const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppliers: Supplier[]; branches: {id: string; name: string}[]; onClose: () => void; onSuccess: () => void }> = ({ companyId, branchId, suppliers, branches, onClose, onSuccess }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [importing, setImporting] = useState(false);
@@ -238,16 +238,25 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               const wb = XLSX.utils.book_new();
 
               // ── Hoja principal ───────────────────────────────────────────
-              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor'];
+              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede'];
+              const branchNames = branches.map(b => b.name).join(' | ') || 'Sede Principal';
               const examples = [
-                ['Camiseta Azul M','CAM-AZ-M','','CAMISETAS','BRAND','Camiseta algodón talla M','35000','18000','10','2','19','STANDARD','Distribuidora XYZ'],
-                ['Pantalla Samsung A11','SKU-001','7890123456789','PANTALLAS','SAMSUNG','Pantalla original','45000','30000','4','1','19','STANDARD','Samsung Colombia'],
-                ['Servicio Técnico','SERV-01','','SERVICIOS','','Diagnóstico y reparación','50000','0','0','0','0','SERVICE',''],
+                ['Camiseta Azul M','CAM-AZ-M','','CAMISETAS','BRAND','Camiseta algodón talla M','35000','18000','10','2','19','STANDARD','Distribuidora XYZ','Sede Principal'],
+                ['Pantalla Samsung A11','SKU-001','7890123456789','PANTALLAS','SAMSUNG','Pantalla original','45000','30000','4','1','19','STANDARD','Samsung Colombia','Sede Principal'],
+                ['Servicio Técnico','SERV-01','','SERVICIOS','','Diagnóstico y reparación','50000','0','0','0','0','SERVICE','','Sede Principal'],
               ];
-              const notes = [['💡 INSTRUCCIONES:'],['• Campos con * son obligatorios'],['• Tipo: STANDARD (normal) o SERVICE (servicio sin stock)'],['• Proveedor: escribe el nombre exactamente — se crea automáticamente si no existe'],['• IVA: escribe solo el número (19, 5, 0)'],['• Stock Inicial: cantidad en bodega al importar']];
+              const notes = [
+                ['💡 INSTRUCCIONES:'],
+                ['• Campos con * son obligatorios'],
+                ['• Tipo: STANDARD (normal) o SERVICE (servicio sin stock)'],
+                ['• Proveedor: escribe el nombre exactamente — se crea automáticamente si no existe'],
+                ['• IVA: escribe solo el número (19, 5, 0)'],
+                ['• Stock Inicial: cantidad en bodega al importar'],
+                [`• Sede: escribe el nombre exacto de la sede. Opciones disponibles: ${branchNames}`],
+              ];
               const wsData = [headers, ...examples, [], ...notes];
               const ws = XLSX.utils.aoa_to_sheet(wsData);
-              ws['!cols'] = headers.map((h, i) => ({ wch: [28,14,18,16,14,28,14,10,13,13,8,10,22][i] || 16 }));
+              ws['!cols'] = headers.map((h, i) => ({ wch: [28,14,18,16,14,28,14,10,13,13,8,10,22,20][i] || 16 }));
 
               // Estilo encabezado (color azul — requiere sheetjs-style, dejamos comentario)
               XLSX.utils.book_append_sheet(wb, ws, 'Productos');
@@ -1125,6 +1134,7 @@ const Inventory: React.FC = () => {
     isOdontologia  ? 'Materiales e insumos del consultorio: guantes, gasas, materiales dentales, etc. Los servicios se gestionan en el módulo Odontología.' :
     'Productos para la venta con control de stock, precios y proveedores.';
   const [products, setProducts] = useState<Product[]>([]);
+  const [branches, setBranches] = useState<{id: string; name: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -1170,6 +1180,8 @@ const Inventory: React.FC = () => {
       setProducts(await productService.getAllForInventory(companyId));
       const { data: sups } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
       setSuppliers(sups || []);
+      const { data: brs } = await supabase.from('branches').select('id, name').eq('company_id', companyId).eq('is_active', true).order('name');
+      setBranches(brs || []);
     }
     catch (e: any) { toast.error(e.message); }
     finally { setLoading(false); }
@@ -1219,7 +1231,7 @@ const Inventory: React.FC = () => {
     if (!form.name || !form.sku) { toast.error('Nombre y SKU son requeridos'); return; }
     setSaving(true);
     try {
-      const productData = { ...form, supplier_id: (form as any).supplier_id || null, branch_id: branchId || null };
+      const productData = { ...form, supplier_id: (form as any).supplier_id || null, branch_id: (form as any).branch_id || branchId || null };
       if (editing?.id) {
         await productService.update(editing.id, productData);
         toast.success('Producto actualizado');
@@ -1664,6 +1676,7 @@ const Inventory: React.FC = () => {
           companyId={companyId}
           branchId={branchId}
           suppliers={suppliers}
+          branches={branches}
           onClose={() => setShowImport(false)}
           onSuccess={() => { setShowImport(false); load(); }}
         />
@@ -1772,6 +1785,26 @@ const Inventory: React.FC = () => {
                     </p>
                   )}
                 </div>
+                {branches.length > 1 && (
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      🏪 Sucursal / Sede
+                    </label>
+                    <select
+                      value={(form as any).branch_id || ''}
+                      onChange={e => setForm((prev: any) => ({ ...prev, branch_id: e.target.value || null }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">Sede Principal</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Elige la sede donde estará disponible este producto.
+                    </p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
                   <textarea value={form.description || ''} onChange={f('description')} rows={2}
