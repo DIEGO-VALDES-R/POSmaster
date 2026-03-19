@@ -15,14 +15,32 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
   const [boldBasicUrl, setBoldBasicUrl] = useState(BOLD_PAYMENT_URL_DEFAULT);
   const [boldProUrl,   setBoldProUrl]   = useState(BOLD_PAYMENT_PRO_URL_DEFAULT);
 
+  // ── Precios dinámicos desde platform_settings ──────────────
+  const [planPrices, setPlanPrices] = useState<Record<string, string>>({
+    basic_price: '$65.000', pro_price: '$120.000', enterprise_price: '$249.900',
+    basic_desc: 'Para negocios pequeños', pro_desc: 'Para negocios con varias sucursales',
+    enterprise_desc: 'Empresas con facturación electrónica y API',
+    basic_features: '1 Negocio · 1 sucursal,POS Completo,Inventario Ilimitado,Control de Caja,Servicio Técnico,Cartera / CxC,Soporte por WhatsApp',
+    pro_features: 'Todo lo del Basic,Hasta 3 sucursales,Hasta 5 usuarios,Roles y permisos,PIN de acceso rápido,Dashboard avanzado,Soporte Prioritario',
+    enterprise_features: 'Todo lo del Pro,Sucursales ilimitadas,Usuarios ilimitados,Facturación electrónica,API + Webhooks,Gerente de cuenta dedicado,SLA 99.9%',
+  });
+
   useEffect(() => {
     supabase.from('platform_settings').select('key, value')
-      .in('key', ['bold_basic_url', 'bold_pro_url'])
+      .in('key', ['bold_basic_url', 'bold_pro_url',
+                  'basic_price', 'pro_price', 'enterprise_price',
+                  'basic_desc', 'pro_desc', 'enterprise_desc',
+                  'basic_features', 'pro_features', 'enterprise_features'])
       .then(({ data }) => {
-        (data || []).forEach((row: any) => {
-          if (row.key === 'bold_basic_url' && row.value) setBoldBasicUrl(row.value);
-          if (row.key === 'bold_pro_url'   && row.value) setBoldProUrl(row.value);
-        });
+        const map: Record<string, string> = {};
+        (data || []).forEach((row: any) => { if (row.value) map[row.key] = row.value; });
+        if (map.bold_basic_url) setBoldBasicUrl(map.bold_basic_url);
+        if (map.bold_pro_url)   setBoldProUrl(map.bold_pro_url);
+        // Only update prices if they exist in DB
+        const priceKeys = ['basic_price','pro_price','enterprise_price','basic_desc','pro_desc','enterprise_desc','basic_features','pro_features','enterprise_features'];
+        const updates: Record<string,string> = {};
+        priceKeys.forEach(k => { if (map[k]) updates[k] = map[k]; });
+        if (Object.keys(updates).length > 0) setPlanPrices(prev => ({ ...prev, ...updates }));
       }).catch(() => {});
   }, []);
 
@@ -84,26 +102,26 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
       cta: 'Probar Gratis',
     },
     {
-      id: 'BASIC', name: 'Basic', price: '$65.000', period: '/mes',
+      id: 'BASIC', name: 'Basic', price: planPrices.basic_price, period: '/mes',
       color: '#64748b', borderColor: 'rgba(100,116,139,0.3)',
-      desc: 'Para negocios pequeños',
-      features: ['1 Negocio · 1 sucursal', 'POS Completo', 'Inventario Ilimitado', 'Control de Caja', 'Servicio Técnico', 'Cartera / CxC', 'Soporte por WhatsApp'],
+      desc: planPrices.basic_desc,
+      features: planPrices.basic_features.split(','),
       cta: 'Comenzar',
     },
     {
-      id: 'PRO', name: 'Pro', price: '$120.000', period: '/mes',
+      id: 'PRO', name: 'Pro', price: planPrices.pro_price, period: '/mes',
       color: '#3b82f6', borderColor: 'rgba(59,130,246,0.5)',
       badge: '⭐ Más popular', popular: true,
-      desc: 'Para negocios con varias sucursales',
-      features: ['Todo lo del Basic', 'Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'PIN de acceso rápido', 'Dashboard avanzado', 'Soporte Prioritario'],
+      desc: planPrices.pro_desc,
+      features: planPrices.pro_features.split(','),
       cta: 'Comenzar Ahora',
     },
     {
-      id: 'ENTERPRISE', name: 'Enterprise', price: '$249.900', period: '/mes',
+      id: 'ENTERPRISE', name: 'Enterprise', price: planPrices.enterprise_price, period: '/mes',
       color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.5)',
       badge: '🏢 Para grandes negocios', enterprise: true,
-      desc: 'Empresas con facturación electrónica y API',
-      features: ['Todo lo del Pro', 'Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación electrónica', 'API + Webhooks', 'Gerente de cuenta dedicado', 'SLA 99.9%'],
+      desc: planPrices.enterprise_desc,
+      features: planPrices.enterprise_features.split(','),
       cta: 'Contactar Ventas',
     },
   ];
@@ -276,7 +294,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
             </button>
           </div>
           <p className="fade-up d5" style={{color:'#475569',fontSize:13}}>
-            7 días gratis sin tarjeta • Planes desde $65.000/mes • Activación inmediata
+            {`7 días gratis sin tarjeta • Planes desde ${planPrices.basic_price}/mes • Activación inmediata`}
           </p>
         </div>
       </section>
@@ -637,7 +655,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
           <span style={{fontWeight:700,color:C.dim}}>POSmaster</span>
         </div>
         <p style={{margin:'0 0 6px'}}>Hecho con ❤️ para negocios colombianos</p>
-        <p style={{margin:0}}>© 2025 POSmaster. Todos los derechos reservados.</p>
+        <p style={{margin:0}}>© 2026 POSmaster. Todos los derechos reservados.</p>
       </footer>
     </div>
   );
@@ -737,9 +755,9 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
               { id: 'TRIAL',      icon: '🎁', name: '7 días gratis',     price: 'Gratis',          desc: 'Prueba completa sin tarjeta',                  color: '#10b981', border: 'rgba(16,185,129,0.4)' },
-              { id: 'BASIC',      icon: '📦', name: 'Basic',             price: '$65.000/mes',     desc: '1 sucursal · 1 usuario · POS completo',        color: '#64748b', border: 'rgba(100,116,139,0.4)' },
-              { id: 'PRO',        icon: '⭐', name: 'Pro',               price: '$120.000/mes',    desc: 'Hasta 3 sucursales · 5 usuarios · Wompi',      color: '#3b82f6', border: 'rgba(59,130,246,0.5)',  popular: true },
-              { id: 'ENTERPRISE', icon: '🏢', name: 'Enterprise',        price: '$249.900/mes',    desc: 'Ilimitado · DIAN · API · Soporte dedicado',    color: '#8b5cf6', border: 'rgba(139,92,246,0.5)' },
+              { id: 'BASIC',      icon: '📦', name: 'Basic',             price: planPrices.basic_price+'/mes',      desc: planPrices.basic_desc,      color: '#64748b', border: 'rgba(100,116,139,0.4)' },
+              { id: 'PRO',        icon: '⭐', name: 'Pro',               price: planPrices.pro_price+'/mes',        desc: planPrices.pro_desc,        color: '#3b82f6', border: 'rgba(59,130,246,0.5)',  popular: true },
+              { id: 'ENTERPRISE', icon: '🏢', name: 'Enterprise',        price: planPrices.enterprise_price+'/mes', desc: planPrices.enterprise_desc, color: '#8b5cf6', border: 'rgba(139,92,246,0.5)' },
             ].map(p => (
               <button key={p.id} onClick={() => { setForm(prev => ({ ...prev, plan: p.id })); setStep(1); }}
                 style={{
@@ -1046,9 +1064,28 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [creating, setCreating] = useState(false);
   const [contracts, setContracts] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'clients' | 'contracts' | 'payment_links'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'contracts' | 'payment_links' | 'plan_pricing'>('clients');
   const [paymentLinks, setPaymentLinks] = useState<Record<string, string>>({});
-  const [savingLinks, setSavingLinks] = useState(false);
+  const [savingLinks,  setSavingLinks]  = useState(false);
+  const [pricingData,  setPricingData]  = useState<Record<string, string>>({
+    basic_price: '$65.000', pro_price: '$120.000', enterprise_price: '$249.900',
+    basic_desc: 'Para negocios pequeños', pro_desc: 'Para negocios con varias sucursales',
+    enterprise_desc: 'Empresas con facturación electrónica y API',
+    basic_features: '1 Negocio · 1 sucursal,POS Completo,Inventario Ilimitado,Control de Caja,Servicio Técnico,Cartera / CxC,Soporte por WhatsApp',
+    pro_features: 'Todo lo del Basic,Hasta 3 sucursales,Hasta 5 usuarios,Roles y permisos,PIN de acceso rápido,Dashboard avanzado,Soporte Prioritario',
+    enterprise_features: 'Todo lo del Pro,Sucursales ilimitadas,Usuarios ilimitados,Facturación electrónica,API + Webhooks,Gerente de cuenta dedicado,SLA 99.9%',
+  });
+  const [savingPricing, setSavingPricing] = useState(false);
+
+  const loadPricingData = async () => {
+    const { data } = await supabase.from('platform_settings').select('key, value')
+      .in('key', ['basic_price','pro_price','enterprise_price','basic_desc','pro_desc','enterprise_desc','basic_features','pro_features','enterprise_features']);
+    if (data && data.length > 0) {
+      const map: Record<string, string> = {};
+      data.forEach((row: any) => { map[row.key] = row.value; });
+      setPricingData(prev => ({ ...prev, ...map }));
+    }
+  };
 
   const loadPaymentLinks = async () => {
     const { data } = await supabase.from('platform_settings').select('key, value').eq('category', 'payment');
@@ -1101,6 +1138,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const load = async () => {
     setLoading(true);
     loadPaymentLinks();
+    loadPricingData();
     const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
     try {
       const { data: contractsData } = await supabase.from('contracts').select('*').order('created_at', { ascending: false });
@@ -1361,6 +1399,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
             { key: 'clients', label: '🏢 Clientes', count: companies.length },
             { key: 'contracts', label: '📄 Contratos', count: contracts.filter(c => c.status === 'SIGNED').length },
             { key: 'payment_links', label: '🔗 Links de Pago', count: 0 },
+            { key: 'plan_pricing',  label: '💰 Planes y Precios', count: 0 },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
               style={{ padding: '10px 20px', border: 'none', borderBottom: activeTab === tab.key ? '3px solid #3b82f6' : '3px solid transparent',
@@ -1456,7 +1495,101 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         )}
 
-        {/* ── TAB: LINKS DE PAGO ─────────────────────────────── */}
+        {/* ── TAB: PLANES Y PRECIOS ───────────────────────────── */}
+        {activeTab === 'plan_pricing' && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ fontWeight: 800, fontSize: 20, color: '#0f172a', marginBottom: 6 }}>💰 Planes y Precios</h3>
+              <p style={{ color: '#64748b', fontSize: 13 }}>
+                Edita los precios, descripciones y características de cada plan. Los cambios se reflejan inmediatamente en la landing page y el registro sin tocar el código.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, maxWidth: 1000 }}>
+              {([
+                { id: 'basic',      label: 'Plan Basic',      color: '#64748b' },
+                { id: 'pro',        label: 'Plan Pro',         color: '#3b82f6' },
+                { id: 'enterprise', label: 'Plan Enterprise',  color: '#8b5cf6' },
+              ] as const).map(plan => (
+                <div key={plan.id} style={{ background: '#fff', borderRadius: 16, padding: 24, border: `2px solid ${plan.color}22` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: plan.color }} />
+                    <span style={{ fontWeight: 800, fontSize: 15, color: '#0f172a' }}>{plan.label}</span>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                      Precio mensual
+                    </label>
+                    <input
+                      type="text"
+                      value={pricingData[`${plan.id}_price`] || ''}
+                      onChange={e => setPricingData(p => ({ ...p, [`${plan.id}_price`]: e.target.value }))}
+                      placeholder="$65.000"
+                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 15, fontWeight: 700, color: plan.color, fontFamily: 'monospace', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                      Descripción corta
+                    </label>
+                    <input
+                      type="text"
+                      value={pricingData[`${plan.id}_desc`] || ''}
+                      onChange={e => setPricingData(p => ({ ...p, [`${plan.id}_desc`]: e.target.value }))}
+                      placeholder="Para negocios pequeños"
+                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#374151', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                      Características (una por línea)
+                    </label>
+                    <textarea
+                      rows={7}
+                      value={(pricingData[`${plan.id}_features`] || '').split(',').join('\n')}
+                      onChange={e => setPricingData(p => ({ ...p, [`${plan.id}_features`]: e.target.value.split('\n').filter(l => l.trim()).join(',') }))}
+                      placeholder={'POS Completo\nInventario\nControl de Caja'}
+                      style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#374151', resize: 'vertical', fontFamily: 'monospace', lineHeight: 1.8, boxSizing: 'border-box' }}
+                    />
+                    <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Cada línea = una característica con ✓ en la landing</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 24 }}>
+              <button
+                onClick={async () => {
+                  setSavingPricing(true);
+                  try {
+                    const keys = ['basic_price','pro_price','enterprise_price','basic_desc','pro_desc','enterprise_desc','basic_features','pro_features','enterprise_features'];
+                    for (const key of keys) {
+                      if (pricingData[key] !== undefined) {
+                        await supabase.from('platform_settings').upsert(
+                          { key, value: pricingData[key], category: 'pricing' },
+                          { onConflict: 'key' }
+                        );
+                      }
+                    }
+                    toast.success('✅ Precios actualizados en la landing page');
+                  } catch { toast.error('Error guardando precios'); }
+                  finally { setSavingPricing(false); }
+                }}
+                disabled={savingPricing}
+                style={{ padding: '12px 32px', background: savingPricing ? '#94a3b8' : '#0f172a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: savingPricing ? 'not-allowed' : 'pointer' }}>
+                {savingPricing ? 'Guardando...' : '💾 Guardar cambios en la landing'}
+              </button>
+              <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                Los visitantes verán los nuevos precios en su próxima visita (sin redespliegue).
+              </p>
+            </div>
+          </div>
+        )}
+
+                {/* ── TAB: LINKS DE PAGO ─────────────────────────────── */}
         {activeTab === 'payment_links' && (
           <div>
             <div style={{ marginBottom: 24 }}>
