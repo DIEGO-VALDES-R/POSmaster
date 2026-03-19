@@ -481,12 +481,57 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
               ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain mix-blend-multiply" />
               : <Building2 size={20} className="text-white" />}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="font-bold text-sm leading-tight truncate" style={{ color: fontColor }} title={companyName}>
               {companyName}
             </h1>
             <p className="text-[10px]" style={{ color: fontColor, opacity: 0.5 }}>POSmaster</p>
           </div>
+
+          {/* Quick branch switcher icon — solo si hay sucursales */}
+          {childBranches.length > 0 && isAdmin && (
+            <div className="relative flex-shrink-0" title="Cambiar sucursal">
+              <button
+                onClick={e => { e.stopPropagation(); (window as any)._branchDropOpen = !(window as any)._branchDropOpen; document.getElementById('branch-quick-drop')?.classList.toggle('hidden'); }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+                style={{ background: 'rgba(255,255,255,0.15)', color: fontColor }}>
+                <Building2 size={14} />
+              </button>
+              <div id="branch-quick-drop" className="hidden absolute right-0 top-9 z-50 rounded-xl shadow-xl border overflow-hidden"
+                style={{ background: '#1e293b', borderColor: 'rgba(255,255,255,0.15)', minWidth: 200 }}>
+                {/* Sede principal */}
+                <button
+                  onClick={() => { handleActivate(rootCid, `${rootCid}__general`); document.getElementById('branch-quick-drop')?.classList.add('hidden'); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
+                  style={{ borderBottom: '0.5px solid rgba(255,255,255,0.1)' }}>
+                  <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: brandColor }}>
+                    <Building2 size={11} className="text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-white truncate">{companyName}</p>
+                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sede principal</p>
+                  </div>
+                  {companyId === rootCid && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-auto flex-shrink-0" />}
+                </button>
+                {/* Sucursales hijas */}
+                {childBranches.map(b => (
+                  <button key={b.id}
+                    onClick={() => { const bt = b.config?.business_type || 'general'; handleActivate(b.id, `${b.id}__${bt}`); document.getElementById('branch-quick-drop')?.classList.add('hidden'); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
+                    style={{ borderBottom: '0.5px solid rgba(255,255,255,0.08)' }}>
+                    <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: (b.config as any)?.primary_color || '#475569' }}>
+                      <Building2 size={11} className="text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-white truncate">{b.name}</p>
+                      <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sucursal</p>
+                    </div>
+                    {companyId === b.id && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-auto flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {(childBranches.length > 0 || mainBusinessTypes.length > 1) && (

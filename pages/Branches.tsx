@@ -70,7 +70,7 @@ const Branches: React.FC = () => {
   const { company, companyId, isLoading: ctxLoading } = useDatabase();
   const isPro = ['PRO', 'MASTER', 'ENTERPRISE'].includes(company?.subscription_plan || '');
   const plan = (company as any)?.subscription_plan || 'BASIC';
-  const MAX_BRANCHES = plan === 'ENTERPRISE' ? 999 : plan === 'PRO' || plan === 'MASTER' ? 3 : 0;
+  const MAX_BRANCHES = plan === 'ENTERPRISE' ? 999 : plan === 'PRO' || plan === 'MASTER' ? 2 : 0; // 2 adicionales = 3 total con sede principal
 
   const parentBusinessType = (company as any)?.config?.business_type
     || (Array.isArray((company as any)?.config?.business_types) ? (company as any).config.business_types[0] : null)
@@ -163,7 +163,7 @@ const Branches: React.FC = () => {
 
   // ── Branch CRUD ────────────────────────────────────────────────────────────
   const handleCreate = async () => {
-    if (branches.length >= MAX_BRANCHES) { toast.error('Límite de 3 sucursales alcanzado.'); return; }
+    if (branches.length >= MAX_BRANCHES) { toast.error('Límite alcanzado: el plan PRO incluye 3 sedes en total (sede principal + 2 adicionales).'); return; }
     if (!form.name || !form.nit || !form.adminEmail || !form.adminPassword) { toast.error('Completa todos los campos obligatorios'); return; }
     setCreating(true);
     try {
@@ -377,10 +377,10 @@ const Branches: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Sucursales y Equipos</h1>
-          <p className="text-slate-500 text-sm">{branches.length}/{MAX_BRANCHES} sucursales adicionales · Plan PRO</p>
+          <p className="text-slate-500 text-sm"><strong style={{color:'#1e293b'}}>{branches.length + 1}/{MAX_BRANCHES + 1} sedes en total</strong> · Sede principal + {branches.length} adicional{branches.length !== 1 ? 'es' : ''} · Plan PRO</p>
         </div>
         <button onClick={() => {
-          if (branches.length >= MAX_BRANCHES) { toast.error('Límite máximo de 3 sucursales.'); return; }
+          if (branches.length >= MAX_BRANCHES) { toast.error('Límite alcanzado: el plan PRO incluye 3 sedes en total (sede principal + 2 adicionales).'); return; }
           setForm(f=>({ ...f, name:`${parentTypeLabel} — Sucursal ${branches.length+2}`, nit:company?.nit||'', business_type:parentBusinessType }));
           setShowCreate(true);
         }} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">
@@ -392,11 +392,11 @@ const Branches: React.FC = () => {
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-semibold text-slate-600">Sucursales adicionales usadas</span>
-          <span className="text-sm font-bold text-slate-800">{branches.length} / {MAX_BRANCHES}</span>
+          <span className="text-sm font-bold text-slate-800">{branches.length + 1} / {MAX_BRANCHES + 1} sedes totales</span>
         </div>
         <div className="w-full bg-slate-100 rounded-full h-3">
           <div className="h-3 rounded-full transition-all duration-500"
-            style={{ width:`${(branches.length/MAX_BRANCHES)*100}%`, background: branches.length>=MAX_BRANCHES ? '#ef4444' : '#3b82f6' }} />
+            style={{ width:`${((branches.length + 1)/(MAX_BRANCHES + 1))*100}%`, background: branches.length>=MAX_BRANCHES ? '#ef4444' : '#3b82f6' }} />
         </div>
       </div>
 
@@ -577,7 +577,7 @@ const Branches: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-              <div><h3 className="text-lg font-bold text-slate-800">Nueva Sucursal</h3><p className="text-xs text-slate-400">{MAX_BRANCHES - branches.length} disponibles</p></div>
+              <div><h3 className="text-lg font-bold text-slate-800">Nueva Sucursal</h3><p className="text-xs text-slate-400">{MAX_BRANCHES - branches.length} sede{MAX_BRANCHES - branches.length !== 1 ? 's' : ''} disponible{MAX_BRANCHES - branches.length !== 1 ? 's' : ''}</p></div>
               <button onClick={()=>setShowCreate(false)} className="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
             </div>
             <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
