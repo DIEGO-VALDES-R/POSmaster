@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
-  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard,
+  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -53,6 +53,8 @@ const MODULE_PATHS: Record<string, string> = {
   receivables: '/receivables',
   payables:    '/payables',
   warehouse:   '/warehouse',
+  gimnasio:    '/gimnasio',
+  panaderia:   '/panaderia',
   supplies:    '/supplies',
   team:        '/team',
   nomina:      '/nomina',
@@ -92,6 +94,8 @@ function getNavItems(
   }
 
   const invLabel =
+    type==='gimnasio'  ? 'Insumos / Stock' :
+    type==='panaderia' ? 'Insumos y materias primas' :
     ['restaurante','restaurant','cocina','cafeteria'].includes(type) ? 'Insumos Cocina' :
     type==='zapateria' ? 'Materiales' :
     type==='salon'||type==='salón' ? 'Insumos Salón' :
@@ -101,6 +105,8 @@ function getNavItems(
     'Inventario';
 
   const moduleLabel =
+    type==='gimnasio'  ? 'Gimnasio' :
+    type==='panaderia' ? 'Panadería' :
     ['restaurante','restaurant','cocina','cafeteria'].includes(type) ? 'Restaurante' :
     type==='salon'||type==='salón' ? 'Salón de Belleza' :
     type==='odontologia' ? 'Odontología' :
@@ -152,6 +158,10 @@ function getNavItems(
     if (p('can_sell'))                               moduloItems.push({ label: 'Optometría',     path: MODULE_PATHS.optometria,  icon: Stethoscope });
   } else if (type==='zapateria' && hasFeature('shoe_repair')) {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Zapatería / Rep.', path: MODULE_PATHS.shoe,     icon: Wrench });
+  } else if (type === 'gimnasio') {
+    if (p('can_sell'))  moduloItems.push({ label: 'Gimnasio',  path: MODULE_PATHS.gimnasio,  icon: Dumbbell });
+  } else if (type === 'panaderia') {
+    if (p('can_sell'))  moduloItems.push({ label: 'Panadería', path: MODULE_PATHS.panaderia, icon: Package });
   } else if (type === 'general' || type === 'tienda_tecnologia' || type === 'otro') {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Servicio Técnico', path: MODULE_PATHS.repairs,  icon: Wrench });
   }

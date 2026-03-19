@@ -44,6 +44,8 @@ const CreditNotes        = lazy(() => import('./pages/CreditNotes'));
 const Reports            = lazy(() => import('./pages/Reports'));
 const PublicCatalog      = lazy(() => import('./pages/PublicCatalog'));
 const WarehouseDisplay   = lazy(() => import('./pages/WarehouseDisplay'));
+const Gimnasio           = lazy(() => import('./pages/Gimnasio'));
+const Panaderia          = lazy(() => import('./pages/Panaderia'));
 
 // ── CORRECCIÓN AUTH-04 / FRO-01 ───────────────────────────────────────────────
 // Las constantes sensibles se mueven a variables de entorno .env
@@ -495,6 +497,8 @@ const AppRoutes: React.FC = () => (
       <Route path="/apartados"     element={<Apartados />} />
       <Route path="/lavadero"      element={<Lavadero />} />
       <Route path="/warehouse"     element={<WarehouseDisplay />} />
+      <Route path="/gimnasio"       element={<Gimnasio />} />
+      <Route path="/panaderia"      element={<Panaderia />} />
     </Routes>
   </Suspense>
 );
