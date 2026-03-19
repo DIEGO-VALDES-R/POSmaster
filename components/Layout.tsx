@@ -52,6 +52,7 @@ const MODULE_PATHS: Record<string, string> = {
   optometria:  '/optometria',
   receivables: '/receivables',
   payables:    '/payables',
+  warehouse:   '/warehouse',
   supplies:    '/supplies',
   team:        '/team',
   nomina:      '/nomina',
@@ -72,9 +73,23 @@ function getNavItems(
   isAdmin: boolean,
   isPro: boolean,
   hasFeature: (f: string) => boolean,
+  customRole?: string | null,
 ): NavEntry[] {
   const p = (key: string) => hasPermission(key) || isAdmin;
   const type = businessType || 'general';
+
+  // ── Vista simplificada para Bodeguero ───────────────────────
+  if (customRole === 'bodeguero') {
+    const items: NavEntry[] = [
+      { label: 'Dashboard',         path: MODULE_PATHS.dashboard,  icon: LayoutDashboard },
+      { group: 'Bodega', items: [
+        { label: 'Display Bodega',   path: MODULE_PATHS.warehouse,  icon: Package },
+        { label: 'Inventario',       path: MODULE_PATHS.inventory,  icon: Package },
+        { label: 'Órdenes de Compra',path: MODULE_PATHS.purchases,  icon: Truck },
+      ]},
+    ];
+    return items;
+  }
 
   const invLabel =
     ['restaurante','restaurant','cocina','cafeteria'].includes(type) ? 'Insumos Cocina' :
@@ -342,7 +357,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const navigate  = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { currency, setCurrency } = useCurrency();
-  const { company, companyId, isLoading, userRole, hasPermission, hasFeature, switchCompany } = useDatabase();
+  const { company, companyId, isLoading, userRole, customRole, hasPermission, hasFeature, switchCompany } = useDatabase();
   const [childBranches, setChildBranches] = useState<any[]>([]);
   const [switching, setSwitching] = useState(false);
 
@@ -494,7 +509,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
                 companyId={rootCid}
                 name={companyName}
                 businessType={bt}
-                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature)}
+                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature, customRole)}
                 activeSectionId={activeSectionId}
                 setActiveSectionId={setActiveSectionIdState}
                 fontColor={fontColor}
@@ -519,7 +534,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
                 branchLinkId={b.id}
                 name={b.name}
                 businessType={bt}
-                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature)}
+                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature, customRole)}
                 activeSectionId={activeSectionId}
                 setActiveSectionId={setActiveSectionIdState}
                 fontColor={fontColor}

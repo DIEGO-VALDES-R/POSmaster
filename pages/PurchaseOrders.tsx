@@ -738,6 +738,12 @@ const PurchaseOrders: React.FC = () => {
           <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
           <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
         </div>
+        <button
+          onClick={() => { window.location.hash = '/warehouse'; }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-sm"
+          title="Ir al Display de Bodega">
+          📦 Display Bodega
+        </button>
         <button onClick={() => { setEditOrder(null); setShowForm(true); }}
           className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 shadow-sm">
           <Plus size={16} /> Nueva orden
