@@ -4,14 +4,27 @@ import { toast } from 'react-hot-toast';
 
 const WHATSAPP_NUMBER = '573204884943';
 const CONTACT_EMAIL = 'info@posmaster.org';
-const BOLD_PAYMENT_URL = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
-const BOLD_PAYMENT_PRO_URL = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
+const BOLD_PAYMENT_URL_DEFAULT = 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
+const BOLD_PAYMENT_PRO_URL_DEFAULT = 'https://checkout.bold.co/payment/LNK_F385LJNMKI';
 const EDGE_URL = `${(supabase as any).supabaseUrl}/functions/v1/master-admin-actions`;
 
 // ── LANDING PAGE ─────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void; onClientPortal?: () => void }> = ({ onLogin, onRegister, onClientPortal }) => {
   const [scrolled, setScrolled] = useState(false);
   const [activeBiz, setActiveBiz] = useState(0);
+  const [boldBasicUrl, setBoldBasicUrl] = useState(BOLD_PAYMENT_URL_DEFAULT);
+  const [boldProUrl,   setBoldProUrl]   = useState(BOLD_PAYMENT_PRO_URL_DEFAULT);
+
+  useEffect(() => {
+    supabase.from('platform_settings').select('key, value')
+      .in('key', ['bold_basic_url', 'bold_pro_url'])
+      .then(({ data }) => {
+        (data || []).forEach((row: any) => {
+          if (row.key === 'bold_basic_url' && row.value) setBoldBasicUrl(row.value);
+          if (row.key === 'bold_pro_url'   && row.value) setBoldProUrl(row.value);
+        });
+      }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 40);
@@ -816,7 +829,7 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
               <p style={{ color: '#fde047', fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Cuenta en revisión</p>
               <p style={{ color: '#94a3b8', fontSize: 13 }}>Tu cuenta fue creada pero está pendiente de activación. Contáctanos para activarla.</p>
             </div>
-            <a href={BOLD_PAYMENT_URL} target="_blank" rel="noreferrer"
+            <a href={boldBasicUrl} target="_blank" rel="noreferrer"
               style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', color: '#fff', padding: '14px', borderRadius: 10, fontWeight: 700, fontSize: 15, textDecoration: 'none', textAlign: 'center', display: 'block' }}>
               💳 Pagar con Bold
             </a>
@@ -1033,7 +1046,18 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
   const [creating, setCreating] = useState(false);
   const [contracts, setContracts] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'clients' | 'contracts'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'contracts' | 'payment_links'>('clients');
+  const [paymentLinks, setPaymentLinks] = useState<Record<string, string>>({});
+  const [savingLinks, setSavingLinks] = useState(false);
+
+  const loadPaymentLinks = async () => {
+    const { data } = await supabase.from('platform_settings').select('key, value').eq('category', 'payment');
+    if (data) {
+      const map: Record<string, string> = {};
+      data.forEach((row: any) => { map[row.key] = row.value; });
+      setPaymentLinks(map);
+    }
+  };
 
   const [newCompany, setNewCompany] = useState({
     name: '', nit: '', email: '', phone: '', plan: 'BASIC',
@@ -1076,6 +1100,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
 
   const load = async () => {
     setLoading(true);
+    loadPaymentLinks();
     const { data } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
     try {
       const { data: contractsData } = await supabase.from('contracts').select('*').order('created_at', { ascending: false });
@@ -1335,6 +1360,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           {[
             { key: 'clients', label: '🏢 Clientes', count: companies.length },
             { key: 'contracts', label: '📄 Contratos', count: contracts.filter(c => c.status === 'SIGNED').length },
+            { key: 'payment_links', label: '🔗 Links de Pago', count: 0 },
           ].map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
               style={{ padding: '10px 20px', border: 'none', borderBottom: activeTab === tab.key ? '3px solid #3b82f6' : '3px solid transparent',
@@ -1430,7 +1456,54 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         )}
 
-        {/* TAB CLIENTES */}
+        {/* ── TAB: LINKS DE PAGO ─────────────────────────────── */}
+        {activeTab === 'payment_links' && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ fontWeight: 800, fontSize: 20, color: '#0f172a', marginBottom: 6 }}>🔗 Links de Pago — Bold</h3>
+              <p style={{ color: '#64748b', fontSize: 13 }}>Actualiza los links de Bold aquí. Se reflejan automáticamente en la landing page sin tocar el código.</p>
+            </div>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 28, border: '1px solid #e2e8f0', maxWidth: 600 }}>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', fontWeight: 700, fontSize: 13, color: '#374151', marginBottom: 6 }}>💳 Plan Básico — URL de pago Bold</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="url" value={paymentLinks['bold_basic_url'] || ''} onChange={e => setPaymentLinks(p => ({ ...p, bold_basic_url: e.target.value }))} placeholder="https://checkout.bold.co/payment/LNK_..."
+                    style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }} />
+                  <a href={paymentLinks['bold_basic_url'] || '#'} target="_blank" rel="noreferrer"
+                    style={{ padding: '8px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, color: '#64748b', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+                    Probar ↗
+                  </a>
+                </div>
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', fontWeight: 700, fontSize: 13, color: '#374151', marginBottom: 6 }}>💳 Plan Profesional — URL de pago Bold</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="url" value={paymentLinks['bold_pro_url'] || ''} onChange={e => setPaymentLinks(p => ({ ...p, bold_pro_url: e.target.value }))} placeholder="https://checkout.bold.co/payment/LNK_..."
+                    style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }} />
+                  <a href={paymentLinks['bold_pro_url'] || '#'} target="_blank" rel="noreferrer"
+                    style={{ padding: '8px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, color: '#64748b', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+                    Probar ↗
+                  </a>
+                </div>
+              </div>
+              <button onClick={async () => {
+                setSavingLinks(true);
+                try {
+                  for (const [key, value] of Object.entries(paymentLinks)) {
+                    await supabase.from('platform_settings').upsert({ key, value, category: 'payment' }, { onConflict: 'key' });
+                  }
+                  toast.success('✅ Links actualizados correctamente');
+                } catch { toast.error('Error guardando los links'); }
+                finally { setSavingLinks(false); }
+              }} disabled={savingLinks}
+                style={{ width: '100%', padding: '11px 0', background: savingLinks ? '#94a3b8' : '#0f172a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: savingLinks ? 'not-allowed' : 'pointer' }}>
+                {savingLinks ? 'Guardando...' : '💾 Guardar Links de Pago'}
+              </button>
+            </div>
+          </div>
+        )}
+
+                {/* TAB CLIENTES */}
         {activeTab === 'clients' && <div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 16, marginBottom: 32 }}>

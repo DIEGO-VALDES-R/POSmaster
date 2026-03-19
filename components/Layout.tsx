@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
-  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw,
+  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -51,6 +51,7 @@ const MODULE_PATHS: Record<string, string> = {
   shoe:        '/shoe-repair',
   optometria:  '/optometria',
   receivables: '/receivables',
+  payables:    '/payables',
   supplies:    '/supplies',
   team:        '/team',
   nomina:      '/nomina',
@@ -116,7 +117,8 @@ function getNavItems(
   // ── Grupo Clientes y Finanzas ────────────────────────────────
   const finanzasItems: NavItem[] = [];
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Clientes',       path: MODULE_PATHS.customers,   icon: UserRound });
-  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',  path: MODULE_PATHS.receivables, icon: FileText });
+  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',   path: MODULE_PATHS.receivables, icon: FileText });
+  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cuentas x Pagar', path: MODULE_PATHS.payables,    icon: CreditCard });
 
   // ── Grupo Módulo vertical ────────────────────────────────────
   const moduloItems: NavItem[] = [];
