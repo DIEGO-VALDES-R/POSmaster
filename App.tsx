@@ -500,7 +500,7 @@ const AppRoutes: React.FC = () => (
 );
 
 // ── APP ───────────────────────────────────────────────────────────────────────
-type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due' | 'preview' | 'portal';
+type AppView = 'landing' | 'login' | 'register' | 'app' | 'admin' | 'pending' | 'past_due' | 'preview' | 'portal' | 'warehouse';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -544,7 +544,7 @@ const App: React.FC = () => {
         // ── CORRECCIÓN AUTH-04 — Super admin verificado en BD, no hardcodeado ──
         const { data: profile } = await supabase
           .from('profiles')
-          .select('company_id, is_super_admin')
+          .select('company_id, is_super_admin, custom_role')
           .eq('id', session.user.id)
           .maybeSingle();
 
@@ -556,6 +556,13 @@ const App: React.FC = () => {
         }
 
         if (!profile?.company_id) { setView('pending'); setChecking(false); return; }
+
+        // ── Bodeguero → directo al display de bodega sin Layout ──
+        if (profile.custom_role === 'bodeguero') {
+          setView('warehouse');
+          setChecking(false);
+          return;
+        }
 
         const { data: company } = await supabase
           .from('companies')
@@ -603,6 +610,19 @@ const App: React.FC = () => {
         <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0);opacity:.3}40%{transform:scale(1);opacity:1}}`}</style>
       </div>
     </div>
+  );
+
+  if (view === 'warehouse') return (
+    <>
+      <Toaster position="top-right" />
+      <Router>
+        <DatabaseProvider>
+          <Suspense fallback={<PageLoader />}>
+            <WarehouseDisplay />
+          </Suspense>
+        </DatabaseProvider>
+      </Router>
+    </>
   );
 
   if (view === 'admin')    return (<><Toaster position="top-right" /><AdminPanel onExit={() => supabase.auth.signOut()} onPreview={(id: string) => { setPreviewCompanyId(id); setView('preview'); }} /></>);
