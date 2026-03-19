@@ -1372,11 +1372,6 @@ const Inventory: React.FC = () => {
             ? new Date((p as any).created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit' })
             : '—'}
         </td>
-        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-          {(p as any).created_at
-            ? new Date((p as any).created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit' })
-            : '—'}
-        </td>
         <td className="px-4 py-3">
           <div className="flex gap-2">
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
