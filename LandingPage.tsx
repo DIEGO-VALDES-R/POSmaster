@@ -15,6 +15,20 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
   const [boldBasicUrl, setBoldBasicUrl] = useState(BOLD_PAYMENT_URL_DEFAULT);
   const [boldProUrl,   setBoldProUrl]   = useState(BOLD_PAYMENT_PRO_URL_DEFAULT);
 
+  // ── Calculadora add-ons ────────────────────────────────────
+  const [addonBranches,  setAddonBranches]  = useState(0);
+  const [addonEmployees, setAddonEmployees] = useState(0);
+
+  // Precios de add-ons (en pesos, sin formato)
+  const ADDON_BRANCH_PRICE   = 39900;
+  const ADDON_EMPLOYEE_PRICE = 12900;
+
+  // Parsear precio del plan desde string "$X.XXX" a número
+  const parsePrice = (s: string) => {
+    const n = parseInt(s.replace(/[^0-9]/g, ''));
+    return isNaN(n) ? 0 : n;
+  };
+
   // ── Precios dinámicos desde platform_settings ──────────────
   const [planPrices, setPlanPrices] = useState<Record<string, string>>({
     basic_price: '$65.000', pro_price: '$120.000', enterprise_price: '$249.900',
@@ -539,7 +553,197 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
         </div>
       </section>
 
-      {/* ── COMPARATIVA ── */}
+      {/* ── CALCULADORA ADD-ONS ── */}
+      <section style={{padding:'0 6% 80px', background:C.bg2}}>
+        <div style={{maxWidth:860,margin:'0 auto'}}>
+
+          {/* Header */}
+          <div style={{textAlign:'center',marginBottom:40}}>
+            <p style={{color:'#f59e0b',fontWeight:700,fontSize:13,letterSpacing:2,textTransform:'uppercase',marginBottom:10}}>
+              ¿Necesitas más?
+            </p>
+            <h2 style={{fontFamily:"'Syne',sans-serif",fontSize:'clamp(1.4rem,3vw,2rem)',fontWeight:800,letterSpacing:'-1px',marginBottom:10}}>
+              Agrega lo que necesitas al Plan Basic
+            </h2>
+            <p style={{color:C.dim,fontSize:15}}>
+              Calcula si te conviene más pagar add-ons o saltar directo al Plan Pro.
+            </p>
+          </div>
+
+          {/* Calculator card */}
+          <div style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:24,padding:32}}>
+
+            {/* Controls */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:32}}>
+              {/* Branches */}
+              <div style={{background:'rgba(255,255,255,0.03)',borderRadius:16,padding:20,border:'1px solid rgba(255,255,255,0.07)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                  <div>
+                    <p style={{fontWeight:700,fontSize:15,color:C.text,margin:0}}>🏪 Sucursales adicionales</p>
+                    <p style={{fontSize:12,color:C.dim,margin:'4px 0 0'}}>La sede principal ya está incluida</p>
+                  </div>
+                  <p style={{fontSize:13,color:'#f59e0b',fontWeight:700,margin:0,flexShrink:0,paddingLeft:8}}>
+                    ${(39900).toLocaleString('es-CO')} c/u
+                  </p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                  <button
+                    onClick={() => setAddonBranches(Math.max(0, addonBranches - 1))}
+                    style={{width:34,height:34,borderRadius:8,border:'1px solid rgba(255,255,255,0.15)',background:'rgba(255,255,255,0.06)',color:C.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                    −
+                  </button>
+                  <span style={{fontSize:24,fontWeight:900,color:C.text,minWidth:32,textAlign:'center'}}>{addonBranches}</span>
+                  <button
+                    onClick={() => setAddonBranches(Math.min(5, addonBranches + 1))}
+                    style={{width:34,height:34,borderRadius:8,border:'1px solid rgba(255,255,255,0.15)',background:'rgba(255,255,255,0.06)',color:C.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                    +
+                  </button>
+                  <span style={{fontSize:13,color:C.muted,marginLeft:4}}>
+                    {addonBranches === 0 ? 'Incluida 1 sede' : `${addonBranches + 1} sedes en total`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Employees */}
+              <div style={{background:'rgba(255,255,255,0.03)',borderRadius:16,padding:20,border:'1px solid rgba(255,255,255,0.07)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                  <div>
+                    <p style={{fontWeight:700,fontSize:15,color:C.text,margin:0}}>👤 Empleados adicionales</p>
+                    <p style={{fontSize:12,color:C.dim,margin:'4px 0 0'}}>Plan Basic: solo el propietario</p>
+                  </div>
+                  <p style={{fontSize:13,color:'#f59e0b',fontWeight:700,margin:0,flexShrink:0,paddingLeft:8}}>
+                    ${(12900).toLocaleString('es-CO')} c/u
+                  </p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                  <button
+                    onClick={() => setAddonEmployees(Math.max(0, addonEmployees - 1))}
+                    style={{width:34,height:34,borderRadius:8,border:'1px solid rgba(255,255,255,0.15)',background:'rgba(255,255,255,0.06)',color:C.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                    −
+                  </button>
+                  <span style={{fontSize:24,fontWeight:900,color:C.text,minWidth:32,textAlign:'center'}}>{addonEmployees}</span>
+                  <button
+                    onClick={() => setAddonEmployees(Math.min(10, addonEmployees + 1))}
+                    style={{width:34,height:34,borderRadius:8,border:'1px solid rgba(255,255,255,0.15)',background:'rgba(255,255,255,0.06)',color:C.text,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                    +
+                  </button>
+                  <span style={{fontSize:13,color:C.muted,marginLeft:4}}>
+                    {addonEmployees === 0 ? 'Sin empleados' : `${addonEmployees} empleado${addonEmployees !== 1 ? 's' : ''}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Result comparison */}
+            {(() => {
+              const basicBase     = parsePrice(planPrices.basic_price);
+              const proBase       = parsePrice(planPrices.pro_price);
+              const addonCost     = addonBranches * ADDON_BRANCH_PRICE + addonEmployees * ADDON_EMPLOYEE_PRICE;
+              const basicTotal    = basicBase + addonCost;
+              const saving        = basicTotal - proBase;
+              const showComparison = addonBranches > 0 || addonEmployees > 0;
+
+              const fmt = (n: number) => '$' + n.toLocaleString('es-CO');
+
+              return (
+                <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:16,alignItems:'center'}}>
+                  {/* Basic + addons */}
+                  <div style={{background:saving > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(100,116,139,0.12)',border:`1px solid ${saving > 0 ? 'rgba(239,68,68,0.25)' : 'rgba(100,116,139,0.25)'}`,borderRadius:16,padding:20,textAlign:'center'}}>
+                    <p style={{fontSize:12,color:C.dim,margin:'0 0 6px',textTransform:'uppercase',letterSpacing:1,fontWeight:600}}>Basic + Add-ons</p>
+                    <p style={{fontSize:32,fontWeight:900,color:saving > 0 ? '#ef4444' : C.text,margin:'0 0 4px',letterSpacing:'-1px'}}>{fmt(basicTotal)}</p>
+                    <p style={{fontSize:12,color:C.muted,margin:0}}>/mes</p>
+                    {showComparison && addonCost > 0 && (
+                      <div style={{marginTop:10,fontSize:11,color:C.dim}}>
+                        {fmt(basicBase)} base
+                        {addonBranches > 0 && ` + ${fmt(addonBranches * ADDON_BRANCH_PRICE)} sedes`}
+                        {addonEmployees > 0 && ` + ${fmt(addonEmployees * ADDON_EMPLOYEE_PRICE)} empleados`}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* vs */}
+                  <div style={{textAlign:'center',padding:'0 8px'}}>
+                    <p style={{fontSize:13,color:C.muted,fontWeight:700}}>vs</p>
+                  </div>
+
+                  {/* Pro */}
+                  <div style={{background:saving > 0 ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.06)',border:`1px solid ${saving > 0 ? 'rgba(59,130,246,0.4)' : 'rgba(59,130,246,0.15)'}`,borderRadius:16,padding:20,textAlign:'center',position:'relative'}}>
+                    {saving > 0 && (
+                      <div style={{position:'absolute',top:-12,left:'50%',transform:'translateX(-50%)',background:'linear-gradient(135deg,#3b82f6,#6366f1)',color:'#fff',padding:'3px 14px',borderRadius:100,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>
+                        ✓ MEJOR OPCIÓN
+                      </div>
+                    )}
+                    <p style={{fontSize:12,color:C.blue,margin:'0 0 6px',textTransform:'uppercase',letterSpacing:1,fontWeight:600}}>Plan Pro</p>
+                    <p style={{fontSize:32,fontWeight:900,color:saving > 0 ? '#3b82f6' : C.text,margin:'0 0 4px',letterSpacing:'-1px'}}>{fmt(proBase)}</p>
+                    <p style={{fontSize:12,color:C.muted,margin:0}}>/mes · todo incluido</p>
+                    {saving > 0 && (
+                      <div style={{marginTop:10,padding:'6px 12px',background:'rgba(59,130,246,0.15)',borderRadius:8,fontSize:12,color:'#93c5fd',fontWeight:600}}>
+                        Ahorras {fmt(saving)}/mes
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Recommendation tip */}
+            {(() => {
+              const basicBase  = parsePrice(planPrices.basic_price);
+              const proBase    = parsePrice(planPrices.pro_price);
+              const addonCost  = addonBranches * ADDON_BRANCH_PRICE + addonEmployees * ADDON_EMPLOYEE_PRICE;
+              const basicTotal = basicBase + addonCost;
+              const saving     = basicTotal - proBase;
+              const fmt = (n: number) => '$' + n.toLocaleString('es-CO');
+              if (addonBranches === 0 && addonEmployees === 0) return (
+                <p style={{textAlign:'center',color:C.muted,fontSize:13,marginTop:20}}>
+                  👆 Mueve los controles para ver cuándo te conviene cada plan
+                </p>
+              );
+              if (saving > 0) return (
+                <div style={{marginTop:20,padding:'14px 20px',background:'rgba(59,130,246,0.1)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:12,textAlign:'center'}}>
+                  <p style={{color:'#93c5fd',fontSize:14,fontWeight:600,margin:0}}>
+                    Con {addonBranches > 0 ? `${addonBranches} sucursal${addonBranches !== 1 ? 'es' : ''} adicional${addonBranches !== 1 ? 'es' : ''}` : ''}{addonBranches > 0 && addonEmployees > 0 ? ' y ' : ''}{addonEmployees > 0 ? `${addonEmployees} empleado${addonEmployees !== 1 ? 's' : ''}` : ''}, el Plan Pro te ahorra <strong>{fmt(saving)}/mes</strong>. Vale la pena actualizar.
+                  </p>
+                  <button onClick={onRegister} style={{marginTop:10,background:'linear-gradient(135deg,#3b82f6,#6366f1)',border:'none',color:'#fff',padding:'10px 24px',borderRadius:10,cursor:'pointer',fontWeight:700,fontSize:14}}>
+                    Ver Plan Pro →
+                  </button>
+                </div>
+              );
+              return (
+                <div style={{marginTop:20,padding:'14px 20px',background:'rgba(100,116,139,0.1)',border:'1px solid rgba(100,116,139,0.2)',borderRadius:12,textAlign:'center'}}>
+                  <p style={{color:C.dim,fontSize:13,margin:0}}>
+                    Por ahora el Plan Basic con add-ons ({fmt(basicTotal)}/mes) te sale <strong style={{color:C.text}}>{fmt(proBase - basicTotal)} más barato</strong> que el Pro. Cuando necesites más, actualizar es un clic.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* What each add-on includes */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginTop:24}}>
+            {[
+              { icon:'🏪', title:'Sucursal adicional', price:`$${(39900).toLocaleString('es-CO')}/mes`, features:['Caja independiente','Inventario separado','Usuarios propios','Reportes por sede'] },
+              { icon:'👤', title:'Empleado adicional', price:`$${(12900).toLocaleString('es-CO')}/mes`, features:['Acceso con rol definido','PIN de acceso rápido','Permisos configurables','Registro en turnos de caja'] },
+            ].map(a => (
+              <div key={a.title} style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:16,padding:20}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <p style={{fontWeight:700,fontSize:14,color:C.text,margin:0}}>{a.icon} {a.title}</p>
+                  <span style={{fontSize:13,fontWeight:700,color:'#f59e0b'}}>{a.price}</span>
+                </div>
+                <ul style={{listStyle:'none',padding:0,margin:0}}>
+                  {a.features.map(f => (
+                    <li key={f} style={{fontSize:12,color:C.dim,marginBottom:5,display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{color:'#22c55e',fontWeight:700,fontSize:11}}>✓</span>{f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+            {/* ── COMPARATIVA ── */}
       <section style={{padding:'60px 6%'}}>
         <div style={{maxWidth:1000,margin:'0 auto'}}>
           <h2 style={{fontFamily:"'Syne',sans-serif",textAlign:'center',fontSize:'clamp(1.4rem,3vw,2rem)',fontWeight:800,marginBottom:8,letterSpacing:'-1px'}}>
@@ -655,7 +859,7 @@ export const LandingPage: React.FC<{ onLogin: () => void; onRegister: () => void
           <span style={{fontWeight:700,color:C.dim}}>POSmaster</span>
         </div>
         <p style={{margin:'0 0 6px'}}>Hecho con ❤️ para negocios colombianos</p>
-        <p style={{margin:0}}>© 2026 POSmaster. Todos los derechos reservados.</p>
+        <p style={{margin:0}}>© 2025 POSmaster. Todos los derechos reservados.</p>
       </footer>
     </div>
   );
