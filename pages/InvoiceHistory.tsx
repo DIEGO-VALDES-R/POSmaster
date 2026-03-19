@@ -18,7 +18,9 @@ interface InvoiceItem {
   price: number;
   tax_rate: number;
   serial_number?: string;
-  products?: { name: string };
+  products?: { name: string; sku?: string; barcode?: string };
+  sku?: string;
+  barcode?: string;
 }
 
 interface Invoice {
@@ -174,7 +176,14 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
                 const virtualItems = (invoice.payment_method as any)?.virtual_items || [];
                 // Para apartados, construir item desde las notas de la factura
                 const allItems = [
-                  ...realItems.map((item: any) => ({ name: item.description || item.products?.name || 'Producto', qty: item.quantity, price: item.price, serial: item.serial_number })),
+                  ...realItems.map((item: any) => ({
+                    name:    item.description || item.products?.name || 'Producto',
+                    qty:     item.quantity,
+                    price:   item.price,
+                    serial:  item.serial_number,
+                    sku:     item.sku     || item.products?.sku     || '',
+                    barcode: item.barcode || item.products?.barcode || '',
+                  })),
                   ...virtualItems.map((v: any) => ({ name: v.name || 'Servicio', qty: v.quantity, price: v.price, serial: null })),
                 ];
                 // Si es apartado y no hay items, mostrar descripción desde notas
@@ -200,8 +209,22 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
                   <tr key={idx} className="border-b border-slate-100">
                     <td className="py-2 align-top">{item.qty}</td>
                     <td className="py-2 align-top">
-                      <div>{item.name}</div>
-                      {item.serial && <div className="text-[10px] text-slate-500">SN: {item.serial}</div>}
+                      <div className="font-medium">{item.name}</div>
+                      {item.sku && (
+                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
+                          SKU: <span className="font-bold text-slate-700">{item.sku}</span>
+                        </div>
+                      )}
+                      {item.barcode && item.barcode !== item.sku && (
+                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
+                          Cód: <span className="font-bold text-slate-700">{item.barcode}</span>
+                        </div>
+                      )}
+                      {item.serial && (
+                        <div className="text-[10px] text-amber-700 font-mono leading-tight">
+                          IMEI: {item.serial}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 text-right align-top">{formatMoney(item.price * item.qty)}</td>
                   </tr>
@@ -332,7 +355,7 @@ const InvoiceHistory: React.FC = () => {
     try {
       let query = supabase
         .from('invoices')
-        .select('*, invoice_items(id, product_id, description, quantity, price, tax_rate, serial_number, products(name))', { count: 'exact' })
+        .select('*, invoice_items(id, product_id, description, quantity, price, tax_rate, serial_number, sku, barcode, products(name, sku, barcode))', { count: 'exact' })
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE - 1);
@@ -712,10 +735,12 @@ const InvoiceHistory: React.FC = () => {
                                   const virtualItems: any[] = (inv.payment_method as any)?.virtual_items || [];
                                   const allItems = [
                                     ...realItems.map((item: any) => ({
-                                      name: item.description || item.products?.name || 'Producto',
-                                      qty: item.quantity,
-                                      price: item.price,
-                                      serial: item.serial_number,
+                                      name:    item.description || item.products?.name || 'Producto',
+                                      qty:     item.quantity,
+                                      price:   item.price,
+                                      serial:  item.serial_number,
+                                      sku:     item.sku     || item.products?.sku     || '',
+                                      barcode: item.barcode || item.products?.barcode || '',
                                     })),
                                     ...virtualItems.map((v: any) => ({
                                       name: v.name || 'Servicio',
@@ -736,12 +761,28 @@ const InvoiceHistory: React.FC = () => {
                                     <div className="space-y-1">
                                       {allItems.map((item, idx) => (
                                         <div key={idx} className="flex justify-between text-xs bg-white rounded-lg px-3 py-2 border border-slate-100">
-                                          <div>
-                                            <span className="font-medium text-slate-700">{item.name}</span>
-                                            {item.serial && <span className="ml-2 text-[10px] bg-yellow-50 text-yellow-700 px-1 rounded font-mono">SN: {item.serial}</span>}
-                                            <span className="text-slate-400 ml-2">x{item.qty}</span>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="font-medium text-slate-700">{item.name}</div>
+                                            <div className="flex flex-wrap gap-1 mt-0.5">
+                                              {item.sku && (
+                                                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">
+                                                  SKU: {item.sku}
+                                                </span>
+                                              )}
+                                              {item.barcode && item.barcode !== item.sku && (
+                                                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">
+                                                  Cód: {item.barcode}
+                                                </span>
+                                              )}
+                                              {item.serial && (
+                                                <span className="text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded font-mono">
+                                                  IMEI: {item.serial}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="text-slate-400 text-[10px]">x{item.qty}</span>
                                           </div>
-                                          <span className="font-bold text-slate-800">{formatMoney(item.price * item.qty)}</span>
+                                          <span className="font-bold text-slate-800 ml-2">{formatMoney(item.price * item.qty)}</span>
                                         </div>
                                       ))}
                                     </div>

@@ -416,9 +416,18 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
     status: initial?.status || 'DRAFT' as PurchaseOrder['status'],
   });
 
-  const [items, setItems] = useState<POItem[]>(
-    initial?.purchase_order_items?.length ? initial.purchase_order_items : [{ ...EMPTY_ITEM }]
-  );
+  const [items, setItems] = useState<POItem[]>(() => {
+    if (initial?.purchase_order_items?.length) return initial.purchase_order_items;
+    try {
+      const prefill = sessionStorage.getItem('posmaster_po_prefill');
+      if (prefill) {
+        sessionStorage.removeItem('posmaster_po_prefill');
+        const p = JSON.parse(prefill);
+        return [{ ...EMPTY_ITEM, ...p }];
+      }
+    } catch {}
+    return [{ ...EMPTY_ITEM }];
+  });
 
   const subtotal    = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost, 0);
   const taxAmount   = items.reduce((s, i) => s + i.quantity_ordered * i.unit_cost * (i.tax_rate / 100), 0);
@@ -651,6 +660,33 @@ const PurchaseOrders: React.FC = () => {
   const [receiveOrder, setReceiveOrder] = useState<PurchaseOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PurchaseOrder | null>(null);
 
+  // ── Productos agotados (stock = 0) ──────────────────────────
+  const [showZeroStock, setShowZeroStock] = useState(false);
+  const [zeroStockSearch, setZeroStockSearch] = useState('');
+
+  const zeroStockProducts = (products || []).filter(p =>
+    p.stock_quantity <= 0 &&
+    p.type !== 'SERVICE' &&
+    (p as any).type !== 'WEIGHABLE' &&
+    (!zeroStockSearch ||
+      p.name.toLowerCase().includes(zeroStockSearch.toLowerCase()) ||
+      (p.sku || '').toLowerCase().includes(zeroStockSearch.toLowerCase()) ||
+      ((p as any).category || '').toLowerCase().includes(zeroStockSearch.toLowerCase()))
+  );
+
+  const addZeroStockToNewOrder = (product: Product) => {
+    setShowZeroStock(false);
+    sessionStorage.setItem('posmaster_po_prefill', JSON.stringify({
+      product_id: product.id,
+      description: product.name,
+      sku: product.sku || '',
+      unit_cost: product.cost || 0,
+      tax_rate: (product as any).tax_rate || 19,
+    }));
+    setEditOrder(null);
+    setShowForm(true);
+  };
+
   const load = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
@@ -722,6 +758,68 @@ const PurchaseOrders: React.FC = () => {
             <p className="text-xs text-slate-500">{k.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* ── Panel Productos Agotados ─────────────────────────────── */}
+      <div className="bg-red-50 border border-red-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowZeroStock(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-red-100 transition-colors">
+          <div className="flex items-center gap-2">
+            <Package size={16} className="text-red-500" />
+            <span className="font-bold text-red-700 text-sm">Productos Agotados (Stock = 0)</span>
+            <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {(products || []).filter(p => p.stock_quantity <= 0 && p.type !== 'SERVICE').length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-red-500 font-medium">
+            {showZeroStock ? 'Ocultar' : 'Ver y agregar a orden'}
+            <ChevronDown size={14} className={`transition-transform ${showZeroStock ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {showZeroStock && (
+          <div className="border-t border-red-200 p-4">
+            <div className="relative mb-3">
+              <Search size={13} className="absolute left-3 top-2.5 text-slate-400" />
+              <input
+                className="w-full pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-300"
+                placeholder="Filtrar por nombre, SKU o categoría..."
+                value={zeroStockSearch}
+                onChange={e => setZeroStockSearch(e.target.value)}
+              />
+            </div>
+            {zeroStockProducts.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Package size={28} className="mx-auto mb-2 opacity-40" />
+                <p className="text-sm font-medium">{zeroStockSearch ? 'Sin coincidencias' : '¡Sin productos agotados! 🎉'}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+                {zeroStockProducts.map(p => (
+                  <div key={p.id} className="flex items-center justify-between bg-white border border-red-100 rounded-lg px-3 py-2.5 hover:border-red-300 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {p.sku && <span className="text-[10px] text-slate-400 font-mono">{p.sku}</span>}
+                        {(p as any).category && <span className="text-[10px] text-slate-400">{(p as any).category}</span>}
+                      </div>
+                      <span className="text-[10px] font-bold text-red-500">Stock: {p.stock_quantity}</span>
+                    </div>
+                    <button
+                      onClick={() => addZeroStockToNewOrder(p)}
+                      title="Crear orden de compra con este producto"
+                      className="ml-2 p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex-shrink-0">
+                      <Plus size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400 mt-3 text-center">
+              Haz clic en <strong>+</strong> para crear una orden de compra con ese producto pre-cargado.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Filters */}

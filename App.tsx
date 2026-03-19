@@ -16,6 +16,7 @@ const Inventory          = lazy(() => import('./pages/Inventory'));
 const Repairs            = lazy(() => import('./pages/Repairs'));
 const CashControl        = lazy(() => import('./pages/CashControl'));
 const AccountsReceivable = lazy(() => import('./pages/AccountsReceivable'));
+const AccountsPayable    = lazy(() => import('./pages/AccountsPayable'));
 const InvoiceHistory     = lazy(() => import('./pages/InvoiceHistory'));
 const Settings           = lazy(() => import('./pages/Settings'));
 const Branches           = lazy(() => import('./pages/Branches'));
@@ -468,6 +469,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/repairs"      element={<Repairs />} />
       <Route path="/cash-control" element={<CashControl />} />
       <Route path="/receivables"  element={<AccountsReceivable />} />
+      <Route path="/payables"     element={<AccountsPayable />} />
       <Route path="/invoices"     element={<InvoiceHistory />} />
       <Route path="/settings"     element={<Settings />} />
       <Route path="/branches"     element={<Branches />} />

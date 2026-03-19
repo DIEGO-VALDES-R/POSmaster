@@ -189,6 +189,67 @@ const EXPENSE_CATEGORIES = [
   { id: 'otro',       label: 'Otro' },
 ];
 
+
+// ── Generador PDF de Turno ───────────────────────────────────────────────────
+function generateCashPDF(opts: {
+  company: any; session: any; expenses: any[];
+  turnInvoices: any[]; totalExpenses: number; formatMoney: (n: number) => string;
+}) {
+  const { company, session, expenses, turnInvoices, totalExpenses, formatMoney } = opts;
+  const isOpen = session?.status === 'OPEN';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  const totalVentas = (session?.total_sales_cash || 0) + (session?.total_sales_card || 0);
+  const totalEsperado = (session?.start_cash || 0) + (session?.total_sales_cash || 0) - totalExpenses;
+
+  const invoiceRows = turnInvoices.slice(0, 60).map((inv: any) => {
+    const method = inv.payment_method?.method || inv.payment_method || 'CASH';
+    const hour = new Date(inv.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    return `<tr style="border-bottom:1px solid #f8fafc"><td style="padding:5px 8px;font-size:12px;font-weight:600">${inv.invoice_number}</td><td style="padding:5px 8px;font-size:12px;color:#64748b">${hour}</td><td style="padding:5px 8px;font-size:12px">${method}</td><td style="padding:5px 8px;font-size:12px;text-align:right;font-weight:700">${formatMoney(inv.total_amount)}</td></tr>`;
+  }).join('');
+
+  const expenseRows = expenses.map((exp: any) => {
+    const hour = new Date(exp.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    return `<tr style="border-bottom:1px solid #f8fafc"><td style="padding:5px 8px;font-size:12px;font-weight:600">${exp.concept}</td><td style="padding:5px 8px;font-size:12px;color:#64748b">${exp.category}</td><td style="padding:5px 8px;font-size:12px;color:#64748b">${hour}</td><td style="padding:5px 8px;font-size:12px;text-align:right;font-weight:700;color:#ef4444">- ${formatMoney(exp.amount)}</td></tr>`;
+  }).join('');
+
+  const diffHtml = (() => {
+    if (!session?.end_time) return '';
+    const diff = (session.end_cash || 0) - totalEsperado;
+    const col = diff < 0 ? '#ef4444' : diff > 0 ? '#22c55e' : '#64748b';
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Diferencia</span><span style="font-weight:700;color:${col}">${diff >= 0 ? '+' : ''}${formatMoney(diff)} ${diff < 0 ? '(Faltante)' : diff > 0 ? '(Sobrante)' : '(Cuadre exacto)'}</span></div>`;
+  })();
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Informe de Caja</title>
+  <style>body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:12px}h2{font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 6px;border-bottom:2px solid #e2e8f0;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:4px}th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:6px 8px;text-align:left}@page{size:A4;margin:20mm}@media print{button{display:none}}</style>
+  </head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:12px;border-bottom:3px solid #0f172a">
+    <div><p style="font-weight:800;font-size:18px;margin:0">${company?.name || 'POSmaster'}</p><p style="margin:4px 0 0;color:#64748b;font-size:12px">NIT: ${company?.nit || '—'} · ${company?.address || ''}</p></div>
+    <div style="text-align:right"><p style="font-weight:800;font-size:16px;color:#3b82f6;margin:0">INFORME DE CAJA</p><p style="font-size:11px;color:#64748b;margin:4px 0">${dateStr} · ${timeStr}</p><span style="display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;background:${isOpen ? '#dcfce7' : '#f1f5f9'};color:${isOpen ? '#166534' : '#64748b'}">${isOpen ? '🟢 TURNO ABIERTO' : '⚫ TURNO CERRADO'}</span></div>
+  </div>
+  <h2>Apertura</h2>
+  <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Fecha / Hora Apertura</span><span style="font-weight:700">${session?.start_time ? new Date(session.start_time).toLocaleString('es-CO') : '—'}</span></div>
+  <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Base Inicial</span><span style="font-weight:700">${formatMoney(session?.start_cash || 0)}</span></div>
+  ${session?.end_time ? `<h2>Cierre</h2><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Fecha / Hora Cierre</span><span style="font-weight:700">${new Date(session.end_time).toLocaleString('es-CO')}</span></div><div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Dinero Contado</span><span style="font-weight:700">${formatMoney(session.end_cash || 0)}</span></div>${diffHtml}` : ''}
+  <h2>Balance Financiero</h2>
+  <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Ventas Efectivo</span><span style="font-weight:700">${formatMoney(session?.total_sales_cash || 0)}</span></div>
+  <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#64748b">Ventas Tarjeta / Otros</span><span style="font-weight:700">${formatMoney(session?.total_sales_card || 0)}</span></div>
+  <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #0f172a;font-size:14px;font-weight:800"><span>Total Ventas</span><span>${formatMoney(totalVentas)}</span></div>
+  <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px"><span style="color:#ef4444">Egresos de Caja</span><span style="font-weight:700;color:#ef4444">- ${formatMoney(totalExpenses)}</span></div>
+  <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #3b82f6;font-size:15px;font-weight:800;color:#3b82f6"><span>Total Esperado en Caja</span><span>${formatMoney(totalEsperado)}</span></div>
+  ${turnInvoices.length > 0 ? `<h2>Facturas del Turno (${turnInvoices.length})</h2><table><thead><tr><th>N° Factura</th><th>Hora</th><th>Método</th><th style="text-align:right">Total</th></tr></thead><tbody>${invoiceRows}</tbody></table>` : ''}
+  ${expenses.length > 0 ? `<h2>Egresos (${expenses.length})</h2><table><thead><tr><th>Concepto</th><th>Categoría</th><th>Hora</th><th style="text-align:right">Monto</th></tr></thead><tbody>${expenseRows}</tbody><tfoot><tr style="background:#fef2f2"><td colspan="3" style="padding:7px 8px;font-weight:700">Total Egresos</td><td style="padding:7px 8px;font-weight:800;text-align:right;color:#ef4444">- ${formatMoney(totalExpenses)}</td></tr></tfoot></table>` : ''}
+  <p style="margin-top:28px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${dateStr} ${timeStr}</p>
+  </body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=700');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 600);
+}
+
 const CashControl: React.FC = () => {
   const { session, openSession, closeSession, sessionsHistory, companyId, branchId, refreshAll } = useDatabase();
   const [openAmount, setOpenAmount] = useState('');
@@ -453,6 +514,14 @@ const CashControl: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Botón PDF turno actual */}
+              <button
+                type="button"
+                onClick={() => generateCashPDF({ company, session, expenses, turnInvoices, totalExpenses, formatMoney })}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-slate-300 text-slate-600 font-bold rounded-lg hover:border-slate-400 hover:bg-slate-50 transition-colors text-sm mb-2">
+                📄 Exportar PDF del Turno
+              </button>
 
               <form onSubmit={handleCloseRegister} className="space-y-4 pt-2">
                 <div>

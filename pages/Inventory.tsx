@@ -238,7 +238,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               const wb = XLSX.utils.book_new();
 
               // ── Hoja principal ───────────────────────────────────────────
-              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede'];
+              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede','Fecha Creación'];
               const branchNames = branches.map(b => b.name).join(' | ') || 'Sede Principal';
               const examples = [
                 ['Camiseta Azul M','CAM-AZ-M','','CAMISETAS','BRAND','Camiseta algodón talla M','35000','18000','10','2','19','STANDARD','Distribuidora XYZ','Sede Principal'],
@@ -1367,6 +1367,16 @@ const Inventory: React.FC = () => {
             <span className="text-slate-300">—</span>
           )}
         </td>
+        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+          {(p as any).created_at
+            ? new Date((p as any).created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit' })
+            : '—'}
+        </td>
+        <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+          {(p as any).created_at
+            ? new Date((p as any).created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: '2-digit' })
+            : '—'}
+        </td>
         <td className="px-4 py-3">
           <div className="flex gap-2">
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
@@ -1463,7 +1473,19 @@ const Inventory: React.FC = () => {
             Catálogo WhatsApp
           </button>
           {/* BOTÓN IMPORTAR EXCEL */}
-          <button onClick={() => setShowImport(true)}
+          <button onClick={() => {
+            const lowStock = products.filter((p: any) => p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
+            const now = new Date().toLocaleString('es-CO');
+            const rows = products.map((p: any) => `<tr><td>${p.name}</td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td>${p.brand || '—'}</td><td style="text-align:right">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td><td style="text-align:right">${formatMoney(p.cost)}</td><td>${p.type}</td><td>${p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO') : '—'}</td></tr>`).join('');
+            const lowRows = lowStock.map((p: any) => `<tr style="background:#fef2f2"><td><strong>${p.name}</strong></td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td style="text-align:right;color:#ef4444;font-weight:700">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td></tr>`).join('');
+            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Inventario</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}h1{font-size:18px;margin:0}h2{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin:18px 0 5px;border-bottom:2px solid #e2e8f0;padding-bottom:3px}table{width:100%;border-collapse:collapse;margin-top:4px}th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:5px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #f1f5f9}@page{size:A4 landscape;margin:12mm}@media print{button{display:none}}</style></head><body><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a"><div><h1>${company?.name || 'POSmaster'}</h1><p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p></div><div style="text-align:right"><p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">REPORTE DE INVENTARIO</p><p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${products.length} productos</p></div></div><h2>Todos los Productos</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th>Marca</th><th style="text-align:right">Stock</th><th style="text-align:right">Mín.</th><th style="text-align:right">Precio</th><th style="text-align:right">Costo</th><th>Tipo</th><th>Creado</th></tr></thead><tbody>${rows}</tbody></table>${lowStock.length > 0 ? `<h2 style="color:#ef4444">⚠️ Stock Bajo (${lowStock.length} productos)</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Mínimo</th><th style="text-align:right">Precio</th></tr></thead><tbody>${lowRows}</tbody></table>` : ''}<p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p></body></html>`;
+            const w = window.open('', '_blank', 'width=1200,height=800');
+            if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+          }}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium text-sm">
+            📄 Exportar PDF
+          </button>
+                    <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
             <FileSpreadsheet size={16} /> Importar Excel
           </button>
@@ -1610,7 +1632,7 @@ const Inventory: React.FC = () => {
                     onChange={toggleSelectAll}
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
                 </th>
-                {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor',''].map(h => (
+                {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
                   <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
                 ))}
               </tr>
