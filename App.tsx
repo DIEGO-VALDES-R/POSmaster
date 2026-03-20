@@ -48,6 +48,8 @@ const Gimnasio           = lazy(() => import('./pages/Gimnasio'));
 const GymKiosk           = lazy(() => import('./pages/GymKiosk'));
 const Panaderia          = lazy(() => import('./pages/Panaderia'));
 const B2BMarketplace     = lazy(() => import('./pages/B2BMarketplace'));
+const GymClientPortal   = lazy(() => import('./GymClientPortal'));
+const GymClassesDisplay = lazy(() => import('./GymClassesDisplay'));
 
 // ── CORRECCIÓN AUTH-04 / FRO-01 ───────────────────────────────────────────────
 // Las constantes sensibles se mueven a variables de entorno .env
@@ -662,6 +664,8 @@ const App: React.FC = () => {
           {/* Rutas públicas — sin autenticación ni DatabaseProvider */}
           <Route path="/catalogo/:companyId"     element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
           <Route path="/gimnasio-kiosk/:companyId" element={<Suspense fallback={<PageLoader />}><GymKiosk /></Suspense>} />
+          <Route path="/gym-portal/:token" element={<Suspense fallback={<PageLoader />}><GymClientPortal /></Suspense>} />
+          <Route path="/gym-classes/:companyId" element={<Suspense fallback={<PageLoader />}><GymClassesDisplay /></Suspense>} />
           <Route path="/lavadero-display/:companyId" element={<Suspense fallback={<PageLoader />}><LavaderoEmpleados /></Suspense>} />
           <Route path="/lavadero-espera/:companyId"  element={<Suspense fallback={<PageLoader />}><LavaderoSalaEspera /></Suspense>} />
           <Route path="/*" element={
