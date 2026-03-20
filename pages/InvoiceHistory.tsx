@@ -355,7 +355,7 @@ const InvoiceHistory: React.FC = () => {
     try {
       let query = supabase
         .from('invoices')
-        .select('*, invoice_items(id, product_id, description, quantity, price, tax_rate, serial_number, sku, barcode, products(name, sku, barcode))', { count: 'exact' })
+        .select('*, invoice_items(id, product_id, description, quantity, price, tax_rate, serial_number, products(name, sku, barcode))', { count: 'exact' })
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE - 1);

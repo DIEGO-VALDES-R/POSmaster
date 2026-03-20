@@ -107,16 +107,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode; overrideCom
     let error: any = null;
 
     if (resolvedBid) {
-      // Traer productos de esta sucursal + productos sin sucursal asignada
-      const [r1, r2] = await Promise.all([
-        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).eq('branch_id', resolvedBid).order('name'),
-        supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).is('branch_id', null).order('name'),
-      ]);
-      error = r1.error || r2.error;
-      // Combinar y deduplicar por id
-      const combined = [...(r1.data || []), ...(r2.data || [])];
-      const seen = new Set<string>();
-      data = combined.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+      // Solo traer productos de esta sucursal específica
+      // NO incluir productos sin sucursal para evitar mezcla entre sedes/negocios
+      const r1 = await supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).eq('branch_id', resolvedBid).order('name');
+      error = r1.error;
+      data  = r1.data || [];
     } else {
       const r = await supabase.from('products').select('*').eq('company_id', cid).eq('is_active', true).order('name');
       error = r.error;

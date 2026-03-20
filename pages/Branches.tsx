@@ -29,7 +29,7 @@ const BUSINESS_TYPE_LABELS: Record<string, string> = {
   optica:           'Óptica / Optometría',
   joyeria:          'Joyería / Relojería',
   papeleria:        'Papelería / Miscelánea',
-  gym:              'Gimnasio / Fitness',
+  gimnasio:         'Gimnasio / Centro Deportivo',
   peluqueria:       'Peluquería / Barbería',
   panaderia:        'Panadería / Pastelería',
   otro:             'Otro Negocio',
@@ -67,7 +67,7 @@ async function verifyOwnerPassword(password: string): Promise<boolean> {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 const Branches: React.FC = () => {
-  const { company, companyId, isLoading: ctxLoading } = useDatabase();
+  const { company, companyId, isLoading: ctxLoading, refreshCompany } = useDatabase();
   const isPro = ['PRO', 'MASTER', 'ENTERPRISE'].includes(company?.subscription_plan || '');
   const plan = (company as any)?.subscription_plan || 'BASIC';
   const MAX_BRANCHES = plan === 'ENTERPRISE' ? 999 : plan === 'PRO' || plan === 'MASTER' ? 2 : 0; // 2 adicionales = 3 total con sede principal
@@ -197,7 +197,12 @@ const Branches: React.FC = () => {
     const updCfg = { ...(selected.config||{}), business_type:editForm.business_type, business_types:[editForm.business_type] };
     const { error } = await supabase.from('companies').update({ name:editForm.name, nit:editForm.nit, email:editForm.email, phone:editForm.phone, address:editForm.address, subscription_status:editForm.subscription_status, config:updCfg }).eq('id', selected.id);
     if (error) { toast.error(error.message); return; }
-    toast.success('Sucursal actualizada'); setShowEdit(false); load();
+    toast.success('✅ Negocio actualizado — el menú lateral se actualizará');
+    setShowEdit(false);
+    // Si es la sede principal, refrescar el company en el contexto
+    // para que el sidebar muestre el nuevo módulo de inmediato
+    await refreshCompany();
+    load();
   };
 
   const handleDelete = async () => {
@@ -406,7 +411,8 @@ const Branches: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {filtered.map(b => {
-            const bt = b.config?.business_type || b.config?.business_types?.[0] || 'general';
+            const rawBt = b.config?.business_type || b.config?.business_types?.[0] || 'general';
+            const bt = rawBt === 'gym' ? 'gimnasio' : rawBt === 'bakery' ? 'panaderia' : rawBt;
             const st = statusColors[b.subscription_status] || statusColors['INACTIVE'];
             const isExpanded = expandedBranch === b.id;
             const members = branchMembers[b.id] || [];

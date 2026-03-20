@@ -377,9 +377,17 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const makeSectionId = (cid: string, bt: string) => `${cid}__${bt}`;
 
   const cfg = (company?.config as any) || {};
-  const mainBusinessTypes: string[] = Array.isArray(cfg.business_types)
+  // Deduplicate + normalize legacy keys
+  const normalizeType = (t: string) => {
+    if (t === 'gym' || t === 'fitness') return 'gimnasio';
+    if (t === 'bakery') return 'panaderia';
+    if (t === 'salón') return 'salon';
+    return t;
+  };
+  const rawTypes: string[] = Array.isArray(cfg.business_types) && cfg.business_types.length > 0
     ? cfg.business_types
     : cfg.business_type ? [cfg.business_type] : ['general'];
+  const mainBusinessTypes: string[] = [...new Set(rawTypes.filter(Boolean).map(normalizeType))];
 
   // El sectionId activo por defecto es el primer tipo del negocio actual
   const defaultSectionId = companyId
@@ -399,11 +407,25 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   useEffect(() => {
     if (companyId && companyId !== prevCompanyId.current) {
       prevCompanyId.current = companyId;
-      // Calcular el primer tipo de la empresa recién activa
       const firstType = mainBusinessTypes[0] || 'general';
       setActiveSectionIdState(makeSectionId(companyId, firstType));
     }
   }, [companyId]);
+
+  // ── FIX: cuando cambia el tipo de negocio en Configuración,
+  // re-sincronizar el sectionId activo para que el nuevo módulo aparezca
+  const prevBtKey = useRef<string>('');
+  useEffect(() => {
+    if (!companyId) return;
+    const btKey = mainBusinessTypes.join(',');
+    if (btKey && btKey !== prevBtKey.current) {
+      prevBtKey.current = btKey;
+      const firstType = mainBusinessTypes[0] || 'general';
+      setActiveSectionIdState(makeSectionId(companyId, firstType));
+      localStorage.setItem('posmaster_active_business_type', firstType);
+      window.dispatchEvent(new Event('posmaster_business_type_changed'));
+    }
+  }, [mainBusinessTypes.join(','), companyId]);
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 

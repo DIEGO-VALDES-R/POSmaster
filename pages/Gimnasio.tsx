@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, User, CheckCircle, XCircle, Clock, RefreshCw,
   X, Edit2, Trash2, DollarSign, Calendar, Search,
   Users, AlertTriangle, Dumbbell, BarChart2, Tag,
+  CreditCard, Printer, MessageCircle, Banknote, Receipt,
+  ArrowRight, Smartphone,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -14,55 +16,31 @@ import toast from 'react-hot-toast';
 // ══════════════════════════════════════════════════════════════
 
 type MemberStatus = 'ACTIVE' | 'EXPIRED' | 'FROZEN' | 'CANCELLED';
+type PayMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'NEQUI' | 'DAVIPLATA';
 
 interface MembershipType {
-  id: string;
-  company_id: string;
-  name: string;           // Mensual full, Mensual mañana, Trimestral, Anual
-  duration_days: number;
-  price: number;
-  description?: string;
-  is_active: boolean;
+  id: string; company_id: string; name: string;
+  duration_days: number; price: number; description?: string; is_active: boolean;
 }
 
 interface Member {
-  id: string;
-  company_id: string;
-  full_name: string;
-  document?: string;
-  phone?: string;
-  email?: string;
-  membership_type_id: string;
-  membership_type_name: string;
-  membership_price: number;
-  start_date: string;
-  end_date: string;
-  status: MemberStatus;
-  photo_url?: string;
-  notes?: string;
-  created_at: string;
+  id: string; company_id: string; full_name: string;
+  document?: string; phone?: string; email?: string;
+  membership_type_id: string; membership_type_name: string;
+  membership_price: number; start_date: string; end_date: string;
+  status: MemberStatus; photo_url?: string; notes?: string; created_at: string;
 }
 
 interface CheckIn {
-  id: string;
-  company_id: string;
-  member_id: string;
-  member_name: string;
-  checked_in_at: string;
-  status: MemberStatus;
+  id: string; company_id: string; member_id: string;
+  member_name: string; checked_in_at: string; status: MemberStatus;
+  type?: 'IN' | 'OUT';
 }
 
 interface GymClass {
-  id: string;
-  company_id: string;
-  name: string;           // Spinning, Yoga, CrossFit
-  instructor: string;
-  day_of_week: number;    // 0=Lun...6=Dom
-  start_time: string;     // "06:00"
-  duration_min: number;
-  room?: string;
-  max_capacity: number;
-  is_active: boolean;
+  id: string; company_id: string; name: string; instructor: string;
+  day_of_week: number; start_time: string; duration_min: number;
+  room?: string; max_capacity: number; is_active: boolean;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -76,6 +54,11 @@ const STATUS_CFG: Record<MemberStatus, { label: string; cls: string; icon: React
   CANCELLED: { label: 'Cancelada', cls: 'bg-slate-100 text-slate-500',     icon: <X size={11} /> },
 };
 
+const PAY_METHOD_LABELS: Record<PayMethod, string> = {
+  CASH: '💵 Efectivo', CARD: '💳 Tarjeta',
+  TRANSFER: '🏛️ Transferencia', NEQUI: '🟣 Nequi', DAVIPLATA: '🔴 Daviplata',
+};
+
 const DAYS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 
 const emptyMember = {
@@ -83,9 +66,7 @@ const emptyMember = {
   membership_type_id: '', start_date: new Date().toISOString().split('T')[0],
   notes: '',
 };
-
-const emptyType = { name: '', duration_days: '30', price: '', description: '' };
-
+const emptyType  = { name: '', duration_days: '30', price: '', description: '' };
 const emptyClass = {
   name: '', instructor: '', day_of_week: '0',
   start_time: '06:00', duration_min: '60', room: '', max_capacity: '20',
@@ -98,17 +79,403 @@ const emptyClass = {
 function daysLeft(endDate: string) {
   return Math.ceil((new Date(endDate + 'T23:59:59').getTime() - Date.now()) / 86400000);
 }
-
 function fmtDate(d: string) {
   return new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 }
+
+// ══════════════════════════════════════════════════════════════
+// MODAL DE PAGO DE MEMBRESÍA
+// ══════════════════════════════════════════════════════════════
+
+interface PaymentModalProps {
+  member: Member | null;    // null = socio nuevo
+  memberForm?: any;          // datos del form si es nuevo
+  type: MembershipType;
+  isRenewal: boolean;
+  company: any;
+  companyId: string;
+  branchId: string | null;
+  session: any;
+  onClose: () => void;
+  onSuccess: (member: Member) => void;
+  formatMoney: (n: number) => string;
+}
+
+const MembershipPaymentModal: React.FC<PaymentModalProps> = ({
+  member, memberForm, type, isRenewal, company, companyId, branchId, session, onClose, onSuccess, formatMoney,
+}) => {
+  const today = new Date().toISOString().split('T')[0];
+  const [startDate, setStartDate]     = useState(
+    isRenewal && member?.status === 'ACTIVE' && member.end_date > today
+      ? member.end_date  // renueva desde donde termina
+      : today
+  );
+  const [payMethod, setPayMethod]     = useState<PayMethod>('CASH');
+  const [saving, setSaving]           = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [savedMember, setSavedMember] = useState<Member | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  const endDate = (() => {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + type.duration_days);
+    return d.toISOString().split('T')[0];
+  })();
+
+  const handlePay = async () => {
+    setSaving(true);
+    try {
+      // 1. Crear/actualizar socio en gym_members
+      const memberPayload: any = {
+        company_id:           companyId,
+        membership_type_id:   type.id,
+        membership_type_name: type.name,
+        membership_price:     type.price,
+        start_date:           startDate,
+        end_date:             endDate,
+        status:               'ACTIVE' as MemberStatus,
+        last_payment_date:    today,
+        last_payment_amount:  type.price,
+      };
+
+      let finalMember: Member;
+
+      if (member) {
+        // Renovación
+        const { data, error } = await supabase
+          .from('gym_members')
+          .update(memberPayload)
+          .eq('id', member.id)
+          .select()
+          .single();
+        if (error) throw error;
+        finalMember = data as Member;
+      } else {
+        // Nuevo socio
+        const { data, error } = await supabase
+          .from('gym_members')
+          .insert({
+            ...memberPayload,
+            full_name: memberForm.full_name.trim(),
+            document:  memberForm.document?.trim() || null,
+            phone:     memberForm.phone?.trim() || null,
+            email:     memberForm.email?.trim() || null,
+            notes:     memberForm.notes?.trim() || null,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        finalMember = data as Member;
+      }
+
+      // 2. Generar factura en el sistema
+      const timestamp    = Date.now().toString().slice(-6);
+      const random       = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+      const invNumber    = `GYM-${timestamp}${random}`;
+      setInvoiceNumber(invNumber);
+
+      const { data: invoice, error: invErr } = await supabase
+        .from('invoices')
+        .insert({
+          company_id:     companyId,
+          branch_id:      branchId,
+          invoice_number: invNumber,
+          customer_id:    null,
+          subtotal:       type.price,
+          tax_amount:     0,
+          total_amount:   type.price,
+          status:         'COMPLETED',
+          business_type:  null,
+          payment_method: {
+            method:            payMethod,
+            amount:            type.price,
+            customer_name:     finalMember.full_name,
+            customer_document: finalMember.document || null,
+            customer_phone:    finalMember.phone    || null,
+            payment_status:    'PAID',
+            gym_member_id:     finalMember.id,
+            membership_type:   type.name,
+            start_date:        startDate,
+            end_date:          endDate,
+          },
+        })
+        .select()
+        .single();
+
+      if (!invErr && invoice) {
+        // Guardar item de factura
+        await supabase.from('invoice_items').insert({
+          invoice_id:  invoice.id,
+          product_id:  null,
+          description: `Membresía ${type.name} — ${fmtDate(startDate)} al ${fmtDate(endDate)}`,
+          quantity:    1,
+          price:       type.price,
+          tax_rate:    0,
+        });
+
+        // Vincular factura con el socio
+        await supabase.from('gym_members').update({ invoice_id: invoice.id }).eq('id', finalMember.id);
+
+        // Guardar/actualizar socio en tabla customers para que aparezca en CRM
+        if (finalMember.full_name && finalMember.full_name.toLowerCase() !== 'consumidor final') {
+          try {
+            const matchField = finalMember.document ? 'document_number' : 'name';
+            const matchValue = finalMember.document || finalMember.full_name;
+            const { data: existing } = await supabase
+              .from('customers')
+              .select('id, phone, email')
+              .eq('company_id', companyId)
+              .eq(matchField, matchValue)
+              .maybeSingle();
+            if (existing) {
+              const updates: any = {};
+              if (!existing.phone && finalMember.phone) updates.phone = finalMember.phone;
+              if (!existing.email && finalMember.email) updates.email = finalMember.email;
+              if (Object.keys(updates).length > 0) {
+                await supabase.from('customers').update(updates).eq('id', existing.id);
+              }
+            } else {
+              await supabase.from('customers').insert({
+                company_id:      companyId,
+                branch_id:       branchId,
+                name:            finalMember.full_name,
+                document_number: finalMember.document || null,
+                phone:           finalMember.phone || null,
+                email:           finalMember.email || null,
+              });
+            }
+          } catch (e) {
+            console.warn('Customer upsert failed:', e);
+          }
+        }
+
+        // Registrar en historial de pagos
+        await supabase.from('gym_membership_payments').insert({
+          company_id:        companyId,
+          member_id:         finalMember.id,
+          invoice_id:        invoice.id,
+          membership_type_id: type.id,
+          amount:            type.price,
+          payment_method:    payMethod,
+          start_date:        startDate,
+          end_date:          endDate,
+        });
+
+        // Registrar en sesión de caja activa (todos los métodos)
+        if (session?.id) {
+          const field = payMethod === 'CASH' ? 'total_sales_cash' : 'total_sales_card';
+          const current = (session as any)[field] || 0;
+          await supabase.from('cash_register_sessions').update({
+            [field]: current + type.price,
+          }).eq('id', session.id);
+        }
+      }
+
+      setSavedMember(finalMember);
+      setShowReceipt(true);
+      toast.success(`✅ Membresía ${isRenewal ? 'renovada' : 'registrada'} — Factura ${invNumber}`);
+      onSuccess(finalMember);  // esto dispara refreshAll en el padre
+
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleWhatsApp = () => {
+    if (!savedMember?.phone) { toast.error('El socio no tiene teléfono registrado'); return; }
+    const companyName = company?.name || 'Gimnasio';
+    const msg = `Hola ${savedMember.full_name} 💪\n\nTu membresía *${type.name}* en *${companyName}* ha sido ${isRenewal ? 'renovada' : 'activada'} exitosamente.\n\n📅 Válida del: *${fmtDate(startDate)}*\n📅 Hasta el: *${fmtDate(endDate)}*\n💰 Valor pagado: *${formatMoney(type.price)}*\n\n¡Gracias por confiar en nosotros! 🏋️`;
+    const phone = savedMember.phone.replace(/\D/g, '');
+    const finalPhone = phone.length === 10 ? `57${phone}` : phone;
+    window.open(`https://wa.me/${finalPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const handlePrint = () => {
+    const printArea = receiptRef.current;
+    if (!printArea) return;
+    const w = window.open('', '_blank', 'width=400,height=600');
+    if (!w) return;
+    w.document.write(`
+      <html><head><style>
+        body { font-family: monospace; font-size: 12px; margin: 0; padding: 16px; }
+        h2 { font-size: 16px; text-align: center; margin-bottom: 4px; }
+        p { margin: 2px 0; }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+        .line { border-top: 1px dashed #000; margin: 8px 0; }
+        .big { font-size: 18px; font-weight: bold; }
+      </style></head><body>
+        ${printArea.innerHTML}
+        <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}</script>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
+  // Vista de comprobante después de pagar
+  if (showReceipt && savedMember) {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          {/* Header éxito */}
+          <div className="bg-emerald-500 px-6 py-5 text-center">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+              <CheckCircle size={36} className="text-white" />
+            </div>
+            <h3 className="text-white font-black text-xl">¡Pago exitoso!</h3>
+            <p className="text-emerald-100 text-sm mt-1">{invoiceNumber}</p>
+          </div>
+
+          {/* Comprobante imprimible */}
+          <div ref={receiptRef} className="p-5 font-mono text-xs text-slate-800">
+            <h2 className="text-center font-bold text-base mb-1">{company?.name || 'GIMNASIO'}</h2>
+            <p className="text-center text-slate-500 mb-3">NIT: {company?.nit || '—'}</p>
+            <div className="border-t border-dashed border-slate-300 my-2" />
+            <p className="font-bold text-sm mb-2">COMPROBANTE DE MEMBRESÍA</p>
+            <p><span className="text-slate-500">Socio:</span> {savedMember.full_name}</p>
+            {savedMember.document && <p><span className="text-slate-500">CC:</span> {savedMember.document}</p>}
+            {savedMember.phone    && <p><span className="text-slate-500">Tel:</span> {savedMember.phone}</p>}
+            <div className="border-t border-dashed border-slate-300 my-2" />
+            <p><span className="text-slate-500">Plan:</span> <span className="font-bold">{type.name}</span></p>
+            <p><span className="text-slate-500">Vigencia:</span> {type.duration_days} días</p>
+            <p><span className="text-slate-500">Inicio:</span> {fmtDate(startDate)}</p>
+            <p><span className="text-slate-500">Vence:</span> <span className="font-bold">{fmtDate(endDate)}</span></p>
+            <div className="border-t border-dashed border-slate-300 my-2" />
+            <p><span className="text-slate-500">Método:</span> {PAY_METHOD_LABELS[payMethod]}</p>
+            <p className="text-lg font-black mt-1">TOTAL: {formatMoney(type.price)}</p>
+            <div className="border-t border-dashed border-slate-300 my-2" />
+            <p className="text-center text-slate-500 text-[10px]">¡Gracias por tu preferencia!</p>
+          </div>
+
+          {/* Acciones */}
+          <div className="p-4 space-y-2 border-t border-slate-100">
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={handlePrint}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900">
+                <Printer size={15} /> Imprimir
+              </button>
+              <button onClick={handleWhatsApp} disabled={!savedMember.phone}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-500 text-white rounded-xl font-bold text-sm hover:bg-green-600 disabled:opacity-40">
+                <MessageCircle size={15} /> WhatsApp
+              </button>
+            </div>
+            <button onClick={onClose}
+              className="w-full px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Vista del formulario de pago
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-white font-black text-lg">
+                {isRenewal ? '♻️ Renovar membresía' : '🏋️ Nueva membresía'}
+              </h3>
+              <p className="text-emerald-100 text-sm mt-0.5">
+                {member?.full_name || memberForm?.full_name}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-white/70 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Resumen del plan */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-bold text-emerald-800 text-base">{type.name}</p>
+                {type.description && <p className="text-emerald-600 text-xs mt-0.5">{type.description}</p>}
+                <p className="text-emerald-600 text-sm mt-1">{type.duration_days} días de vigencia</p>
+              </div>
+              <p className="text-2xl font-black text-emerald-700">{formatMoney(type.price)}</p>
+            </div>
+          </div>
+
+          {/* Fecha de inicio */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              📅 Fecha de inicio
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+              <ArrowRight size={12} />
+              <span>Vence el <strong className="text-emerald-700">{fmtDate(endDate)}</strong></span>
+            </div>
+          </div>
+
+          {/* Método de pago */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">
+              💳 Método de pago
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.entries(PAY_METHOD_LABELS) as [PayMethod, string][]).map(([method, label]) => (
+                <button
+                  key={method}
+                  onClick={() => setPayMethod(method)}
+                  className={`px-3 py-2.5 rounded-xl border-2 text-sm font-semibold text-left transition-all ${
+                    payMethod === method
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Total */}
+          <div className="bg-slate-50 rounded-xl p-4 flex justify-between items-center">
+            <span className="font-bold text-slate-700">Total a cobrar</span>
+            <span className="text-2xl font-black text-slate-800">{formatMoney(type.price)}</span>
+          </div>
+        </div>
+
+        <div className="px-6 pb-6 flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 px-4 py-3 border border-slate-300 text-slate-600 rounded-xl font-bold hover:bg-slate-50">
+            Cancelar
+          </button>
+          <button onClick={handlePay} disabled={saving}
+            className="flex-1 px-4 py-3 bg-emerald-600 text-white rounded-xl font-black text-base hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? (
+              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Procesando...</>
+            ) : (
+              <><Receipt size={18} /> Cobrar {formatMoney(type.price)}</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════
 
 const Gimnasio: React.FC = () => {
-  const { companyId, session } = useDatabase();
+  const { companyId, branchId, session, company, refreshAll } = useDatabase();
   const { formatMoney } = useCurrency();
 
   const [tab, setTab]                 = useState<'members' | 'checkin' | 'classes' | 'types' | 'stats'>('members');
@@ -137,6 +504,18 @@ const Gimnasio: React.FC = () => {
   const [checkinSearch, setCheckinSearch] = useState('');
   const [saving, setSaving]           = useState(false);
 
+  // Payment modal state
+  const [paymentTarget, setPaymentTarget] = useState<{
+    member: Member | null;
+    memberForm?: any;
+    type: MembershipType;
+    isRenewal: boolean;
+  } | null>(null);
+
+  // Step for new member: 1=datos, 2=plan+pago
+  const [newMemberStep, setNewMemberStep] = useState<1 | 2>(1);
+  const [selectedTypeForNew, setSelectedTypeForNew] = useState<MembershipType | null>(null);
+
   // ── Load ──────────────────────────────────────────────────
   const load = useCallback(async () => {
     if (!companyId) return;
@@ -149,7 +528,6 @@ const Gimnasio: React.FC = () => {
         .gte('checked_in_at', today + 'T00:00:00').order('checked_in_at', { ascending: false }),
       supabase.from('gym_classes').select('*').eq('company_id', companyId).eq('is_active', true).order('day_of_week').order('start_time'),
     ]);
-    // Auto-update expired memberships
     const updated = (m || []).map((mem: any) => ({
       ...mem,
       status: mem.status === 'ACTIVE' && mem.end_date < today ? 'EXPIRED' : mem.status,
@@ -174,21 +552,20 @@ const Gimnasio: React.FC = () => {
       return;
     }
     const { error } = await supabase.from('gym_checkins').insert({
-      company_id: companyId,
-      member_id: member.id,
-      member_name: member.full_name,
-      status: member.status,
+      company_id: companyId, member_id: member.id,
+      member_name: member.full_name, status: member.status,
     });
     if (error) { toast.error(error.message); return; }
     toast.success(`✅ ${member.full_name} — Ingreso registrado`);
-    setCheckinSearch('');
-    load();
+    setCheckinSearch(''); load();
   };
 
-  // ── Member CRUD ──────────────────────────────────────────
+  // ── Nuevo socio — paso 1: datos personales ───────────────
   const openNewMember = () => {
     setEditMember(null);
     setMemberForm(emptyMember);
+    setNewMemberStep(1);
+    setSelectedTypeForNew(null);
     setShowMember(true);
   };
 
@@ -200,39 +577,47 @@ const Gimnasio: React.FC = () => {
       membership_type_id: m.membership_type_id,
       start_date: m.start_date, notes: m.notes || '',
     });
+    setNewMemberStep(1);
     setShowMember(true);
   };
 
-  const saveMember = async () => {
-    if (!memberForm.full_name.trim()) { toast.error('El nombre es obligatorio'); return; }
-    if (!memberForm.membership_type_id) { toast.error('Selecciona un tipo de membresía'); return; }
-    setSaving(true);
+  // Paso 2: abrir modal de pago con el tipo seleccionado
+  const handleNewMemberProceedToPayment = () => {
     const mtype = types.find(t => t.id === memberForm.membership_type_id);
-    if (!mtype) { toast.error('Tipo de membresía no encontrado'); setSaving(false); return; }
-    const end = new Date(memberForm.start_date);
-    end.setDate(end.getDate() + mtype.duration_days);
-    const payload = {
-      company_id: companyId,
-      full_name: memberForm.full_name.trim(),
-      document: memberForm.document.trim() || null,
-      phone: memberForm.phone.trim() || null,
-      email: memberForm.email.trim() || null,
-      membership_type_id: mtype.id,
-      membership_type_name: mtype.name,
-      membership_price: mtype.price,
-      start_date: memberForm.start_date,
-      end_date: end.toISOString().split('T')[0],
-      status: 'ACTIVE' as MemberStatus,
-      notes: memberForm.notes.trim() || null,
-    };
-    const { error } = editMember
-      ? await supabase.from('gym_members').update(payload).eq('id', editMember.id)
-      : await supabase.from('gym_members').insert(payload);
-    if (error) { toast.error(error.message); setSaving(false); return; }
-    toast.success(editMember ? 'Socio actualizado' : '✅ Socio registrado');
+    if (!memberForm.full_name.trim()) { toast.error('El nombre es obligatorio'); return; }
+    if (!mtype) { toast.error('Selecciona un tipo de membresía'); return; }
+    setSelectedTypeForNew(mtype);
     setShowMember(false);
-    setSaving(false);
-    load();
+    setPaymentTarget({
+      member:     null,
+      memberForm: memberForm,
+      type:       mtype,
+      isRenewal:  false,
+    });
+  };
+
+  // Editar socio sin pago (solo datos)
+  const saveEditMember = async () => {
+    if (!editMember) return;
+    if (!memberForm.full_name.trim()) { toast.error('El nombre es obligatorio'); return; }
+    setSaving(true);
+    const { error } = await supabase.from('gym_members').update({
+      full_name: memberForm.full_name.trim(),
+      document:  memberForm.document?.trim() || null,
+      phone:     memberForm.phone?.trim() || null,
+      email:     memberForm.email?.trim() || null,
+      notes:     memberForm.notes?.trim() || null,
+    }).eq('id', editMember.id);
+    if (error) { toast.error(error.message); setSaving(false); return; }
+    toast.success('Socio actualizado');
+    setShowMember(false); setSaving(false); load();
+  };
+
+  // Renovar con pago
+  const openRenewPayment = (m: Member) => {
+    const mtype = types.find(t => t.id === m.membership_type_id);
+    if (!mtype) { toast.error('Tipo de membresía no encontrado'); return; }
+    setPaymentTarget({ member: m, type: mtype, isRenewal: true });
   };
 
   const toggleFreeze = async (m: Member) => {
@@ -242,28 +627,12 @@ const Gimnasio: React.FC = () => {
     load();
   };
 
-  const renewMember = async (m: Member) => {
-    const mtype = types.find(t => t.id === m.membership_type_id);
-    if (!mtype) return;
-    const base = m.status === 'ACTIVE' && m.end_date > new Date().toISOString().split('T')[0]
-      ? m.end_date : new Date().toISOString().split('T')[0];
-    const end = new Date(base);
-    end.setDate(end.getDate() + mtype.duration_days);
-    await supabase.from('gym_members').update({
-      status: 'ACTIVE',
-      end_date: end.toISOString().split('T')[0],
-    }).eq('id', m.id);
-    toast.success(`♻️ Membresía renovada hasta ${fmtDate(end.toISOString().split('T')[0])}`);
-    load();
-  };
-
   // ── Type CRUD ────────────────────────────────────────────
   const saveType = async () => {
     if (!typeForm.name.trim() || !typeForm.price) { toast.error('Nombre y precio son obligatorios'); return; }
     setSaving(true);
     const payload = {
-      company_id: companyId,
-      name: typeForm.name.trim(),
+      company_id: companyId, name: typeForm.name.trim(),
       duration_days: parseInt(typeForm.duration_days) || 30,
       price: parseFloat(typeForm.price),
       description: typeForm.description.trim() || null,
@@ -282,8 +651,7 @@ const Gimnasio: React.FC = () => {
     if (!classForm.name.trim() || !classForm.instructor.trim()) { toast.error('Nombre e instructor son obligatorios'); return; }
     setSaving(true);
     const payload = {
-      company_id: companyId,
-      name: classForm.name.trim(),
+      company_id: companyId, name: classForm.name.trim(),
       instructor: classForm.instructor.trim(),
       day_of_week: parseInt(classForm.day_of_week),
       start_time: classForm.start_time,
@@ -300,7 +668,7 @@ const Gimnasio: React.FC = () => {
     setShowClass(false); setSaving(false); load();
   };
 
-  // ── Filtered members ─────────────────────────────────────
+  // ── Filtered ─────────────────────────────────────────────
   const filtered = members.filter(m => {
     const matchSearch = !search ||
       m.full_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -310,11 +678,10 @@ const Gimnasio: React.FC = () => {
     return matchSearch && matchStatus;
   });
 
-  // ── KPIs ─────────────────────────────────────────────────
   const kpis = {
-    active:    members.filter(m => m.status === 'ACTIVE').length,
+    active:       members.filter(m => m.status === 'ACTIVE').length,
     expiringSoon: members.filter(m => m.status === 'ACTIVE' && daysLeft(m.end_date) <= 7).length,
-    expired:   members.filter(m => m.status === 'EXPIRED').length,
+    expired:      members.filter(m => m.status === 'EXPIRED').length,
     todayCheckins: checkins.length,
     monthRevenue: members.filter(m => m.status === 'ACTIVE').reduce((s, m) => s + (m.membership_price / 30), 0) * 30,
   };
@@ -365,11 +732,11 @@ const Gimnasio: React.FC = () => {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: 'Socios activos',    value: kpis.active,        color: 'text-slate-800' },
-          { label: 'Vencen en 7 días',  value: kpis.expiringSoon,  color: 'text-amber-600' },
-          { label: 'Membresías vencidas', value: kpis.expired,     color: 'text-red-600' },
-          { label: 'Check-ins hoy',     value: kpis.todayCheckins, color: 'text-emerald-600' },
-          { label: 'Ingresos del mes',  value: formatMoney(Math.round(kpis.monthRevenue)), color: 'text-blue-600' },
+          { label: 'Socios activos',      value: kpis.active,                          color: 'text-slate-800' },
+          { label: 'Vencen en 7 días',    value: kpis.expiringSoon,                    color: 'text-amber-600' },
+          { label: 'Membresías vencidas', value: kpis.expired,                         color: 'text-red-600' },
+          { label: 'Check-ins hoy',       value: kpis.todayCheckins,                   color: 'text-emerald-600' },
+          { label: 'Ingresos del mes',    value: formatMoney(Math.round(kpis.monthRevenue)), color: 'text-blue-600' },
         ].map(k => (
           <div key={k.label} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <p className="text-slate-500 text-xs font-medium">{k.label}</p>
@@ -436,7 +803,7 @@ const Gimnasio: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                     {filtered.map(m => {
                       const days = daysLeft(m.end_date);
-                      const cfg = STATUS_CFG[m.status];
+                      const cfg  = STATUS_CFG[m.status];
                       return (
                         <tr key={m.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3">
@@ -464,10 +831,11 @@ const Gimnasio: React.FC = () => {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1.5 justify-end">
+                              {/* Botón renovar con pago */}
                               {(m.status === 'EXPIRED' || (m.status === 'ACTIVE' && days <= 7)) && (
-                                <button onClick={() => renewMember(m)}
-                                  className="px-2.5 py-1 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors">
-                                  ♻️ Renovar
+                                <button onClick={() => openRenewPayment(m)}
+                                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors">
+                                  <Receipt size={11} /> Renovar
                                 </button>
                               )}
                               <button onClick={() => toggleFreeze(m)}
@@ -496,17 +864,15 @@ const Gimnasio: React.FC = () => {
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
             <p className="font-bold text-slate-700 mb-3">Registrar ingreso</p>
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-                <input
-                  className="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-400"
-                  placeholder="Buscar socio por nombre o cédula..."
-                  value={checkinSearch}
-                  onChange={e => setCheckinSearch(e.target.value)}
-                  autoFocus
-                />
-              </div>
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+              <input
+                className="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                placeholder="Buscar socio por nombre o cédula..."
+                value={checkinSearch}
+                onChange={e => setCheckinSearch(e.target.value)}
+                autoFocus
+              />
             </div>
             {checkinFiltered.length > 0 && (
               <div className="mt-2 border border-slate-200 rounded-xl overflow-hidden">
@@ -530,7 +896,7 @@ const Gimnasio: React.FC = () => {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
               <p className="font-bold text-slate-700 text-sm">Check-ins de hoy — {checkins.length} socios</p>
             </div>
             {checkins.length === 0 ? (
@@ -551,8 +917,14 @@ const Gimnasio: React.FC = () => {
                     <span className="text-xs text-slate-400">
                       {new Date(c.checked_in_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_CFG[c.status]?.cls || 'bg-slate-100 text-slate-600'}`}>
-                      {STATUS_CFG[c.status]?.icon} {STATUS_CFG[c.status]?.label || c.status}
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                      c.type === 'OUT' ? 'bg-blue-100 text-blue-700'
+                      : c.type === 'IN' ? 'bg-emerald-100 text-emerald-700'
+                      : STATUS_CFG[c.status]?.cls || 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {c.type === 'IN' ? <><CheckCircle size={11} /> Entrada</>
+                       : c.type === 'OUT' ? <><Clock size={11} /> Salida</>
+                       : <>{STATUS_CFG[c.status]?.icon} {STATUS_CFG[c.status]?.label}</>}
                     </span>
                   </div>
                 ))}
@@ -571,8 +943,6 @@ const Gimnasio: React.FC = () => {
               <Plus size={15} /> Nueva clase
             </button>
           </div>
-
-          {/* Group by day */}
           {DAYS.map((day, idx) => {
             const dayClasses = classes.filter(c => c.day_of_week === idx);
             if (dayClasses.length === 0) return null;
@@ -593,15 +963,11 @@ const Gimnasio: React.FC = () => {
                         <p className="text-xs text-slate-500">Prof. {c.instructor}{c.room ? ` · ${c.room}` : ''}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Máx. {c.max_capacity} personas</span>
+                        <span className="text-xs text-slate-400">Máx. {c.max_capacity}</span>
                         <button onClick={() => { setEditClass(c); setClassForm({ name: c.name, instructor: c.instructor, day_of_week: String(c.day_of_week), start_time: c.start_time, duration_min: String(c.duration_min), room: c.room || '', max_capacity: String(c.max_capacity) }); setShowClass(true); }}
-                          className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700">
-                          <Edit2 size={13} />
-                        </button>
+                          className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400"><Edit2 size={13} /></button>
                         <button onClick={async () => { await supabase.from('gym_classes').update({ is_active: false }).eq('id', c.id); load(); }}
-                          className="p-1.5 hover:bg-red-50 rounded-lg text-slate-300 hover:text-red-500">
-                          <Trash2 size={13} />
-                        </button>
+                          className="p-1.5 hover:bg-red-50 rounded-lg text-slate-300 hover:text-red-500"><Trash2 size={13} /></button>
                       </div>
                     </div>
                   ))}
@@ -613,7 +979,6 @@ const Gimnasio: React.FC = () => {
             <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
               <Dumbbell size={36} className="mx-auto mb-3 opacity-30" />
               <p className="font-medium">Sin clases registradas</p>
-              <p className="text-sm mt-1">Agrega la primera clase con el botón de arriba</p>
             </div>
           )}
         </div>
@@ -637,16 +1002,14 @@ const Gimnasio: React.FC = () => {
                     {t.description && <p className="text-xs text-slate-500 mt-0.5">{t.description}</p>}
                   </div>
                   <button onClick={() => { setEditType(t); setTypeForm({ name: t.name, duration_days: String(t.duration_days), price: String(t.price), description: t.description || '' }); setShowType(true); }}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700">
-                    <Edit2 size={13} />
-                  </button>
+                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400"><Edit2 size={13} /></button>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">{t.duration_days} días</span>
                   <span className="font-bold text-emerald-600">{formatMoney(t.price)}</span>
                 </div>
                 <div className="mt-3 text-xs text-slate-400">
-                  {members.filter(m => m.membership_type_id === t.id && m.status === 'ACTIVE').length} socios activos con este tipo
+                  {members.filter(m => m.membership_type_id === t.id && m.status === 'ACTIVE').length} socios activos
                 </div>
               </div>
             ))}
@@ -654,7 +1017,6 @@ const Gimnasio: React.FC = () => {
               <div className="col-span-3 bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
                 <Tag size={36} className="mx-auto mb-3 opacity-30" />
                 <p className="font-medium">Sin tipos de membresía</p>
-                <p className="text-sm mt-1">Crea los tipos (mensual, trimestral, anual, etc.)</p>
               </div>
             )}
           </div>
@@ -674,7 +1036,7 @@ const Gimnasio: React.FC = () => {
                   <div key={t.id}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-slate-700">{t.name}</span>
-                      <span className="font-bold text-slate-800">{count} socios</span>
+                      <span className="font-bold">{count} socios</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2">
                       <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${(count/total)*100}%` }} />
@@ -695,9 +1057,15 @@ const Gimnasio: React.FC = () => {
                   return (
                     <div key={m.id} className="flex justify-between items-center text-sm py-1 border-b border-slate-100 last:border-0">
                       <span className="text-slate-700">{m.full_name}</span>
-                      <span className={`font-bold ${days <= 3 ? 'text-red-600' : 'text-amber-600'}`}>
-                        {days <= 0 ? 'Hoy' : `${days}d`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${days <= 3 ? 'text-red-600' : 'text-amber-600'}`}>
+                          {days <= 0 ? 'Hoy' : `${days}d`}
+                        </span>
+                        <button onClick={() => openRenewPayment(m)}
+                          className="px-2 py-0.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg font-bold hover:bg-emerald-100">
+                          Renovar
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -711,65 +1079,112 @@ const Gimnasio: React.FC = () => {
 
       {/* ══ MODALS ══════════════════════════════════════════ */}
 
-      {/* Modal nuevo/editar socio */}
+      {/* Modal nuevo/editar socio — paso 1: datos */}
       {showMember && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
             <div className="flex justify-between items-center p-6 border-b">
-              <h3 className="text-lg font-bold text-slate-800">{editMember ? 'Editar socio' : 'Nuevo socio'}</h3>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  {editMember ? 'Editar socio' : '🏋️ Nuevo socio'}
+                </h3>
+                {!editMember && (
+                  <p className="text-xs text-slate-400 mt-0.5">Paso 1 de 2 — Datos personales</p>
+                )}
+              </div>
               <button onClick={() => setShowMember(false)}><X size={20} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className={labelCls}>Nombre completo *</label>
-                  <input className={inputCls} value={memberForm.full_name} onChange={e => setMemberForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Ana Sofía Mora" />
+                  <input className={inputCls} value={memberForm.full_name}
+                    onChange={e => setMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Ana Sofía Mora" />
                 </div>
                 <div>
                   <label className={labelCls}>Cédula</label>
-                  <input className={inputCls} value={memberForm.document} onChange={e => setMemberForm(f => ({ ...f, document: e.target.value }))} placeholder="1.020.456.789" />
+                  <input className={inputCls} value={memberForm.document}
+                    onChange={e => setMemberForm(f => ({ ...f, document: e.target.value }))}
+                    placeholder="1.020.456.789" />
                 </div>
                 <div>
                   <label className={labelCls}>Teléfono / WhatsApp</label>
-                  <input className={inputCls} value={memberForm.phone} onChange={e => setMemberForm(f => ({ ...f, phone: e.target.value }))} placeholder="311 234 5678" />
+                  <input className={inputCls} value={memberForm.phone}
+                    onChange={e => setMemberForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="311 234 5678" />
                 </div>
                 <div>
                   <label className={labelCls}>Email</label>
-                  <input type="email" className={inputCls} value={memberForm.email} onChange={e => setMemberForm(f => ({ ...f, email: e.target.value }))} placeholder="ana@email.com" />
+                  <input type="email" className={inputCls} value={memberForm.email}
+                    onChange={e => setMemberForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="ana@email.com" />
                 </div>
                 <div>
-                  <label className={labelCls}>Fecha de inicio</label>
-                  <input type="date" className={inputCls} value={memberForm.start_date} onChange={e => setMemberForm(f => ({ ...f, start_date: e.target.value }))} />
-                </div>
-                <div className="col-span-2">
-                  <label className={labelCls}>Tipo de membresía *</label>
-                  <select className={inputCls} value={memberForm.membership_type_id} onChange={e => setMemberForm(f => ({ ...f, membership_type_id: e.target.value }))}>
-                    <option value="">Seleccionar...</option>
-                    {types.map(t => (
-                      <option key={t.id} value={t.id}>{t.name} — {formatMoney(t.price)} / {t.duration_days} días</option>
-                    ))}
-                  </select>
-                  {types.length === 0 && (
-                    <p className="text-xs text-amber-600 mt-1">Primero crea los tipos de membresía en la pestaña 🏷️ Membresías</p>
-                  )}
-                </div>
-                <div className="col-span-2">
                   <label className={labelCls}>Notas</label>
-                  <input className={inputCls} value={memberForm.notes} onChange={e => setMemberForm(f => ({ ...f, notes: e.target.value }))} placeholder="Observaciones opcionales..." />
+                  <input className={inputCls} value={memberForm.notes}
+                    onChange={e => setMemberForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Observaciones opcionales..." />
                 </div>
+
+                {/* Si es nuevo, seleccionar el plan aquí */}
+                {!editMember && (
+                  <div className="col-span-2">
+                    <label className={labelCls}>Plan de membresía *</label>
+                    {types.length === 0 ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                        Primero crea tipos de membresía en la pestaña 🏷️ Membresías
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 mt-1">
+                        {types.map(t => (
+                          <button key={t.id}
+                            onClick={() => setMemberForm(f => ({ ...f, membership_type_id: t.id }))}
+                            className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                              memberForm.membership_type_id === t.id
+                                ? 'border-emerald-500 bg-emerald-50'
+                                : 'border-slate-200 hover:border-slate-300'
+                            }`}>
+                            <div>
+                              <p className={`font-bold text-sm ${memberForm.membership_type_id === t.id ? 'text-emerald-700' : 'text-slate-800'}`}>
+                                {t.name}
+                              </p>
+                              {t.description && <p className="text-xs text-slate-400">{t.description}</p>}
+                              <p className="text-xs text-slate-400">{t.duration_days} días</p>
+                            </div>
+                            <p className={`text-lg font-black ${memberForm.membership_type_id === t.id ? 'text-emerald-600' : 'text-slate-700'}`}>
+                              {formatMoney(t.price)}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex gap-3 p-6 pt-0">
-              <button onClick={() => setShowMember(false)} className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium">Cancelar</button>
-              <button onClick={saveMember} disabled={saving} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold disabled:opacity-50">
-                {saving ? 'Guardando...' : editMember ? 'Guardar' : 'Registrar socio'}
+              <button onClick={() => setShowMember(false)}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium">
+                Cancelar
               </button>
+              {editMember ? (
+                <button onClick={saveEditMember} disabled={saving}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold disabled:opacity-50">
+                  {saving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              ) : (
+                <button onClick={handleNewMemberProceedToPayment} disabled={!memberForm.membership_type_id}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold disabled:opacity-40 flex items-center justify-center gap-2">
+                  <CreditCard size={16} /> Continuar al pago
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal nuevo tipo de membresía */}
+      {/* Modal nuevo tipo */}
       {showType && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
@@ -861,6 +1276,26 @@ const Gimnasio: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ══ MODAL DE PAGO DE MEMBRESÍA ══ */}
+      {paymentTarget && (
+        <MembershipPaymentModal
+          member={paymentTarget.member}
+          memberForm={paymentTarget.memberForm}
+          type={paymentTarget.type}
+          isRenewal={paymentTarget.isRenewal}
+          company={company}
+          companyId={companyId!}
+          branchId={branchId}
+          session={session}
+          formatMoney={formatMoney}
+          onClose={() => { setPaymentTarget(null); load(); refreshAll && refreshAll(); }}
+          onSuccess={(savedMember) => {
+            // El modal muestra el comprobante, load() se llama al cerrar
+          }}
+        />
+      )}
+
     </div>
   );
 };
