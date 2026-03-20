@@ -41,6 +41,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
   const [stats, setStats] = useState({ ok: 0, errors: 0 });
   // Opciones de reimportación
   const [updateStock, setUpdateStock] = useState(false);      // reemplazar stock
+  const [addToStock, setAddToStock]   = useState(false);      // sumar al stock existente
   const [updatePrices, setUpdatePrices] = useState(true);     // actualizar precio/costo
   const [updateSupplier, setUpdateSupplier] = useState(true); // actualizar proveedor
 
@@ -180,6 +181,10 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
           if (updateStock) {
             updatePayload.stock_quantity = row.stock_quantity ?? 0;
           }
+          if (addToStock && !updateStock) {
+            // Sumar la cantidad del Excel al stock actual
+            updatePayload.stock_quantity = (existing.stock_quantity || 0) + (row.stock_quantity ?? 0);
+          }
           if (updateSupplier && supplier_id) {
             updatePayload.supplier_id = supplier_id;
           }
@@ -284,11 +289,17 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">¿Qué hacer con productos que ya existen?</p>
             {[
               { key: 'updatePrices', state: updatePrices, set: setUpdatePrices, label: 'Actualizar precio, costo e IVA', desc: 'Sobreescribe los precios actuales con los del Excel', recommended: true },
+              { key: 'addToStock',   state: addToStock,   set: setAddToStock,   label: 'Sumar al stock existente', desc: 'Ej: tienes 10 unidades y el Excel trae 20 → queda en 30', recommended: true },
               { key: 'updateStock',  state: updateStock,  set: setUpdateStock,  label: 'Reemplazar stock', desc: 'Establece el stock exacto del Excel (útil para conteo físico)', recommended: false },
               { key: 'updateSupplier', state: updateSupplier, set: setUpdateSupplier, label: 'Actualizar proveedor', desc: 'Asigna o cambia el proveedor según la columna "Proveedor"', recommended: true },
             ].map(opt => (
               <button key={opt.key} type="button"
-                onClick={() => opt.set(!opt.state)}
+                onClick={() => {
+                  // addToStock y updateStock son mutuamente excluyentes
+                  if (opt.key === 'addToStock' && !opt.state) setUpdateStock(false);
+                  if (opt.key === 'updateStock' && !opt.state) setAddToStock(false);
+                  opt.set(!opt.state);
+                }}
                 className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border transition-colors text-left ${opt.state ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
                 <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 ${opt.state ? 'bg-blue-600' : 'bg-white border-2 border-slate-300'}`}>
                   {opt.state && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round"/></svg>}
