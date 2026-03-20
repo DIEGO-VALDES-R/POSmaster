@@ -7,6 +7,7 @@ import {
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
+  RefreshCw,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -369,9 +370,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const navigate  = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { currency, setCurrency } = useCurrency();
-  const { company, companyId, isLoading, userRole, customRole, hasPermission, hasFeature, switchCompany } = useDatabase();
+  const { company, companyId, isLoading, userRole, customRole, hasPermission, hasFeature, switchCompany, refreshAll } = useDatabase();
   const [childBranches, setChildBranches] = useState<any[]>([]);
   const [switching, setSwitching] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // ── sectionId activo: companyId + businessType ────────────────────────────
   // Garantiza que cada sección (incluso del mismo negocio con múltiples tipos)
@@ -427,6 +429,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   }, [mainBusinessTypes.join(','), companyId]);
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await refreshAll();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const plan      = company?.subscription_plan || 'BASIC';
 
@@ -747,10 +758,31 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
             {logoUrl && <img src={logoUrl} className="w-8 h-8 rounded object-cover" alt="logo" />}
             <h1 className="font-bold text-slate-800 text-sm">{companyName}</h1>
           </div>
-          <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
-            <Menu size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefreshAll}
+              disabled={refreshing || isLoading}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-40"
+              title="Actualizar">
+              <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
+              <Menu size={24} />
+            </button>
+          </div>
         </header>
+
+        {/* ── Barra superior desktop con botón Actualizar ── */}
+        <div className="hidden md:flex items-center justify-end px-6 py-2 border-b border-slate-200 bg-white flex-shrink-0">
+          <button
+            onClick={handleRefreshAll}
+            disabled={refreshing || isLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-40"
+            title="Actualizar todos los datos">
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Actualizando...' : 'Actualizar'}
+          </button>
+        </div>
 
         <div className="flex-1 overflow-auto p-4 md:p-8">
           <div className="max-w-7xl mx-auto h-full">
