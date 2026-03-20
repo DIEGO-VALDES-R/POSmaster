@@ -109,10 +109,44 @@ const REPAIR_LABELS: Record<string, string> = {
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────────────────
 const Dashboard: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { products, repairs, sales, isLoading, company, refreshAll } = useDatabase();
+  const { products, repairs, sales, isLoading, company, companyId, refreshAll } = useDatabase();
 
   const [period, setPeriod] = useState<Period>('week');
   const [chartReady, setChartReady] = useState(false);
+
+  // ── Gastos operativos del período ─────────────────────────────────────────
+  const [opExpenses, setOpExpenses] = useState(0);
+  const [pendingExpenses, setPendingExpenses] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    const load = async () => {
+      const now = new Date();
+      const start = startOf(period);
+      const fromISO = start.toISOString();
+      const toISO   = now.toISOString();
+      const [{ data: expData }, { data: pendData }] = await Promise.all([
+        supabase
+          .from('expenses')
+          .select('amount')
+          .eq('company_id', companyId)
+          .neq('status', 'CANCELLED')
+          .gte('expense_date', fromISO.slice(0,10))
+          .lte('expense_date', toISO.slice(0,10)),
+        supabase
+          .from('expenses')
+          .select('id, description, amount, due_date, status, expense_categories(name, color)')
+          .eq('company_id', companyId)
+          .in('status', ['PENDING', 'OVERDUE'])
+          .order('due_date', { ascending: true })
+          .limit(5),
+      ]);
+      const total = (expData || []).reduce((s: number, e: any) => s + (e.amount || 0), 0);
+      setOpExpenses(total);
+      setPendingExpenses(pendData || []);
+    };
+    load();
+  }, [companyId, period]);
 
   // ── Tipo de negocio ACTIVO (lee el que está seleccionado en el sidebar) ──────
   // Layout guarda en localStorage el tipo activo cuando el usuario cambia de sección
@@ -244,6 +278,9 @@ const Dashboard: React.FC = () => {
     ? (inventoryValuePrecio - inventoryValueCosto) / inventoryValuePrecio
     : 0.25;
   const utilidadEstimada = totalSales * avgMarginRate;
+
+  // Utilidad neta = utilidad bruta estimada - gastos operativos del período
+  const utilidadNeta = utilidadEstimada - opExpenses;
 
   const activeRepairs = repairs.filter((r: any) => !['DELIVERED','CANCELLED'].includes(r.status)).length;
   const readyRepairs  = repairs.filter((r: any) => r.status === 'READY').length;
@@ -396,6 +433,18 @@ const Dashboard: React.FC = () => {
               value={formatMoney(utilidadEstimada)}
               subtext={`Margen ~${(avgMarginRate * 100).toFixed(0)}% sobre ventas`}
               icon={TrendingUp} color="green"
+            />
+            <StatCard
+              title="Gastos operativos"
+              value={formatMoney(opExpenses)}
+              subtext={`${PERIOD_LABELS[period]}`}
+              icon={ArrowDownRight} color="orange"
+            />
+            <StatCard
+              title="Utilidad neta est."
+              value={formatMoney(utilidadNeta)}
+              subtext="Ut. bruta − gastos operativos"
+              icon={TrendingUp} color={utilidadNeta >= 0 ? 'green' : 'orange'}
             />
             {showTop5 && (
               <StatCard
@@ -628,6 +677,45 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
+        </div>
+      )}
+
+      {/* ── Gastos pendientes próximos a vencer ──────────────────────────── */}
+      {pendingExpenses.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-amber-100 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <AlertCircle size={16} className="text-amber-500" />
+              Gastos pendientes de pago
+            </h3>
+            <a href="#/expenses" className="text-xs text-blue-600 font-semibold hover:underline">Ver todos →</a>
+          </div>
+          <div className="space-y-2">
+            {pendingExpenses.map((e: any) => {
+              const today   = new Date().toISOString().split('T')[0];
+              const overdue = e.status === 'OVERDUE' || (e.due_date && e.due_date < today);
+              return (
+                <div key={e.id} className={`flex items-center justify-between p-3 rounded-lg border ${overdue ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
+                  <div className="flex items-center gap-3">
+                    {e.expense_categories && (
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: e.expense_categories.color }} />
+                    )}
+                    <div>
+                      <p className={`text-sm font-semibold ${overdue ? 'text-red-800' : 'text-slate-800'}`}>{e.description}</p>
+                      {e.due_date && (
+                        <p className={`text-xs mt-0.5 ${overdue ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                          {overdue ? '⚠ Vencido: ' : 'Vence: '}{e.due_date}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`font-black text-sm ${overdue ? 'text-red-700' : 'text-amber-700'}`}>
+                    {formatMoney(e.amount)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

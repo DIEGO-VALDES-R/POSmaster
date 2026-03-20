@@ -7,7 +7,7 @@ import {
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
-  RefreshCw,
+  RefreshCw, TrendingDown,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -53,6 +53,7 @@ const MODULE_PATHS: Record<string, string> = {
   optometria:  '/optometria',
   receivables: '/receivables',
   payables:    '/payables',
+  expenses:    '/expenses',
   warehouse:   '/warehouse',
   gimnasio:    '/gimnasio',
   panaderia:   '/panaderia',
@@ -139,9 +140,10 @@ function getNavItems(
 
   // ── Grupo Clientes y Finanzas ────────────────────────────────
   const finanzasItems: NavItem[] = [];
-  if (p('can_view_reports'))    finanzasItems.push({ label: 'Clientes',       path: MODULE_PATHS.customers,   icon: UserRound });
-  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',   path: MODULE_PATHS.receivables, icon: FileText });
-  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cuentas x Pagar', path: MODULE_PATHS.payables,    icon: CreditCard });
+  if (p('can_view_reports'))    finanzasItems.push({ label: 'Clientes',         path: MODULE_PATHS.customers,   icon: UserRound });
+  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',    path: MODULE_PATHS.receivables, icon: FileText });
+  if (p('can_view_reports'))    finanzasItems.push({ label: 'Cuentas x Pagar',  path: MODULE_PATHS.payables,    icon: CreditCard });
+  if (isAdmin)                  finanzasItems.push({ label: 'Gastos Operativos',path: MODULE_PATHS.expenses,    icon: TrendingDown });
 
   // ── Grupo Módulo vertical ────────────────────────────────────
   const moduloItems: NavItem[] = [];

@@ -42,6 +42,7 @@ const Nomina             = lazy(() => import('./pages/Nomina'));
 const PurchaseOrders     = lazy(() => import('./pages/PurchaseOrders'));
 const CreditNotes        = lazy(() => import('./pages/CreditNotes'));
 const Reports            = lazy(() => import('./pages/Reports'));
+const Expenses           = lazy(() => import('./pages/Expenses'));
 const PublicCatalog      = lazy(() => import('./pages/PublicCatalog'));
 const WarehouseDisplay   = lazy(() => import('./pages/WarehouseDisplay'));
 const Gimnasio           = lazy(() => import('./pages/Gimnasio'));
@@ -495,6 +496,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/purchases"    element={<PurchaseOrders />} />
       <Route path="/credit-notes"  element={<CreditNotes />} />
       <Route path="/reports"       element={<Reports />} />
+      <Route path="/expenses"      element={<Expenses />} />
       <Route path="/optometria"    element={<Optometria />} />
       <Route path="/portal"        element={<PortalPropietario />} />
       <Route path="/kiosk"         element={<BranchKiosk />} />

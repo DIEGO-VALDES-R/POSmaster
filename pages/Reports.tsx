@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart2, Download, FileSpreadsheet, TrendingUp, Package,
   Users, MinusCircle, Calendar, RefreshCw, Truck, ShoppingCart,
-  ArrowUpRight, ArrowDownRight,
+  ArrowUpRight, ArrowDownRight, DollarSign, Clock,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -11,11 +11,11 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, Cell, PieChart, Pie, Legend,
 } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type TabId = 'ventas' | 'inventario' | 'cartera' | 'egresos' | 'compras';
+type TabId = 'ventas' | 'inventario' | 'cartera' | 'egresos' | 'compras' | 'rentabilidad' | 'horasPico';
 type Period = 'today' | 'week' | 'month' | 'quarter' | 'custom';
 
 interface SaleRow {
@@ -103,6 +103,12 @@ const Reports: React.FC = () => {
   const [expenses, setExpenses]     = useState<ExpenseRow[]>([]);
   const [movements, setMovements]   = useState<MovementRow[]>([]);
 
+  // ── New: Rentabilidad & Horas Pico data ──────────────────────────────────
+  const [grossProfitData, setGrossProfitData] = useState<any[]>([]);
+  const [hourData,        setHourData]        = useState<any[]>([]);
+  const [dowData,         setDowData]         = useState<any[]>([]);
+  const [salesChannelData, setSalesChannelData] = useState<any[]>([]);
+
   const { from, to } = periodDates(period, customFrom, customTo);
   const fromISO = from + 'T00:00:00';
   const toISO   = to   + 'T23:59:59';
@@ -166,16 +172,121 @@ const Reports: React.FC = () => {
     setMovements((data || []) as MovementRow[]);
   }, [companyId, branchId, fromISO, toISO]);
 
+  // ── Loader: Rentabilidad por producto ──────────────────────────────────────
+  const loadRentabilidad = useCallback(async () => {
+    if (!companyId) return;
+    // Utilidad bruta real: (precio_venta - costo) * cantidad por ítem
+    let q = supabase
+      .from('invoice_items')
+      .select('quantity, price, products(id, name, sku, cost, category), invoices!inner(company_id, branch_id, created_at, sales_channel, status)')
+      .eq('invoices.company_id', companyId)
+      .neq('invoices.status', 'CANCELLED')
+      .gte('invoices.created_at', fromISO)
+      .lte('invoices.created_at', toISO);
+    if (branchId) q = (q as any).eq('invoices.branch_id', branchId);
+    const { data } = await q;
+
+    // Aggregate by product
+    const byProduct: Record<string, any> = {};
+    (data || []).forEach((item: any) => {
+      const p = item.products;
+      if (!p) return;
+      const key = p.id;
+      if (!byProduct[key]) {
+        byProduct[key] = {
+          product_name: p.name,
+          sku:          p.sku,
+          category:     p.category || 'Sin categoría',
+          cost:         p.cost || 0,
+          units_sold:   0,
+          revenue:      0,
+          cogs:         0,
+          gross_profit: 0,
+        };
+      }
+      const revenue      = item.price * item.quantity;
+      const cogs         = (p.cost || 0) * item.quantity;
+      byProduct[key].units_sold   += item.quantity;
+      byProduct[key].revenue      += revenue;
+      byProduct[key].cogs         += cogs;
+      byProduct[key].gross_profit += (revenue - cogs);
+    });
+
+    const rows = Object.values(byProduct)
+      .map((r: any) => ({
+        ...r,
+        margin_pct: r.revenue > 0 ? (r.gross_profit / r.revenue) * 100 : 0,
+      }))
+      .sort((a: any, b: any) => b.gross_profit - a.gross_profit);
+    setGrossProfitData(rows);
+
+    // Canal de venta
+    const byCh: Record<string, { revenue: number; profit: number }> = {};
+    (data || []).forEach((item: any) => {
+      const ch = (item.invoices as any)?.sales_channel || 'LOCAL';
+      if (!byCh[ch]) byCh[ch] = { revenue: 0, profit: 0 };
+      const rev = item.price * item.quantity;
+      const cog = ((item.products as any)?.cost || 0) * item.quantity;
+      byCh[ch].revenue += rev;
+      byCh[ch].profit  += (rev - cog);
+    });
+    setSalesChannelData(Object.entries(byCh).map(([canal, v]) => ({ canal, ...v })));
+  }, [companyId, branchId, fromISO, toISO]);
+
+  // ── Loader: Horas pico ──────────────────────────────────────────────────────
+  const loadHorasPico = useCallback(async () => {
+    if (!companyId) return;
+    let q = supabase
+      .from('invoices')
+      .select('created_at, total_amount')
+      .eq('company_id', companyId)
+      .neq('status', 'CANCELLED')
+      .gte('created_at', fromISO)
+      .lte('created_at', toISO);
+    if (branchId) q = q.eq('branch_id', branchId);
+    const { data } = await q;
+
+    const byHour: Record<number, { count: number; total: number }> = {};
+    const byDow:  Record<number, { count: number; total: number }> = {};
+    for (let i = 0; i < 24; i++) byHour[i] = { count: 0, total: 0 };
+    for (let i = 0; i < 7;  i++) byDow[i]  = { count: 0, total: 0 };
+
+    (data || []).forEach((inv: any) => {
+      const d   = new Date(inv.created_at);
+      const hr  = d.getHours();
+      const dow = d.getDay();
+      byHour[hr].count++;
+      byHour[hr].total += inv.total_amount || 0;
+      byDow[dow].count++;
+      byDow[dow].total += inv.total_amount || 0;
+    });
+
+    setHourData(Object.entries(byHour).map(([h, v]) => ({
+      hour:  `${String(h).padStart(2,'0')}:00`,
+      count: v.count,
+      total: v.total,
+    })));
+
+    const DOW_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    setDowData(Object.entries(byDow).map(([d, v]) => ({
+      day:   DOW_NAMES[Number(d)],
+      count: v.count,
+      total: v.total,
+    })));
+  }, [companyId, branchId, fromISO, toISO]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      if (activeTab === 'ventas')     await loadVentas();
-      if (activeTab === 'inventario') await loadInventario();
-      if (activeTab === 'cartera')    await loadCartera();
-      if (activeTab === 'egresos')    await loadEgresos();
-      if (activeTab === 'compras')    await loadCompras();
+      if (activeTab === 'ventas')        await loadVentas();
+      if (activeTab === 'inventario')    await loadInventario();
+      if (activeTab === 'cartera')       await loadCartera();
+      if (activeTab === 'egresos')       await loadEgresos();
+      if (activeTab === 'compras')       await loadCompras();
+      if (activeTab === 'rentabilidad')  await loadRentabilidad();
+      if (activeTab === 'horasPico')     await loadHorasPico();
     } finally { setLoading(false); }
-  }, [activeTab, loadVentas, loadInventario, loadCartera, loadEgresos, loadCompras]);
+  }, [activeTab, loadVentas, loadInventario, loadCartera, loadEgresos, loadCompras, loadRentabilidad, loadHorasPico]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -417,11 +528,13 @@ const Reports: React.FC = () => {
   };
 
   const TABS = [
-    { id: 'ventas',     label: 'Ventas',      icon: TrendingUp,  color: 'blue'   },
-    { id: 'compras',    label: 'Compras',      icon: Truck,       color: 'teal'   },
-    { id: 'inventario', label: 'Inventario',   icon: Package,     color: 'green'  },
-    { id: 'cartera',    label: 'Cartera/CxC',  icon: Users,       color: 'purple' },
-    { id: 'egresos',    label: 'Egresos',      icon: MinusCircle, color: 'red'    },
+    { id: 'ventas',        label: 'Ventas',        icon: TrendingUp,  color: 'blue'   },
+    { id: 'compras',       label: 'Compras',        icon: Truck,       color: 'teal'   },
+    { id: 'inventario',    label: 'Inventario',     icon: Package,     color: 'green'  },
+    { id: 'cartera',       label: 'Cartera/CxC',    icon: Users,       color: 'purple' },
+    { id: 'egresos',       label: 'Egresos',        icon: MinusCircle, color: 'red'    },
+    { id: 'rentabilidad',  label: 'Rentabilidad',   icon: DollarSign,  color: 'emerald'},
+    { id: 'horasPico',     label: 'Horas Pico',     icon: Clock,       color: 'violet' },
   ] as const;
 
   const PERIODS = [
@@ -435,11 +548,13 @@ const Reports: React.FC = () => {
   const needsPeriod = activeTab !== 'inventario';
 
   const colorsActive: Record<string,string> = {
-    blue:   'bg-blue-600 text-white',
-    teal:   'bg-teal-600 text-white',
-    green:  'bg-emerald-600 text-white',
-    purple: 'bg-purple-600 text-white',
-    red:    'bg-red-600 text-white',
+    blue:    'bg-blue-600 text-white',
+    teal:    'bg-teal-600 text-white',
+    green:   'bg-emerald-600 text-white',
+    purple:  'bg-purple-600 text-white',
+    red:     'bg-red-600 text-white',
+    emerald: 'bg-emerald-700 text-white',
+    violet:  'bg-violet-600 text-white',
   };
 
   return (
@@ -813,6 +928,246 @@ const Reports: React.FC = () => {
                     </tfoot>
                   )}
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════ RENTABILIDAD ═════════════════════════ */}
+          {activeTab === 'rentabilidad' && (
+            <div className="space-y-5">
+              {/* KPIs */}
+              {(() => {
+                const totalRev  = grossProfitData.reduce((s: number, r: any) => s + r.revenue, 0);
+                const totalCOGS = grossProfitData.reduce((s: number, r: any) => s + r.cogs, 0);
+                const totalGP   = grossProfitData.reduce((s: number, r: any) => s + r.gross_profit, 0);
+                const avgMargin = totalRev > 0 ? (totalGP / totalRev) * 100 : 0;
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <KPICard label="Ingresos totales"  value={formatMoney(totalRev)}  color="blue" />
+                    <KPICard label="Costo de ventas"   value={formatMoney(totalCOGS)} color="red" />
+                    <KPICard label="Utilidad bruta"    value={formatMoney(totalGP)}   color="emerald" />
+                    <KPICard label="Margen promedio"   value={`${avgMargin.toFixed(1)}%`} color={avgMargin >= 30 ? 'emerald' : avgMargin >= 15 ? 'amber' : 'red'} />
+                  </div>
+                );
+              })()}
+
+              {/* Canal de venta */}
+              {salesChannelData.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <p className="text-sm font-bold text-slate-700 mb-4">Ventas y utilidad por canal</p>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={salesChannelData} barSize={28}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="canal" tick={{ fontSize: 11 }} />
+                        <YAxis tickFormatter={(v: number) => `$${(v/1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
+                        <Tooltip formatter={(v: number) => formatMoney(v)} />
+                        <Legend />
+                        <Bar dataKey="revenue" name="Ingresos"  fill="#3b82f6" radius={[4,4,0,0]} />
+                        <Bar dataKey="profit"  name="Utilidad"  fill="#10b981" radius={[4,4,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100">
+                            <th className="text-left py-2 text-xs font-bold text-slate-500 uppercase">Canal</th>
+                            <th className="text-right py-2 text-xs font-bold text-slate-500 uppercase">Ingresos</th>
+                            <th className="text-right py-2 text-xs font-bold text-slate-500 uppercase">Utilidad</th>
+                            <th className="text-right py-2 text-xs font-bold text-slate-500 uppercase">Margen</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {salesChannelData.map((ch: any) => (
+                            <tr key={ch.canal} className="hover:bg-slate-50">
+                              <td className="py-2 font-semibold text-slate-700">{ch.canal}</td>
+                              <td className="py-2 text-right text-blue-700">{formatMoney(ch.revenue)}</td>
+                              <td className="py-2 text-right text-emerald-700 font-bold">{formatMoney(ch.profit)}</td>
+                              <td className="py-2 text-right text-slate-500">
+                                {ch.revenue > 0 ? `${((ch.profit/ch.revenue)*100).toFixed(1)}%` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Top productos por utilidad bruta */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100">
+                  <p className="text-sm font-bold text-slate-700">Utilidad bruta real por producto</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Ordenado por mayor ganancia — basado en costos registrados</p>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      {['#','Producto','Categoría','Uds vendidas','Ingresos','Costo ventas','Utilidad bruta','Margen %'].map(h => (
+                        <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {grossProfitData.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-sm">
+                          Sin datos de ventas para el período seleccionado
+                        </td>
+                      </tr>
+                    )}
+                    {grossProfitData.map((r: any, i: number) => (
+                      <tr key={r.product_name} className="hover:bg-slate-50">
+                        <td className="px-3 py-2.5 text-slate-400 font-mono text-xs">{i + 1}</td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800">{r.product_name}</td>
+                        <td className="px-3 py-2.5 text-slate-500 text-xs">{r.category}</td>
+                        <td className="px-3 py-2.5 font-bold text-slate-700">{r.units_sold}</td>
+                        <td className="px-3 py-2.5 text-blue-600">{formatMoney(r.revenue)}</td>
+                        <td className="px-3 py-2.5 text-red-500">{formatMoney(r.cogs)}</td>
+                        <td className="px-3 py-2.5 font-black text-emerald-700">{formatMoney(r.gross_profit)}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-slate-100 rounded-full h-1.5 max-w-[60px]">
+                              <div className="h-1.5 rounded-full bg-emerald-500"
+                                style={{ width: `${Math.min(r.margin_pct, 100)}%` }} />
+                            </div>
+                            <span className={`text-xs font-bold ${r.margin_pct >= 30 ? 'text-emerald-600' : r.margin_pct >= 15 ? 'text-amber-600' : 'text-red-500'}`}>
+                              {r.margin_pct.toFixed(1)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {grossProfitData.length > 0 && (
+                    <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                      <tr>
+                        <td colSpan={3} className="px-3 py-3 text-xs font-bold text-slate-500">TOTALES</td>
+                        <td className="px-3 py-3 font-bold">{grossProfitData.reduce((s: number, r: any) => s + r.units_sold, 0)}</td>
+                        <td className="px-3 py-3 font-black text-blue-700">{formatMoney(grossProfitData.reduce((s: number, r: any) => s + r.revenue, 0))}</td>
+                        <td className="px-3 py-3 font-black text-red-600">{formatMoney(grossProfitData.reduce((s: number, r: any) => s + r.cogs, 0))}</td>
+                        <td className="px-3 py-3 font-black text-emerald-700 text-base">{formatMoney(grossProfitData.reduce((s: number, r: any) => s + r.gross_profit, 0))}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════ HORAS PICO ═══════════════════════════ */}
+          {activeTab === 'horasPico' && (
+            <div className="space-y-5">
+              <div className="grid md:grid-cols-2 gap-5">
+                {/* Por hora */}
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <p className="text-sm font-bold text-slate-700 mb-1">Ventas por hora del día</p>
+                  <p className="text-xs text-slate-400 mb-4">Número de facturas emitidas cada hora</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={hourData} barSize={14}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 9 }} interval={1} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip
+                        formatter={(v: number, name: string) =>
+                          name === 'count' ? [`${v} facturas`, 'Transacciones'] : [formatMoney(v), 'Ventas']
+                        }
+                      />
+                      <Bar dataKey="count" name="Transacciones" radius={[3,3,0,0]}>
+                        {hourData.map((entry: any, index: number) => {
+                          const max = Math.max(...hourData.map((h: any) => h.count));
+                          const intensity = max > 0 ? entry.count / max : 0;
+                          const r = Math.round(59 + intensity * 196);
+                          const g = Math.round(130 - intensity * 60);
+                          const b = Math.round(246 - intensity * 200);
+                          return <Cell key={`cell-${index}`} fill={`rgb(${r},${g},${b})`} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {/* Top 3 horas */}
+                  <div className="mt-4 flex gap-2 flex-wrap">
+                    {[...hourData].sort((a: any,b: any) => b.count - a.count).slice(0,3).map((h: any, i: number) => (
+                      <div key={h.hour} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${i===0?'bg-blue-600 text-white':i===1?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>
+                        {i === 0 ? '🔥' : i === 1 ? '⚡' : '📈'} {h.hour} — {h.count} ventas
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Por día de la semana */}
+                <div className="bg-white rounded-xl border border-slate-200 p-5">
+                  <p className="text-sm font-bold text-slate-700 mb-1">Ventas por día de la semana</p>
+                  <p className="text-xs text-slate-400 mb-4">Ingresos totales acumulados por día</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={dowData} barSize={32}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12, fontWeight: 600 }} />
+                      <YAxis tickFormatter={(v: number) => `$${(v/1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(v: number, name: string) =>
+                        name === 'total' ? [formatMoney(v), 'Ingresos'] : [`${v}`, 'Transacciones']
+                      } />
+                      <Legend />
+                      <Bar dataKey="total" name="Ingresos" fill="#8b5cf6" radius={[4,4,0,0]} />
+                      <Bar dataKey="count" name="Transacciones" fill="#c4b5fd" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-4 flex gap-2 flex-wrap">
+                    {[...dowData].sort((a: any,b: any) => b.total - a.total).slice(0,3).map((d: any, i: number) => (
+                      <div key={d.day} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${i===0?'bg-violet-600 text-white':i===1?'bg-violet-100 text-violet-700':'bg-slate-100 text-slate-600'}`}>
+                        {i === 0 ? '🏆' : i === 1 ? '🥈' : '🥉'} {d.day} — {formatMoney(d.total)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabla resumen por hora */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100">
+                  <p className="text-sm font-bold text-slate-700">Resumen completo por hora</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">Hora</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Transacciones</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Ventas totales</th>
+                        <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase">Ticket promedio</th>
+                        <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase">Actividad</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {hourData.filter((h: any) => h.count > 0).map((h: any) => {
+                        const maxCount = Math.max(...hourData.map((x: any) => x.count));
+                        const pct = maxCount > 0 ? (h.count / maxCount) * 100 : 0;
+                        return (
+                          <tr key={h.hour} className="hover:bg-slate-50">
+                            <td className="px-4 py-2.5 font-mono font-bold text-slate-700">{h.hour}</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-800">{h.count}</td>
+                            <td className="px-4 py-2.5 text-right text-blue-700 font-semibold">{formatMoney(h.total)}</td>
+                            <td className="px-4 py-2.5 text-right text-slate-500">{h.count > 0 ? formatMoney(h.total / h.count) : '—'}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="w-full bg-slate-100 rounded-full h-2 max-w-[120px]">
+                                <div className="h-2 rounded-full bg-violet-500 transition-all" style={{ width: `${pct}%` }} />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {hourData.filter((h: any) => h.count > 0).length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-sm">
+                            Sin datos para el período seleccionado
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
