@@ -1583,14 +1583,31 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
     });
   };
 
+  const adm = {
+    pill: (color: string): React.CSSProperties => ({
+      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, display: 'inline-block',
+      background: color==='blue'?'#eff6ff':color==='green'?'#f0fdf4':color==='amber'?'#fffbeb':color==='red'?'#fef2f2':color==='purple'?'#f5f3ff':'#f1f5f9',
+      color:      color==='blue'?'#1d4ed8':color==='green'?'#15803d':color==='amber'?'#b45309':color==='red'?'#dc2626':color==='purple'?'#6d28d9':'#475569',
+    }),
+    btn: (v: string): React.CSSProperties => ({
+      padding: '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const,
+      background: v==='green'?'#f0fdf4':v==='blue'?'#eff6ff':v==='red'?'#fef2f2':v==='dark'?'#0f172a':v==='amber'?'#fffbeb':v==='purple'?'#f5f3ff':'#f8fafc',
+      color:      v==='green'?'#15803d':v==='blue'?'#1d4ed8':v==='red'?'#dc2626':v==='dark'?'#fff':v==='amber'?'#b45309':v==='purple'?'#7c3aed':'#475569',
+      border: v==='green'?'1px solid #bbf7d0':v==='blue'?'1px solid #bfdbfe':v==='red'?'1px solid #fecaca':v==='dark'?'none':v==='amber'?'1px solid #fde68a':v==='purple'?'1px solid #e9d5ff':'1px solid #e2e8f0',
+    }),
+    td: { padding: '11px 14px', borderBottom: '1px solid #f1f5f9', fontSize: 13, verticalAlign: 'middle' as const } as React.CSSProperties,
+    th: { padding: '10px 14px', textAlign: 'left' as const, fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const } as React.CSSProperties,
+  };
+  const avatarColors = ['#2563eb','#7c3aed','#059669','#dc2626','#d97706','#0891b2','#be185d'];
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>
       {/* Top bar */}
-      <div style={{ background: '#0a0f1e', padding: '0 32px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ background: '#0f172a', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#fff' }}>PM</div>
+          <div style={{ width: 32, height: 32, background: '#2563eb', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11, color: '#fff' }}>PM</div>
           <span style={{ color: '#fff', fontWeight: 700 }}>POSmaster</span>
-          <span style={{ color: '#475569', fontSize: 13, marginLeft: 8 }}>/ Panel Administrador</span>
+          <span style={{ color: '#475569', fontSize: 13, marginLeft: 8 }}>/ Superadmin</span>
         </div>
         <button onClick={async () => { await supabase.auth.signOut(); onExit(); }}
           style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', padding: '6px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -1865,7 +1882,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {['ALL', 'PENDING', 'ACTIVE', 'PAST_DUE', 'INACTIVE'].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)}
-                style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: filterStatus === s ? '#0f172a' : '#fff', color: filterStatus === s ? '#fff' : '#64748b', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: filterStatus === s ? '#0f172a' : '#fff', color: filterStatus === s ? '#fff' : '#64748b', cursor: 'pointer', fontWeight: filterStatus === s ? 700 : 400, fontSize: 12 }}>
                 {s === 'ALL' ? 'Todos' : s === 'PENDING' ? 'Pendientes' : s === 'ACTIVE' ? 'Activos' : s === 'PAST_DUE' ? 'Vencidos' : 'Inactivos'}
               </button>
             ))}
@@ -1880,12 +1897,12 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
           </div>
         </div>
 
-        <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'auto' }}>
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1100 }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 {['Negocio', 'Tipo', 'Plan', 'Estado', 'Inicio', 'Vencimiento', 'Días', 'Acciones'].map(h => (
-                  <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700, color: '#94a3b8', fontSize: 11, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1901,7 +1918,7 @@ export const AdminPanel: React.FC<{ onExit: () => void; onPreview: (companyId: s
                 return (
                   <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '12px 14px' }}>
-                      <p style={{ fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>{c.name}</p>
+                      <p style={{ fontWeight: 600, color: '#0f172a', marginBottom: 1 }}>{c.name}</p>
                       <p style={{ fontSize: 12, color: '#94a3b8' }}>{c.email || '—'}</p>
                     </td>
                     <td style={{ padding: '12px 14px' }}>
