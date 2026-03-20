@@ -60,6 +60,7 @@ const MODULE_PATHS: Record<string, string> = {
   nomina:      '/nomina',
   reports:     '/reports',
   apartados:   '/apartados',
+  b2b:         '/b2b',
 };
 
 // Tipo para items del menú con soporte de grupos
@@ -169,6 +170,7 @@ function getNavItems(
   // ── Grupo Administración ─────────────────────────────────────
   const adminItems: NavItem[] = [];
   adminItems.push({ label: 'Reportes', path: MODULE_PATHS.reports, icon: BarChart2 });
+  adminItems.push({ label: 'Marketplace B2B', path: MODULE_PATHS.b2b, icon: Building2 });
   if (isPro && p('can_manage_team'))                    adminItems.push({ label: 'Equipo',  path: MODULE_PATHS.team,   icon: Users });
   if (isAdmin && hasFeature('nomina'))                  adminItems.push({ label: 'Nómina',  path: MODULE_PATHS.nomina, icon: Users2 });
 
@@ -377,7 +379,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const makeSectionId = (cid: string, bt: string) => `${cid}__${bt}`;
 
   const cfg = (company?.config as any) || {};
-  // Deduplicate + normalize legacy keys
   const normalizeType = (t: string) => {
     if (t === 'gym' || t === 'fitness') return 'gimnasio';
     if (t === 'bakery') return 'panaderia';
@@ -412,8 +413,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     }
   }, [companyId]);
 
-  // ── FIX: cuando cambia el tipo de negocio en Configuración,
-  // re-sincronizar el sectionId activo para que el nuevo módulo aparezca
   const prevBtKey = useRef<string>('');
   useEffect(() => {
     if (!companyId) return;
