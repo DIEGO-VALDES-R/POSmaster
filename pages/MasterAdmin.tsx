@@ -1149,6 +1149,9 @@ const MasterAdmin: React.FC = () => {
     // Finanzas
     { id: 'nomina',         label: 'Nómina y dotación',             cat: 'Finanzas',   defaultPlans: ['PRO','ENTERPRISE'] },
     { id: 'cash_expenses',  label: 'Egresos de caja',               cat: 'Finanzas',   defaultPlans: ['BASIC','PRO','ENTERPRISE','TRIAL'] },
+    { id: 'op_expenses',    label: 'Gastos Operativos mensuales',   cat: 'Finanzas',   defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'advanced_reports', label: 'Reportes avanzados (rentabilidad + horas pico)', cat: 'Finanzas', defaultPlans: ['PRO','ENTERPRISE'] },
+    { id: 'sales_channel',  label: 'Canal de venta en facturas',    cat: 'Finanzas',   defaultPlans: ['PRO','ENTERPRISE'] },
     // Módulos
     { id: 'restaurant',     label: 'Módulo Restaurante',            cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },
     { id: 'salon',          label: 'Módulo Salón de belleza',        cat: 'Módulos',    defaultPlans: ['PRO','ENTERPRISE'] },

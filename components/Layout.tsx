@@ -143,7 +143,7 @@ function getNavItems(
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Clientes',         path: MODULE_PATHS.customers,   icon: UserRound });
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',    path: MODULE_PATHS.receivables, icon: FileText });
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Cuentas x Pagar',  path: MODULE_PATHS.payables,    icon: CreditCard });
-  if (isAdmin)                  finanzasItems.push({ label: 'Gastos Operativos',path: MODULE_PATHS.expenses,    icon: TrendingDown });
+  if (isAdmin && hasFeature('op_expenses')) finanzasItems.push({ label: 'Gastos Operativos',path: MODULE_PATHS.expenses,    icon: TrendingDown });
 
   // ── Grupo Módulo vertical ────────────────────────────────────
   const moduloItems: NavItem[] = [];

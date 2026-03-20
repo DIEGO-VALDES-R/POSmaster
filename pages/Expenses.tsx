@@ -78,7 +78,7 @@ const EMPTY_FORM = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const Expenses: React.FC = () => {
-  const { companyId, branchId } = useDatabase();
+  const { companyId, branchId, hasFeature } = useDatabase();
   const { formatMoney }         = useCurrency();
 
   // Data
@@ -98,49 +98,94 @@ const Expenses: React.FC = () => {
   const [dateFrom,     setDateFrom]     = useState('');
   const [dateTo,       setDateTo]       = useState('');
 
+  // ── DB error state ──────────────────────────────────────────────────────────
+  const [dbError, setDbError] = useState<string | null>(null);
+
   // ── Load data ───────────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     if (!companyId) return;
     setLoading(true);
+    setDbError(null);
     try {
-      const [expRes, catRes, brRes] = await Promise.all([
-        supabase
-          .from('expenses')
-          .select('*, expense_categories(name, color), branches(name)')
-          .eq('company_id', companyId)
-          .order('expense_date', { ascending: false })
-          .order('created_at',   { ascending: false }),
-        supabase
-          .from('expense_categories')
-          .select('id, name, color')
-          .eq('company_id', companyId)
-          .order('name'),
-        supabase
-          .from('branches')
-          .select('id, name')
-          .eq('company_id', companyId),
-      ]);
-      setExpenses(expRes.data || []);
-      setCategories(catRes.data || []);
-      setBranches(brRes.data || []);
+      // 1. Load branches (always works)
+      const { data: brData } = await supabase
+        .from('branches')
+        .select('id, name')
+        .eq('company_id', companyId);
+      setBranches(brData || []);
+
+      // 2. Load categories — detect if table exists
+      const catRes = await supabase
+        .from('expense_categories')
+        .select('id, name, color')
+        .eq('company_id', companyId)
+        .order('name');
+
+      if (catRes.error) {
+        // Table doesn't exist → show migration notice
+        setDbError(catRes.error.message);
+        setLoading(false);
+        return;
+      }
+
+      // 3. If categories exist but are empty → seed them
+      if ((catRes.data || []).length === 0) {
+        const { error: rpcErr } = await supabase.rpc('seed_expense_categories', {
+          p_company_id: companyId,
+        });
+        if (!rpcErr) {
+          const { data: seeded } = await supabase
+            .from('expense_categories')
+            .select('id, name, color')
+            .eq('company_id', companyId)
+            .order('name');
+          setCategories(seeded || []);
+        } else {
+          // RPC doesn't exist — insert defaults manually
+          const defaults = [
+            { company_id: companyId, name: 'Arriendo',            color: '#ef4444' },
+            { company_id: companyId, name: 'Servicios Públicos',   color: '#f59e0b' },
+            { company_id: companyId, name: 'Internet / Telefonía', color: '#3b82f6' },
+            { company_id: companyId, name: 'Nómina / Sueldos',     color: '#8b5cf6' },
+            { company_id: companyId, name: 'Publicidad',           color: '#10b981' },
+            { company_id: companyId, name: 'Transporte',           color: '#64748b' },
+            { company_id: companyId, name: 'Mantenimiento',        color: '#f97316' },
+            { company_id: companyId, name: 'Impuestos',            color: '#dc2626' },
+            { company_id: companyId, name: 'Otros',                color: '#94a3b8' },
+          ];
+          await supabase.from('expense_categories').insert(defaults);
+          const { data: seeded2 } = await supabase
+            .from('expense_categories')
+            .select('id, name, color')
+            .eq('company_id', companyId)
+            .order('name');
+          setCategories(seeded2 || []);
+        }
+      } else {
+        setCategories(catRes.data || []);
+      }
+
+      // 4. Load expenses
+      const expRes = await supabase
+        .from('expenses')
+        .select('*, expense_categories(name, color), branches(name)')
+        .eq('company_id', companyId)
+        .order('expense_date', { ascending: false })
+        .order('created_at',   { ascending: false });
+
+      if (expRes.error) {
+        setDbError(expRes.error.message);
+      } else {
+        setExpenses(expRes.data || []);
+      }
     } catch (e: any) {
-      toast.error('Error cargando datos: ' + e.message);
+      setDbError(e.message);
     } finally {
       setLoading(false);
     }
   }, [companyId]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  // Auto-seed categories if none exist
-  useEffect(() => {
-    if (!companyId || categories.length > 0) return;
-    const seed = async () => {
-      await supabase.rpc('seed_expense_categories', { p_company_id: companyId });
-      loadAll();
-    };
-    seed();
-  }, [companyId, categories.length, loadAll]);
 
   // ── Filtered list ───────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -270,6 +315,22 @@ const Expenses: React.FC = () => {
     setForm(f => ({ ...f, [field]: val }));
 
   // ── Render ───────────────────────────────────────────────────────────────────
+  // Feature gate
+  if (!hasFeature('op_expenses')) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="text-center max-w-sm">
+          <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center mx-auto mb-4">
+            <TrendingDown size={28} className="text-amber-600" />
+          </div>
+          <h2 className="text-lg font-black text-slate-800 mb-2">Gastos Operativos</h2>
+          <p className="text-sm text-slate-500 mb-4">Este módulo no está habilitado para tu cuenta. Contacta al administrador para activarlo.</p>
+          <span className="inline-block px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">Plan PRO o ENTERPRISE</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
 
@@ -294,14 +355,42 @@ const Expenses: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPICard label="Este mes" value={formatMoney(kpi.thisMonth)} color="red" icon={<Calendar size={18} />} />
-        <KPICard label="Total (filtrado)" value={formatMoney(kpi.total)} color="orange" icon={<Receipt size={18} />} />
-        <KPICard label="Pendiente pago" value={formatMoney(kpi.pending)} color="amber" icon={<Clock size={18} />} />
-        <KPICard label="Vencidos" value={String(kpi.overdue)} color={kpi.overdue > 0 ? 'red' : 'green'} icon={<AlertCircle size={18} />} />
-      </div>
+      {/* Migration error banner */}
+      {dbError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-red-700 text-sm">Las tablas de Gastos no existen aún en la base de datos</p>
+              <p className="text-red-600 text-xs mt-1 mb-3">Debes ejecutar la migración SQL antes de usar este módulo.</p>
+              <p className="text-xs font-semibold text-red-500 mb-2">Pasos:</p>
+              <ol className="text-xs text-red-600 space-y-1 list-decimal list-inside mb-3">
+                <li>Abre <strong>Supabase → SQL Editor</strong></li>
+                <li>Copia el contenido del archivo <code className="bg-red-100 px-1 rounded">supabase/migrations/007_expenses_module.sql</code></li>
+                <li>Pega y ejecuta el script completo</li>
+                <li>Vuelve aquí y presiona el botón de recarga</li>
+              </ol>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-red-400 hover:text-red-600">Ver error técnico</summary>
+                <code className="block mt-1 bg-red-100 p-2 rounded text-red-700 break-all">{dbError}</code>
+              </details>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* KPI Cards — only show when DB is working */}
+      {!dbError && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KPICard label="Este mes" value={formatMoney(kpi.thisMonth)} color="red" icon={<Calendar size={18} />} />
+          <KPICard label="Total (filtrado)" value={formatMoney(kpi.total)} color="orange" icon={<Receipt size={18} />} />
+          <KPICard label="Pendiente pago" value={formatMoney(kpi.pending)} color="amber" icon={<Clock size={18} />} />
+          <KPICard label="Vencidos" value={String(kpi.overdue)} color={kpi.overdue > 0 ? 'red' : 'green'} icon={<AlertCircle size={18} />} />
+        </div>
+      )}
+
+      {!dbError && (
+      <>
       {/* Filters */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-[200px]">

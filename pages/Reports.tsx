@@ -87,7 +87,7 @@ const payMethodLabel: Record<string, string> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const Reports: React.FC = () => {
-  const { companyId, branchId, company } = useDatabase();
+  const { companyId, branchId, company, hasFeature } = useDatabase();
   const { formatMoney } = useCurrency();
 
   const [activeTab, setActiveTab]   = useState<TabId>('ventas');
@@ -533,8 +533,10 @@ const Reports: React.FC = () => {
     { id: 'inventario',    label: 'Inventario',     icon: Package,     color: 'green'  },
     { id: 'cartera',       label: 'Cartera/CxC',    icon: Users,       color: 'purple' },
     { id: 'egresos',       label: 'Egresos',        icon: MinusCircle, color: 'red'    },
-    { id: 'rentabilidad',  label: 'Rentabilidad',   icon: DollarSign,  color: 'emerald'},
-    { id: 'horasPico',     label: 'Horas Pico',     icon: Clock,       color: 'violet' },
+    ...(hasFeature('advanced_reports') ? [
+      { id: 'rentabilidad',  label: 'Rentabilidad',   icon: DollarSign,  color: 'emerald'},
+      { id: 'horasPico',     label: 'Horas Pico',     icon: Clock,       color: 'violet' },
+    ] : []),
   ] as const;
 
   const PERIODS = [
