@@ -538,6 +538,8 @@ const Expenses: React.FC = () => {
           </table>
         </div>
       )}
+      </>
+      )}
 
       {/* Modal */}
       {showModal && (
