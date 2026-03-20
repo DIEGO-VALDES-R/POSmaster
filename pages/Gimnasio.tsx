@@ -4,7 +4,7 @@ import {
   X, Edit2, Trash2, DollarSign, Calendar, Search,
   Users, AlertTriangle, Dumbbell, BarChart2, Tag,
   CreditCard, Printer, MessageCircle, Banknote, Receipt,
-  ArrowRight, Smartphone, UserCheck, Activity, Apple,
+  ArrowRight, Smartphone, Package, UserCheck, Activity, Apple,
   Link2, QrCode, Copy, ChevronDown, ChevronUp, Target,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
@@ -113,6 +113,17 @@ const MembershipPaymentModal: React.FC<PaymentModalProps> = ({
   );
   const [payMethod, setPayMethod]     = useState<PayMethod>('CASH');
   const [saving, setSaving]           = useState(false);
+
+  // Suplementos del gimnasio
+  const [supplements, setSupplements]           = useState<any[]>([]);
+  const [showSuppModal, setShowSuppModal]       = useState(false);
+  const [editSupp, setEditSupp]                 = useState<any | null>(null);
+  const [suppForm, setSuppForm]                 = useState({
+    name: '', sku: '', brand: '', description: '',
+    price: '', cost: '', stock_quantity: '0', stock_min: '5',
+    category: 'Proteína', image_url: '',
+  });
+  const SUPP_CATEGORIES = ['Proteína','Creatina','Pre-workout','Aminoácidos','Vitaminas','Quemador de grasa','Ganador de masa','Colágeno','Omega 3','Otro'];
 
   // Instructores
   const [instructors, setInstructors]           = useState<any[]>([]);
@@ -494,7 +505,7 @@ const Gimnasio: React.FC = () => {
   const { companyId, branchId, session, company, refreshAll } = useDatabase();
   const { formatMoney } = useCurrency();
 
-  const [tab, setTab]                 = useState<'members' | 'checkin' | 'classes' | 'types' | 'stats' | 'instructors' | 'routines'>('members');
+  const [tab, setTab]                 = useState<'members' | 'checkin' | 'classes' | 'types' | 'stats' | 'instructors' | 'routines' | 'supplements'>('members');
   const [members, setMembers]         = useState<Member[]>([]);
   const [types, setTypes]             = useState<MembershipType[]>([]);
   const [checkins, setCheckins]       = useState<CheckIn[]>([]);
@@ -519,6 +530,17 @@ const Gimnasio: React.FC = () => {
   const [showCheckin, setShowCheckin] = useState(false);
   const [checkinSearch, setCheckinSearch] = useState('');
   const [saving, setSaving]           = useState(false);
+
+  // Suplementos del gimnasio
+  const [supplements, setSupplements]           = useState<any[]>([]);
+  const [showSuppModal, setShowSuppModal]       = useState(false);
+  const [editSupp, setEditSupp]                 = useState<any | null>(null);
+  const [suppForm, setSuppForm]                 = useState({
+    name: '', sku: '', brand: '', description: '',
+    price: '', cost: '', stock_quantity: '0', stock_min: '5',
+    category: 'Proteína', image_url: '',
+  });
+  const SUPP_CATEGORIES = ['Proteína','Creatina','Pre-workout','Aminoácidos','Vitaminas','Quemador de grasa','Ganador de masa','Colágeno','Omega 3','Otro'];
 
   // Instructores
   const [instructors, setInstructors]           = useState<any[]>([]);
@@ -571,6 +593,10 @@ const Gimnasio: React.FC = () => {
     setClasses(cl || []);
     setInstructors(instr || []);
     setActiveSessions(sessions || []);
+    // Cargar suplementos
+    const { data: supps } = await supabase.from('gym_supplements').select('*')
+      .eq('company_id', companyId).eq('is_active', true).order('name');
+    setSupplements(supps || []);
     setLoading(false);
   }, [companyId]);
 
@@ -790,6 +816,7 @@ const Gimnasio: React.FC = () => {
           ['classes',     '🏋️ Clases'],
           ['types',       '🏷️ Membresías'],
           ['stats',       '📊 Estadísticas'],
+          ['supplements', '💊 Suplementos'],
         ] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as any)}
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === id ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -1189,6 +1216,68 @@ const Gimnasio: React.FC = () => {
         </div>
       )}
 
+      {/* ── TAB: SUPLEMENTOS ────────────────────────────────── */}
+      {tab === 'supplements' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-slate-800">Suplementos</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Inventario y ventas de suplementos del gimnasio</p>
+            </div>
+            <button onClick={() => { setEditSupp(null); setSuppForm({ name: '', sku: '', brand: '', description: '', price: '', cost: '', stock_quantity: '0', stock_min: '5', category: 'Proteína', image_url: '' }); setShowSuppModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
+              <Plus size={15} /> Nuevo suplemento
+            </button>
+          </div>
+
+          {supplements.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+              <Package size={40} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Sin suplementos registrados</p>
+              <p className="text-sm mt-1">Agrega los suplementos que vendes en el gimnasio</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {supplements.map(s => (
+                <div key={s.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                  {s.image_url ? (
+                    <img src={s.image_url} alt={s.name} className="w-full h-32 object-cover" />
+                  ) : (
+                    <div className="w-full h-32 bg-emerald-50 flex items-center justify-center">
+                      <Package size={32} className="text-emerald-300" />
+                    </div>
+                  )}
+                  <div className="p-3">
+                    <p className="font-bold text-slate-800 text-sm leading-tight">{s.name}</p>
+                    {s.brand && <p className="text-xs text-slate-400 mt-0.5">{s.brand}</p>}
+                    <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold">{s.category}</span>
+                    <div className="flex justify-between items-center mt-2">
+                      <p className="font-black text-emerald-600">{formatMoney(s.price)}</p>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${s.stock_quantity <= s.stock_min ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
+                        {s.stock_quantity} uds
+                      </span>
+                    </div>
+                    <div className="flex gap-1.5 mt-2">
+                      <button onClick={() => { setEditSupp(s); setSuppForm({ name: s.name, sku: s.sku || '', brand: s.brand || '', description: s.description || '', price: String(s.price), cost: String(s.cost || 0), stock_quantity: String(s.stock_quantity), stock_min: String(s.stock_min || 5), category: s.category || 'Proteína', image_url: s.image_url || '' }); setShowSuppModal(true); }}
+                        className="flex-1 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-50 flex items-center justify-center gap-1">
+                        <Edit2 size={11} /> Editar
+                      </button>
+                      <button onClick={async () => {
+                          await supabase.from('gym_supplements').update({ is_active: false }).eq('id', s.id);
+                          load(); toast.success('Suplemento eliminado');
+                        }}
+                        className="p-1.5 border border-red-100 text-red-400 rounded-lg hover:bg-red-50">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── TAB: ESTADÍSTICAS ──────────────────────────────── */}
       {tab === 'stats' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1437,6 +1526,79 @@ const Gimnasio: React.FC = () => {
               <button onClick={() => setShowClass(false)} className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-slate-700 font-medium">Cancelar</button>
               <button onClick={saveClass} disabled={saving} className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-bold disabled:opacity-50">
                 {saving ? 'Guardando...' : editClass ? 'Guardar' : 'Crear clase'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL: SUPLEMENTO ══ */}
+      {showSuppModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex justify-between items-center p-6 border-b">
+              <h3 className="text-lg font-bold text-slate-800">{editSupp ? 'Editar suplemento' : 'Nuevo suplemento'}</h3>
+              <button onClick={() => setShowSuppModal(false)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-3 max-h-[65vh] overflow-y-auto">
+              <div><label className={labelCls}>Nombre *</label>
+                <input className={inputCls} value={suppForm.name} onChange={e => setSuppForm(f => ({ ...f, name: e.target.value }))} placeholder="Proteína Whey 2kg" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelCls}>Marca</label>
+                  <input className={inputCls} value={suppForm.brand} onChange={e => setSuppForm(f => ({ ...f, brand: e.target.value }))} placeholder="Optimum Nutrition" /></div>
+                <div><label className={labelCls}>Categoría</label>
+                  <select className={inputCls} value={suppForm.category} onChange={e => setSuppForm(f => ({ ...f, category: e.target.value }))}>
+                    {SUPP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div><label className={labelCls}>Descripción</label>
+                <textarea className={inputCls} value={suppForm.description} onChange={e => setSuppForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Sabores, beneficios, presentación..." /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelCls}>Precio venta *</label>
+                  <input type="number" className={inputCls} value={suppForm.price} onChange={e => setSuppForm(f => ({ ...f, price: e.target.value }))} placeholder="150000" /></div>
+                <div><label className={labelCls}>Costo</label>
+                  <input type="number" className={inputCls} value={suppForm.cost} onChange={e => setSuppForm(f => ({ ...f, cost: e.target.value }))} placeholder="90000" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelCls}>Stock inicial</label>
+                  <input type="number" className={inputCls} value={suppForm.stock_quantity} onChange={e => setSuppForm(f => ({ ...f, stock_quantity: e.target.value }))} /></div>
+                <div><label className={labelCls}>Stock mínimo</label>
+                  <input type="number" className={inputCls} value={suppForm.stock_min} onChange={e => setSuppForm(f => ({ ...f, stock_min: e.target.value }))} /></div>
+              </div>
+              <div><label className={labelCls}>SKU / Código</label>
+                <input className={inputCls} value={suppForm.sku} onChange={e => setSuppForm(f => ({ ...f, sku: e.target.value }))} placeholder="PROT-WHY-2KG" /></div>
+              <div><label className={labelCls}>URL imagen</label>
+                <input className={inputCls} value={suppForm.image_url} onChange={e => setSuppForm(f => ({ ...f, image_url: e.target.value }))} placeholder="https://..." /></div>
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button onClick={() => setShowSuppModal(false)} className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-slate-700 font-medium">Cancelar</button>
+              <button disabled={saving || !suppForm.name.trim() || !suppForm.price} onClick={async () => {
+                  setSaving(true);
+                  const payload = {
+                    company_id: companyId,
+                    name: suppForm.name.trim(),
+                    sku: suppForm.sku || null,
+                    brand: suppForm.brand || null,
+                    description: suppForm.description || null,
+                    price: parseFloat(suppForm.price),
+                    cost: parseFloat(suppForm.cost) || 0,
+                    stock_quantity: parseInt(suppForm.stock_quantity) || 0,
+                    stock_min: parseInt(suppForm.stock_min) || 5,
+                    category: suppForm.category,
+                    image_url: suppForm.image_url || null,
+                    is_active: true,
+                  };
+                  if (editSupp) {
+                    await supabase.from('gym_supplements').update(payload).eq('id', editSupp.id);
+                  } else {
+                    await supabase.from('gym_supplements').insert(payload);
+                  }
+                  setSaving(false); setShowSuppModal(false); load();
+                  toast.success(editSupp ? 'Suplemento actualizado' : '✅ Suplemento registrado');
+                }}
+                className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold disabled:opacity-50">
+                {saving ? 'Guardando...' : editSupp ? 'Guardar' : 'Registrar'}
               </button>
             </div>
           </div>

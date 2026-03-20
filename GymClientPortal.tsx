@@ -155,14 +155,14 @@ const GymClientPortal: React.FC = () => {
         .order('day_of_week').order('start_time');
       setClasses(classData || []);
 
-      // 7. Suplementos del inventario (categoría Suplementos)
+      // 7. Suplementos propios del gimnasio
       const { data: suppData } = await supabase
-        .from('products')
-        .select('id, name, price, description, image_url, stock_quantity')
+        .from('gym_supplements')
+        .select('id, name, price, description, image_url, stock_quantity, brand, category')
         .eq('company_id', memberData.company_id)
         .eq('is_active', true)
-        .ilike('category', '%suplemento%')
-        .gt('stock_quantity', 0);
+        .gt('stock_quantity', 0)
+        .order('name');
       setSupplements(suppData || []);
 
     } catch (e: any) {
