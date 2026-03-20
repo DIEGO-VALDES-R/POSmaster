@@ -127,6 +127,10 @@ const KitchenDisplay: React.FC = () => {
   const [itemSearch, setItemSearch]  = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('all');
 
+  // notas rápidas por categoría
+  const [editingQuickNotes, setEditingQuickNotes] = useState<MenuCategory | null>(null);
+  const [quickNotesInput, setQuickNotesInput]     = useState('');
+
   // menu modals
   const [showCatModal, setShowCatModal]   = useState(false);
   const [showItemModal, setShowItemModal] = useState(false);
@@ -260,6 +264,16 @@ const KitchenDisplay: React.FC = () => {
     if (error) { toast.error(error.message); return; }
     toast.success(editingCat ? 'Categoría actualizada' : 'Categoría creada ✅');
     setShowCatModal(false); setEditingCat(null); setCatForm({ ...EMPTY_CAT }); loadMenu();
+  };
+
+  const saveQuickNotes = async (cat: MenuCategory, notes: string[]) => {
+    if (!cat.id) return;
+    const { error } = await supabase.from('rest_menu_categories')
+      .update({ quick_notes: notes }).eq('id', cat.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Notas rápidas guardadas ✅');
+    setEditingQuickNotes(null);
+    loadMenu();
   };
 
   const deleteCat = async (id: string) => {
@@ -537,7 +551,11 @@ const KitchenDisplay: React.FC = () => {
                           <span className="font-black text-slate-800 text-lg w-7 text-center">{item.quantity}</span>
                           <div>
                             <p className={`font-bold text-slate-800 text-sm ${item.status==='READY'?'line-through':''}`}>{item.product_name}</p>
-                            {item.notes && <p className="text-xs text-orange-600 font-medium">⚠ {item.notes}</p>}
+                            {item.notes && (
+                <p className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-2 py-0.5 font-medium mt-0.5">
+                  📝 {item.notes}
+                </p>
+              )}
                           </div>
                         </div>
                         <button onClick={() => updateItemStatus(order.id, item.id, item.status==='READY'?'PREPARING':'READY')}
@@ -632,6 +650,12 @@ const KitchenDisplay: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      {/* Botón notas rápidas */}
+                      <button onClick={() => { setEditingQuickNotes(cat); setQuickNotesInput(''); }}
+                        className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-amber-400 transition-all"
+                        title="Gestionar notas rápidas">
+                        <Save size={13}/>
+                      </button>
                       <button onClick={() => { setEditingCat(cat); setCatForm({ name:cat.name, menu_type:cat.menu_type, description:cat.description||'', icon:cat.icon, sort_order:cat.sort_order, available_from:cat.available_from||'', available_until:cat.available_until||'', available_days:cat.available_days||[...DAYS], is_active:cat.is_active }); setShowCatModal(true); }}
                         className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-orange-400 transition-all">
                         <Pencil size={13}/>
@@ -1037,6 +1061,99 @@ const KitchenDisplay: React.FC = () => {
         </Modal>
       )}
 
+    </div>
+      {/* ════ MODAL: NOTAS RÁPIDAS POR CATEGORÍA ════ */}
+      {editingQuickNotes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(0,0,0,0.7)' }}>
+          <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <div>
+                <h3 className="font-bold text-white">Notas rápidas</h3>
+                <p className="text-slate-400 text-xs mt-0.5">{editingQuickNotes.icon} {editingQuickNotes.name}</p>
+              </div>
+              <button onClick={() => setEditingQuickNotes(null)} className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400"><X size={16}/></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-400">
+                Estas notas aparecerán como opciones rápidas cuando el mesero edite un ítem de esta categoría.
+              </p>
+              {/* Notas actuales */}
+              <div className="space-y-2">
+                {(editingQuickNotes.quick_notes || []).map((note, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-slate-700 rounded-xl px-3 py-2">
+                    <span className="flex-1 text-sm text-slate-200">{note}</span>
+                    <button
+                      onClick={() => {
+                        const updated = (editingQuickNotes.quick_notes || []).filter((_, i) => i !== idx);
+                        setEditingQuickNotes({ ...editingQuickNotes, quick_notes: updated });
+                      }}
+                      className="text-slate-500 hover:text-red-400"><X size={14}/></button>
+                  </div>
+                ))}
+                {(editingQuickNotes.quick_notes || []).length === 0 && (
+                  <p className="text-slate-500 text-sm text-center py-3">Sin notas rápidas aún</p>
+                )}
+              </div>
+              {/* Agregar nueva nota */}
+              <div className="flex gap-2">
+                <input
+                  value={quickNotesInput}
+                  onChange={e => setQuickNotesInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && quickNotesInput.trim()) {
+                      const updated = [...(editingQuickNotes.quick_notes || []), quickNotesInput.trim()];
+                      setEditingQuickNotes({ ...editingQuickNotes, quick_notes: updated });
+                      setQuickNotesInput('');
+                    }
+                  }}
+                  placeholder="Ej: sin azúcar, en leche, sin hielo..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-orange-400"
+                />
+                <button
+                  onClick={() => {
+                    if (!quickNotesInput.trim()) return;
+                    const updated = [...(editingQuickNotes.quick_notes || []), quickNotesInput.trim()];
+                    setEditingQuickNotes({ ...editingQuickNotes, quick_notes: updated });
+                    setQuickNotesInput('');
+                  }}
+                  className="px-3 py-2 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600">
+                  <Plus size={16}/>
+                </button>
+              </div>
+              {/* Notas predefinidas comunes */}
+              <div>
+                <p className="text-xs text-slate-500 mb-2">Sugerencias comunes:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Sin azúcar','Sin hielo','En leche','En agua','Sin sal','Sin cebolla','Término medio','Bien cocido','Extra salsa','Sin picante'].map(s => (
+                    <button key={s}
+                      onClick={() => {
+                        if ((editingQuickNotes.quick_notes || []).includes(s)) return;
+                        setEditingQuickNotes({ ...editingQuickNotes, quick_notes: [...(editingQuickNotes.quick_notes || []), s] });
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                        (editingQuickNotes.quick_notes || []).includes(s)
+                          ? 'bg-orange-500 border-orange-500 text-white'
+                          : 'bg-slate-700 border-slate-600 text-slate-300 hover:border-orange-400'
+                      }`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setEditingQuickNotes(null)}
+                className="flex-1 py-2.5 border border-slate-600 text-slate-400 rounded-xl font-semibold text-sm hover:bg-slate-700">
+                Cancelar
+              </button>
+              <button onClick={() => saveQuickNotes(editingQuickNotes, editingQuickNotes.quick_notes || [])}
+                className="flex-1 py-2.5 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600">
+                Guardar notas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

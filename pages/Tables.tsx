@@ -1,9 +1,12 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Trash2, Users, Clock, ChefHat, Receipt,
   LayoutGrid, List, RefreshCw, Utensils, X, Check,
-  AlertCircle, Printer, ShoppingCart, Coffee
+  AlertCircle, Printer, ShoppingCart, Coffee,
+  Bell, MapPin, Phone, Bike, Car, DollarSign,
+  CreditCard, Smartphone, Building2, ArrowRight,
+  QrCode, MessageSquare, Zap, User,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -12,107 +15,449 @@ import toast from 'react-hot-toast';
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 type TableStatus = 'FREE' | 'OCCUPIED' | 'ORDERING' | 'READY' | 'BILLING';
 type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+type OrderType   = 'MESA' | 'DOMICILIO' | 'PARA_LLEVAR' | 'DRIVE_THRU';
+type PayMethod   = 'CASH' | 'CARD' | 'TRANSFER' | 'NEQUI' | 'DAVIPLATA';
 
 interface RestaurantTable {
-  id: string;
-  company_id: string;
-  branch_id?: string;
-  name: string;           // "Mesa 1", "Barra 3", "Terraza 2"
-  seats: number;
-  zone: string;           // "Salón", "Terraza", "Barra", "Privado"
-  status: TableStatus;
-  current_order_id?: string;
-  position_x?: number;
-  position_y?: number;
-  is_active: boolean;
+  id: string; company_id: string; branch_id?: string;
+  name: string; seats: number; zone: string;
+  status: TableStatus; current_order_id?: string;
+  position_x?: number; position_y?: number; is_active: boolean;
 }
 
 interface TableOrder {
-  id: string;
-  company_id: string;
-  table_id: string;
-  table_name: string;
-  waiter_id?: string;
-  waiter_name?: string;
-  status: OrderStatus;
-  items: OrderItem[];
-  notes?: string;
-  guests: number;
-  created_at: string;
-  updated_at: string;
-  invoice_id?: string;
+  id: string; company_id: string; table_id: string; table_name: string;
+  waiter_id?: string; waiter_name?: string; status: OrderStatus;
+  items: OrderItem[]; notes?: string; guests: number;
+  created_at: string; updated_at: string; invoice_id?: string;
 }
 
 interface OrderItem {
-  id: string;
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  price: number;
-  notes?: string;
+  id: string; product_id: string; product_name: string;
+  quantity: number; price: number; notes?: string;
   status: 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED';
   sent_to_kitchen: boolean;
 }
 
 // ── STATUS CONFIG ──────────────────────────────────────────────────────────────
 const TABLE_STATUS: Record<TableStatus, { label: string; color: string; bg: string; border: string; dot: string }> = {
-  FREE:     { label: 'Libre',       color: '#10b981', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.4)',  dot: '#10b981' },
-  OCCUPIED: { label: 'Ocupada',     color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.4)',  dot: '#3b82f6' },
-  ORDERING: { label: 'Pidiendo',    color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.4)',  dot: '#f59e0b' },
-  READY:    { label: 'Listo',       color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.4)',  dot: '#8b5cf6' },
-  BILLING:  { label: 'Pagando',     color: '#ef4444', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)',   dot: '#ef4444' },
+  FREE:     { label: 'Libre',    color: '#10b981', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.4)',  dot: '#10b981' },
+  OCCUPIED: { label: 'Ocupada', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.4)',  dot: '#3b82f6' },
+  ORDERING: { label: 'Pidiendo',color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.4)',  dot: '#f59e0b' },
+  READY:    { label: 'Listo',   color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.4)',  dot: '#8b5cf6' },
+  BILLING:  { label: 'Pagando', color: '#ef4444', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)',   dot: '#ef4444' },
 };
+
+const ORDER_TYPE_CFG: Record<OrderType, { label: string; icon: React.ReactNode; color: string }> = {
+  MESA:       { label: 'Mesa',        icon: <Utensils size={16} />,  color: '#3b82f6' },
+  DOMICILIO:  { label: 'Domicilio',   icon: <Bike size={16} />,      color: '#10b981' },
+  PARA_LLEVAR:{ label: 'Para llevar', icon: <ShoppingCart size={16} />, color: '#f59e0b' },
+  DRIVE_THRU: { label: 'Drive-thru',  icon: <Car size={16} />,       color: '#8b5cf6' },
+};
+
+const PAY_METHODS: { key: PayMethod; label: string; icon: React.ReactNode }[] = [
+  { key: 'CASH',      label: 'Efectivo',     icon: <DollarSign size={15} /> },
+  { key: 'CARD',      label: 'Tarjeta',      icon: <CreditCard size={15} /> },
+  { key: 'TRANSFER',  label: 'Transferencia',icon: <Building2 size={15} /> },
+  { key: 'NEQUI',     label: 'Nequi',        icon: <Smartphone size={15} /> },
+  { key: 'DAVIPLATA', label: 'Daviplata',    icon: <Smartphone size={15} /> },
+];
 
 const ZONES = ['Salón', 'Terraza', 'Barra', 'Privado', 'Delivery'];
 
-// ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
+// ── SOUND HELPER ──────────────────────────────────────────────────────────────
+function playReadySound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Three ascending beeps
+    [0, 0.25, 0.5].forEach((delay, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 660 + i * 110;
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.2);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.25);
+    });
+  } catch {}
+}
+
+function vibrateDevice(pattern: number[]) {
+  try { if ('vibrate' in navigator) navigator.vibrate(pattern); } catch {}
+}
+
+// ── PAYMENT MODAL ─────────────────────────────────────────────────────────────
+interface PaymentModalProps {
+  table: RestaurantTable;
+  order: TableOrder;
+  company: any;
+  companyId: string;
+  branchId: string | null;
+  session: any;
+  onClose: () => void;
+  onSuccess: () => void;
+  navigate: (path: string) => void;
+  formatCurrency: (v: number) => string;
+}
+
+const TablePaymentModal: React.FC<PaymentModalProps> = ({
+  table, order, company, companyId, branchId, session,
+  onClose, onSuccess, navigate, formatCurrency,
+}) => {
+  const total = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
+
+  const [orderType,   setOrderType]   = useState<OrderType>('MESA');
+  const [payMethod,   setPayMethod]   = useState<PayMethod>('CASH');
+  const [customerName, setCustomerName] = useState('');
+  const [customerDoc,  setCustomerDoc]  = useState('');
+  const [customerPhone,setCustomerPhone]= useState('');
+  const [address,      setAddress]      = useState('');
+  const [saving,       setSaving]       = useState(false);
+  const [amountPaid,   setAmountPaid]   = useState(String(total));
+
+  const handlePay = async () => {
+    setSaving(true);
+    try {
+      // 1. Generar número de factura
+      const ts     = Date.now().toString().slice(-6);
+      const rnd    = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+      const invNum = `REST-${ts}${rnd}`;
+
+      // 2. Crear factura
+      const { data: invoice, error: invErr } = await supabase
+        .from('invoices')
+        .insert({
+          company_id:     companyId,
+          branch_id:      branchId,
+          invoice_number: invNum,
+          customer_id:    null,
+          subtotal:       total,
+          tax_amount:     0,
+          total_amount:   total,
+          status:         'COMPLETED',
+          business_type:  null,
+          payment_method: {
+            method:            payMethod,
+            amount:            parseFloat(amountPaid) || total,
+            customer_name:     customerName || `${ORDER_TYPE_CFG[orderType].label} — ${table.name}`,
+            customer_document: customerDoc  || null,
+            customer_phone:    customerPhone|| null,
+            payment_status:    'PAID',
+            order_type:        orderType,
+            table_name:        table.name,
+            delivery_address:  address || null,
+            balance_due:       0,
+          },
+        })
+        .select().single();
+
+      if (invErr) throw invErr;
+
+      // 3. Insertar items de factura
+      const itemsToInsert = order.items.map(i => ({
+        invoice_id:  invoice.id,
+        product_id:  null,
+        description: i.product_name,
+        quantity:    i.quantity,
+        price:       i.price,
+        tax_rate:    0,
+      }));
+      await supabase.from('invoice_items').insert(itemsToInsert);
+
+      // 4. Marcar orden como entregada y liberar mesa
+      await supabase.from('table_orders')
+        .update({ status: 'DELIVERED', invoice_id: invoice.id, updated_at: new Date().toISOString() })
+        .eq('id', order.id);
+
+      await supabase.from('restaurant_tables')
+        .update({ status: 'FREE', current_order_id: null })
+        .eq('id', table.id);
+
+      // 5. Registrar en caja si hay sesión
+      if (session?.id) {
+        const field = payMethod === 'CASH' ? 'total_sales_cash' : 'total_sales_card';
+        await supabase.from('cash_register_sessions')
+          .update({ [field]: ((session as any)[field] || 0) + total })
+          .eq('id', session.id);
+      }
+
+      toast.success(`✅ Factura ${invNum} generada — Mesa liberada`);
+      onSuccess();
+
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleGoToPOS = () => {
+    // Guardar items en sessionStorage para que el POS los cargue
+    sessionStorage.setItem('pos_preload_table', JSON.stringify({
+      tableId:   table.id,
+      tableName: table.name,
+      orderId:   order.id,
+      items:     order.items.map(i => ({
+        product: { id: `table-${i.product_id}`, name: i.product_name, price: i.price, type: 'SERVICE' },
+        quantity: i.quantity,
+        price:    i.price,
+      })),
+    }));
+    navigate('/pos');
+    onClose();
+  };
+
+  const needsAddress = orderType === 'DOMICILIO' || orderType === 'DRIVE_THRU';
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[95vh] flex flex-col">
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-white font-black text-lg flex items-center gap-2">
+              <Receipt size={20} /> Cobrar — {table.name}
+            </h3>
+            <p className="text-slate-300 text-sm mt-0.5">{order.items.length} productos · {formatCurrency(total)}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+          {/* Resumen de items */}
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Resumen del pedido</p>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-100">
+              {order.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center px-4 py-2.5 text-sm">
+                  <span className="text-slate-700">
+                    <span className="font-bold text-slate-400 mr-2">x{item.quantity}</span>
+                    {item.product_name}
+                  </span>
+                  <span className="font-bold text-slate-800">{formatCurrency(item.price * item.quantity)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between items-center px-4 py-3 bg-slate-100 rounded-b-xl">
+                <span className="font-black text-slate-800">TOTAL</span>
+                <span className="font-black text-xl text-slate-900">{formatCurrency(total)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tipo de pedido */}
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tipo de pedido</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.entries(ORDER_TYPE_CFG) as [OrderType, typeof ORDER_TYPE_CFG[OrderType]][]).map(([key, cfg]) => (
+                <button key={key} onClick={() => setOrderType(key)}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    orderType === key
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}>
+                  {cfg.icon} {cfg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Datos del cliente */}
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Datos del cliente</p>
+            <div className="space-y-2">
+              <input value={customerName} onChange={e => setCustomerName(e.target.value)}
+                placeholder="Nombre del cliente"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+              <div className="grid grid-cols-2 gap-2">
+                <input value={customerDoc} onChange={e => setCustomerDoc(e.target.value)}
+                  placeholder="Cédula / NIT"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
+                  placeholder="Teléfono"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              {needsAddress && (
+                <div className="relative">
+                  <MapPin size={14} className="absolute left-3 top-3 text-slate-400" />
+                  <input value={address} onChange={e => setAddress(e.target.value)}
+                    placeholder="Dirección de entrega"
+                    className="w-full pl-8 border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Método de pago */}
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase mb-2">Método de pago</p>
+            <div className="grid grid-cols-2 gap-2">
+              {PAY_METHODS.map(m => (
+                <button key={m.key} onClick={() => setPayMethod(m.key)}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    payMethod === m.key
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}>
+                  {m.icon} {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Monto recibido si es efectivo */}
+          {payMethod === 'CASH' && (
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Monto recibido</p>
+              <input
+                type="number"
+                value={amountPaid}
+                onChange={e => setAmountPaid(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-lg font-bold outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              {parseFloat(amountPaid) > total && (
+                <p className="text-sm text-emerald-600 font-bold mt-1 text-right">
+                  Cambio: {formatCurrency(parseFloat(amountPaid) - total)}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer acciones */}
+        <div className="p-5 border-t border-slate-100 space-y-2">
+          <button onClick={handlePay} disabled={saving}
+            className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-base disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Procesando...</>
+              : <><Check size={18} /> Cobrar {formatCurrency(total)}</>}
+          </button>
+          <button onClick={handleGoToPOS}
+            className="w-full py-2.5 border border-slate-300 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center justify-center gap-2">
+            <ArrowRight size={15} /> Ir al POS con este pedido
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ══════════════════════════════════════════════════════════════════════════════
 const Tables: React.FC = () => {
-  const { company, branchId } = useDatabase();
+  const { company, branchId, session } = useDatabase();
   const navigate = useNavigate();
   const companyId = company?.id;
 
   // State
-  const [tables, setTables] = useState<RestaurantTable[]>([]);
-  const [orders, setOrders] = useState<TableOrder[]>([]);
+  const [tables, setTables]   = useState<RestaurantTable[]>([]);
+  const [orders, setOrders]   = useState<TableOrder[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedZone, setSelectedZone] = useState<string>('Todos');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // Modals
-  const [showTableModal, setShowTableModal] = useState(false);
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
-  const [activeTable, setActiveTable] = useState<RestaurantTable | null>(null);
-  const [activeOrder, setActiveOrder] = useState<TableOrder | null>(null);
+  const [showTableModal, setShowTableModal]   = useState(false);
+  const [showOrderModal, setShowOrderModal]   = useState(false);
+  const [showPayModal,   setShowPayModal]     = useState(false);
+  const [editingTable,   setEditingTable]     = useState<RestaurantTable | null>(null);
+  const [activeTable,    setActiveTable]      = useState<RestaurantTable | null>(null);
+  const [activeOrder,    setActiveOrder]      = useState<TableOrder | null>(null);
 
   // Table form
   const [tableForm, setTableForm] = useState({ name: '', seats: 4, zone: 'Salón' });
 
   // Order form
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [orderNotes, setOrderNotes] = useState('');
-  const [orderGuests, setOrderGuests] = useState(1);
-  const [productSearch, setProductSearch] = useState('');
-  const [savingOrder, setSavingOrder] = useState(false);
+  const [orderItems,     setOrderItems]   = useState<OrderItem[]>([]);
+  const [orderNotes,     setOrderNotes]   = useState('');
+  const [orderGuests,    setOrderGuests]  = useState(1);
+  const [productSearch,  setProductSearch]= useState('');
+  const [savingOrder,    setSavingOrder]  = useState(false);
+
+  // Ready notifications — track which tables just became READY
+  const prevReadyTablesRef = useRef<Set<string>>(new Set());
+
+  // Notas rápidas por categoría
+  const [quickNotesByCategory, setQuickNotesByCategory] = useState<Record<string, string[]>>({});
+
+  // Color del mesero actual
+  const [waiterColor, setWaiterColor] = useState<string>('#3b82f6');
+  const [waiterId, setWaiterId]       = useState<string | null>(null);
+
+  // Modal de nota por ítem
+  const [editingItemNote, setEditingItemNote] = useState<{ itemId: string; currentNote: string } | null>(null);
+
+  // Modal QR
+  const [showQrModal, setShowQrModal] = useState(false);
+
+  // Categorías del menú (para notas rápidas)
+  const [menuCategories, setMenuCategories] = useState<{id: string; name: string; quick_notes: string[]}[]>([]);
 
   // ── LOAD DATA ────────────────────────────────────────────────────────────────
   const loadTables = useCallback(async () => {
     if (!companyId) return;
     const { data } = await supabase
-      .from('restaurant_tables')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('is_active', true)
-      .order('name');
-    if (data) setTables(data);
+      .from('restaurant_tables').select('*')
+      .eq('company_id', companyId).eq('is_active', true).order('name');
+    if (data) {
+      // Detectar mesas que acaban de cambiar a READY
+      const newReadyTables = new Set(
+        data.filter((t: RestaurantTable) => t.status === 'READY').map((t: RestaurantTable) => t.id)
+      );
+      const prev = prevReadyTablesRef.current;
+      const justReady = [...newReadyTables].filter(id => !prev.has(id));
+
+      if (justReady.length > 0) {
+        const tableNames = data
+          .filter((t: RestaurantTable) => justReady.includes(t.id))
+          .map((t: RestaurantTable) => t.name)
+          .join(', ');
+
+        // 🔔 Sonido
+        playReadySound();
+        // 📳 Vibración
+        vibrateDevice([200, 100, 200, 100, 400]);
+        // 🍽️ Toast prominente
+        toast(
+          (t) => (
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <Bell size={20} className="text-purple-600" />
+              </div>
+              <div>
+                <p className="font-black text-slate-800">¡Pedido listo!</p>
+                <p className="text-sm text-slate-600">{tableNames} — listo para servir</p>
+              </div>
+            </div>
+          ),
+          {
+            duration: 8000,
+            style: {
+              background: '#f5f3ff',
+              border: '2px solid #8b5cf6',
+              padding: '12px',
+              borderRadius: '16px',
+            },
+          }
+        );
+      }
+
+      prevReadyTablesRef.current = newReadyTables;
+      setTables(data);
+    }
   }, [companyId]);
 
   const loadOrders = useCallback(async () => {
     if (!companyId) return;
     const { data } = await supabase
-      .from('table_orders')
-      .select('*')
+      .from('table_orders').select('*')
       .eq('company_id', companyId)
       .in('status', ['PENDING', 'PREPARING', 'READY', 'DELIVERED'])
       .order('created_at', { ascending: false });
@@ -121,18 +466,11 @@ const Tables: React.FC = () => {
 
   const loadProducts = useCallback(async () => {
     if (!companyId) return;
-    // Use restaurant menu items, not the general inventory
     const { data } = await supabase
-      .from('rest_menu_items')
-      .select('id, name, price, category_id, description')
-      .eq('company_id', companyId)
-      .eq('is_active', true)
-      .eq('is_available', true)
-      .order('name');
+      .from('rest_menu_items').select('id, name, price, category_id, description')
+      .eq('company_id', companyId).eq('is_active', true).eq('is_available', true).order('name');
     if (data) setProducts(data.map((item: any) => ({
-      ...item,
-      // Map category_id → category label for display grouping
-      category: item.category_id || 'Menú',
+      ...item, category: item.category_id || 'Menú',
     })));
   }, [companyId]);
 
@@ -145,7 +483,37 @@ const Tables: React.FC = () => {
     init();
   }, [loadTables, loadOrders, loadProducts]);
 
-  // Realtime subscription
+  // Cargar notas rápidas por categoría y color del mesero
+  useEffect(() => {
+    if (!companyId) return;
+    // Notas rápidas
+    supabase.from('rest_menu_categories')
+      .select('id, name, quick_notes')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .then(({ data }) => {
+        if (data) {
+          setMenuCategories(data.map((c: any) => ({
+            id: c.id, name: c.name, quick_notes: c.quick_notes || [],
+          })));
+          const map: Record<string, string[]> = {};
+          data.forEach((c: any) => { map[c.id] = c.quick_notes || []; });
+          setQuickNotesByCategory(map);
+        }
+      });
+    // Color del mesero
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      setWaiterId(user.id);
+      supabase.from('profiles').select('waiter_color')
+        .eq('id', user.id).maybeSingle()
+        .then(({ data }) => {
+          if (data?.waiter_color) setWaiterColor(data.waiter_color);
+        });
+    });
+  }, [companyId]);
+
+  // Realtime — detecta cambios en mesas y órdenes
   useEffect(() => {
     if (!companyId) return;
     const channel = supabase
@@ -165,6 +533,24 @@ const Tables: React.FC = () => {
   const getOrderTotal = (items: OrderItem[]) =>
     items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
+  // Obtener notas rápidas para un producto (por su categoría en el menú)
+  const getQuickNotesForProduct = (productId: string): string[] => {
+    const product = products.find(p => p.id === productId);
+    if (!product?.category_id) return [];
+    return quickNotesByCategory[product.category_id] || [];
+  };
+
+  // Aplicar nota a un ítem específico
+  const setItemNote = (itemId: string, note: string) => {
+    setOrderItems(prev => prev.map(i => i.id === itemId ? { ...i, notes: note } : i));
+    setEditingItemNote(null);
+  };
+
+  // QR URL del kiosk mesero
+  const waiterQrUrl = companyId
+    ? `${window.location.origin}${window.location.pathname}#/kiosk/${companyId}`
+    : '';
+
   const formatCurrency = (v: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(v);
 
@@ -176,15 +562,13 @@ const Tables: React.FC = () => {
   };
 
   const zones = ['Todos', ...Array.from(new Set(tables.map(t => t.zone)))];
-  const filteredTables = selectedZone === 'Todos'
-    ? tables
-    : tables.filter(t => t.zone === selectedZone);
+  const filteredTables = selectedZone === 'Todos' ? tables : tables.filter(t => t.zone === selectedZone);
 
   const stats = {
-    free: tables.filter(t => t.status === 'FREE').length,
+    free:     tables.filter(t => t.status === 'FREE').length,
     occupied: tables.filter(t => t.status !== 'FREE').length,
-    ready: tables.filter(t => t.status === 'READY').length,
-    total: tables.length,
+    ready:    tables.filter(t => t.status === 'READY').length,
+    total:    tables.length,
   };
 
   // ── SAVE TABLE ───────────────────────────────────────────────────────────────
@@ -198,8 +582,7 @@ const Tables: React.FC = () => {
         await supabase.from('restaurant_tables').insert({ company_id: companyId, branch_id: branchId, name: tableForm.name, seats: tableForm.seats, zone: tableForm.zone, status: 'FREE', is_active: true });
         toast.success('Mesa creada');
       }
-      setShowTableModal(false);
-      setEditingTable(null);
+      setShowTableModal(false); setEditingTable(null);
       setTableForm({ name: '', seats: 4, zone: 'Salón' });
       loadTables();
     } catch (e: any) { toast.error(e.message); }
@@ -221,48 +604,29 @@ const Tables: React.FC = () => {
       setOrderNotes(existing.notes || '');
       setOrderGuests(existing.guests || 1);
     } else {
-      setActiveOrder(null);
-      setOrderItems([]);
-      setOrderNotes('');
-      setOrderGuests(1);
+      setActiveOrder(null); setOrderItems([]);
+      setOrderNotes(''); setOrderGuests(1);
     }
     setProductSearch('');
     setShowOrderModal(true);
   };
 
-  // ── ADD / REMOVE ITEM ────────────────────────────────────────────────────────
+  // ── ADD / REMOVE / UPDATE ITEM ───────────────────────────────────────────────
   const addItem = (product: any) => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.product_id === product.id);
-      if (existing) {
-        return prev.map(i => i.product_id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
-      }
-      return [...prev, {
-        id: crypto.randomUUID(),
-        product_id: product.id,
-        product_name: product.name,
-        quantity: 1,
-        price: product.price,
-        notes: '',
-        status: 'PENDING',
-        sent_to_kitchen: false,
-      }];
+      if (existing) return prev.map(i => i.product_id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, { id: crypto.randomUUID(), product_id: product.id, product_name: product.name, quantity: 1, price: product.price, notes: '', status: 'PENDING', sent_to_kitchen: false }];
     });
   };
 
   const removeItem = (id: string) => setOrderItems(prev => prev.filter(i => i.id !== id));
-  const updateQty = (id: string, delta: number) => {
-    setOrderItems(prev => prev.map(i => i.id === id
-      ? { ...i, quantity: Math.max(1, i.quantity + delta) }
-      : i
-    ).filter(i => i.quantity > 0));
-  };
+  const updateQty  = (id: string, delta: number) =>
+    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i).filter(i => i.quantity > 0));
 
   // ── SAVE ORDER ───────────────────────────────────────────────────────────────
   const handleSaveOrder = async (sendToKitchen = false) => {
-    if (!companyId || !activeTable || orderItems.length === 0) {
-      toast.error('Agrega al menos un producto'); return;
-    }
+    if (!companyId || !activeTable || orderItems.length === 0) { toast.error('Agrega al menos un producto'); return; }
     setSavingOrder(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -271,67 +635,53 @@ const Tables: React.FC = () => {
         : orderItems;
 
       if (activeOrder) {
-        // Update existing
         await supabase.from('table_orders').update({
-          items: itemsToSave,
-          notes: orderNotes,
-          guests: orderGuests,
+          items: itemsToSave, notes: orderNotes, guests: orderGuests,
           status: sendToKitchen ? 'PREPARING' : activeOrder.status,
           updated_at: new Date().toISOString(),
         }).eq('id', activeOrder.id);
-
-        // Update table status
         await supabase.from('restaurant_tables').update({
           status: sendToKitchen ? 'OCCUPIED' : 'ORDERING',
         }).eq('id', activeTable.id);
-
         toast.success(sendToKitchen ? '🍽️ Enviado a cocina' : 'Pedido guardado');
       } else {
-        // Create new order
         const { data: newOrder } = await supabase.from('table_orders').insert({
-          company_id: companyId,
-          table_id: activeTable.id,
-          table_name: activeTable.name,
-          waiter_id: user?.id,
-          status: sendToKitchen ? 'PREPARING' : 'PENDING',
-          items: itemsToSave,
-          notes: orderNotes,
-          guests: orderGuests,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          company_id: companyId, table_id: activeTable.id, table_name: activeTable.name,
+          waiter_id: user?.id, waiter_color: waiterColor, status: sendToKitchen ? 'PREPARING' : 'PENDING',
+          items: itemsToSave, notes: orderNotes, guests: orderGuests,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }).select().single();
-
-        // Update table status
         await supabase.from('restaurant_tables').update({
           status: sendToKitchen ? 'OCCUPIED' : 'ORDERING',
           current_order_id: newOrder?.id,
         }).eq('id', activeTable.id);
-
         toast.success(sendToKitchen ? '🍽️ Pedido enviado a cocina' : 'Pedido creado');
       }
 
       setShowOrderModal(false);
       await Promise.all([loadTables(), loadOrders()]);
-    } catch (e: any) {
-      toast.error('Error: ' + e.message);
-    } finally {
-      setSavingOrder(false);
-    }
+    } catch (e: any) { toast.error('Error: ' + e.message); }
+    finally { setSavingOrder(false); }
   };
 
   // ── FREE TABLE ───────────────────────────────────────────────────────────────
   const handleFreeTable = async (tableId: string, orderId?: string) => {
     if (!confirm('¿Liberar esta mesa? El pedido activo quedará como entregado.')) return;
-    if (orderId) {
-      await supabase.from('table_orders').update({ status: 'DELIVERED', updated_at: new Date().toISOString() }).eq('id', orderId);
-    }
+    if (orderId) await supabase.from('table_orders').update({ status: 'DELIVERED', updated_at: new Date().toISOString() }).eq('id', orderId);
     await supabase.from('restaurant_tables').update({ status: 'FREE', current_order_id: null }).eq('id', tableId);
     setShowOrderModal(false);
     await Promise.all([loadTables(), loadOrders()]);
     toast.success('Mesa liberada');
   };
 
-  // ── MARK BILLING ─────────────────────────────────────────────────────────────
+  // ── OPEN PAYMENT MODAL ───────────────────────────────────────────────────────
+  const handleOpenPayment = () => {
+    if (!activeOrder) { toast.error('No hay pedido activo para cobrar'); return; }
+    setShowOrderModal(false);
+    setShowPayModal(true);
+  };
+
+  // ── MARK BILLING (solo marca, no paga) ───────────────────────────────────────
   const handleMarkBilling = async (tableId: string) => {
     await supabase.from('restaurant_tables').update({ status: 'BILLING' }).eq('id', tableId);
     setShowOrderModal(false);
@@ -339,13 +689,8 @@ const Tables: React.FC = () => {
     toast.success('Mesa marcada para cobro');
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-    (p.category || '').toLowerCase().includes(productSearch.toLowerCase())
-  );
-
-  // Group products by category
-  const productsByCategory = filteredProducts.reduce((acc: Record<string, any[]>, p) => {
+  const filteredProducts     = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || (p.category || '').toLowerCase().includes(productSearch.toLowerCase()));
+  const productsByCategory   = filteredProducts.reduce((acc: Record<string, any[]>, p) => {
     const cat = p.category || 'Menú';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(p);
@@ -361,7 +706,6 @@ const Tables: React.FC = () => {
     </div>
   );
 
-  // ── RENDER ───────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
 
@@ -378,65 +722,63 @@ const Tables: React.FC = () => {
             className="flex items-center gap-2 px-3 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold hover:bg-orange-600 transition-all">
             <ChefHat size={16} /> Pantalla Cocina
           </button>
-          <button onClick={() => { setEditingTable(null); setTableForm({ name: '', seats: 4, zone: 'Salón' }); setShowTableModal(true); }}
-            className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-all">
-            <Plus size={16} /> Nueva Mesa
+          <button onClick={() => setShowQrModal(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-violet-600 text-white rounded-lg text-sm font-semibold hover:bg-violet-700 transition-all">
+            <QrCode size={16} /> QR Meseros
           </button>
           <button onClick={() => Promise.all([loadTables(), loadOrders()])}
-            className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-all">
-            <RefreshCw size={16} />
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
+            <RefreshCw size={14} />
           </button>
           <button onClick={() => setViewMode(v => v === 'grid' ? 'list' : 'grid')}
-            className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-all">
+            className="flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
             {viewMode === 'grid' ? <List size={16} /> : <LayoutGrid size={16} />}
+          </button>
+          <button onClick={() => { setEditingTable(null); setTableForm({ name: '', seats: 4, zone: 'Salón' }); setShowTableModal(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
+            <Plus size={16} /> Nueva mesa
           </button>
         </div>
       </div>
 
-      {/* ── STATS ── */}
+      {/* ── KPIs ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Total mesas',   value: stats.total,    color: '#64748b', icon: '🪑' },
-          { label: 'Libres',        value: stats.free,     color: '#10b981', icon: '✅' },
-          { label: 'Ocupadas',      value: stats.occupied, color: '#3b82f6', icon: '👥' },
-          { label: 'Listas',        value: stats.ready,    color: '#8b5cf6', icon: '🍽️' },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm">
-            <p className="text-2xl font-black" style={{ color: s.color }}>{s.icon} {s.value}</p>
-            <p className="text-xs text-slate-500 mt-1">{s.label}</p>
+          { label: 'Mesas libres',   value: stats.free,     color: 'text-emerald-600' },
+          { label: 'Ocupadas',       value: stats.occupied, color: 'text-blue-600' },
+          { label: 'Listas / Cobro', value: stats.ready,    color: 'text-purple-600' },
+          { label: 'Total mesas',    value: stats.total,    color: 'text-slate-800' },
+        ].map(k => (
+          <div key={k.label} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <p className="text-xs text-slate-500 font-medium">{k.label}</p>
+            <p className={`text-2xl font-black mt-1 ${k.color}`}>{k.value}</p>
           </div>
         ))}
       </div>
 
-      {/* ── STATUS LEGEND ── */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(TABLE_STATUS).map(([k, v]) => (
-          <span key={k} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium"
-            style={{ background: v.bg, color: v.color, border: `1px solid ${v.border}` }}>
-            <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: v.dot }} />
-            {v.label}
-          </span>
-        ))}
-      </div>
-
-      {/* ── ZONE FILTER ── */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {zones.map(zone => (
-          <button key={zone}
-            onClick={() => setSelectedZone(zone)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
-              selectedZone === zone
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
-            }`}>
-            {zone}
+      {/* ── ZONA FILTER ── */}
+      <div className="flex gap-1 flex-wrap">
+        {zones.map(z => (
+          <button key={z} onClick={() => setSelectedZone(z)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${selectedZone === z ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            {z}
           </button>
         ))}
       </div>
 
-      {/* ── TABLES GRID ── */}
+      {/* Banner alerta si hay mesas READY */}
+      {stats.ready > 0 && (
+        <div className="flex items-center gap-3 bg-purple-50 border-2 border-purple-300 rounded-xl px-4 py-3 animate-pulse">
+          <Bell size={20} className="text-purple-600 flex-shrink-0" />
+          <p className="font-black text-purple-700">
+            {stats.ready} {stats.ready === 1 ? 'mesa tiene' : 'mesas tienen'} pedidos listos para servir
+          </p>
+        </div>
+      )}
+
+      {/* ── GRID / LIST DE MESAS ── */}
       {filteredTables.length === 0 ? (
-        <div className="bg-white rounded-xl border border-dashed border-slate-200 p-12 text-center">
+        <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
           <Utensils size={40} className="mx-auto mb-3 text-slate-300" />
           <p className="text-slate-500 font-medium">No hay mesas en esta zona</p>
           <button onClick={() => { setTableForm({ name: '', seats: 4, zone: selectedZone === 'Todos' ? 'Salón' : selectedZone }); setShowTableModal(true); }}
@@ -448,26 +790,44 @@ const Tables: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filteredTables.map(table => {
             const status = TABLE_STATUS[table.status];
-            const order = getTableOrder(table.id);
-            const total = order ? getOrderTotal(order.items) : 0;
+            const order  = getTableOrder(table.id);
+            const total  = order ? getOrderTotal(order.items) : 0;
+            const isReady = table.status === 'READY';
             return (
               <div key={table.id}
                 onClick={() => openTable(table)}
-                className="relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none"
+                className={`relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none ${isReady ? 'ring-2 ring-purple-400 ring-offset-1' : ''}`}
                 style={{ borderColor: status.border, background: status.bg }}>
 
                 {/* Status dot */}
-                <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full animate-pulse" style={{ background: status.dot }} />
+                <div className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full ${isReady ? 'animate-ping' : 'animate-pulse'}`} style={{ background: status.dot }} />
+                {isReady && <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full" style={{ background: status.dot }} />}
 
-                {/* Edit/delete buttons (subtle) */}
+                {/* Bell si está lista */}
+                {isReady && (
+                  <div className="absolute top-2 left-2">
+                    <Bell size={14} className="text-purple-600" />
+                  </div>
+                )}
+
+                {/* Indicador de color del mesero propietario */}
+                {order?.waiter_color && order.waiter_color !== '#3b82f6' && (
+                  <div className="absolute bottom-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-sm"
+                    style={{ background: order.waiter_color }}
+                    title={`Mesero: ${order.waiter_name || 'asignado'}`} />
+                )}
+
+                {/* Edit/delete buttons */}
                 <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100" onClick={e => e.stopPropagation()}>
-                  <button onClick={e => { e.stopPropagation(); setEditingTable(table); setTableForm({ name: table.name, seats: table.seats, zone: table.zone }); setShowTableModal(true); }}
-                    className="p-1 bg-white/80 rounded-md hover:bg-white shadow-sm text-slate-500 hover:text-blue-600 transition-colors">
-                    <Edit2 size={11} />
-                  </button>
+                  {!isReady && (
+                    <button onClick={e => { e.stopPropagation(); setEditingTable(table); setTableForm({ name: table.name, seats: table.seats, zone: table.zone }); setShowTableModal(true); }}
+                      className="p-1 bg-white/80 rounded-md hover:bg-white shadow-sm text-slate-500 hover:text-blue-600">
+                      <Edit2 size={11} />
+                    </button>
+                  )}
                   {table.status === 'FREE' && (
                     <button onClick={e => { e.stopPropagation(); handleDeleteTable(table.id); }}
-                      className="p-1 bg-white/80 rounded-md hover:bg-white shadow-sm text-slate-500 hover:text-red-500 transition-colors">
+                      className="p-1 bg-white/80 rounded-md hover:bg-white shadow-sm text-slate-500 hover:text-red-500">
                       <Trash2 size={11} />
                     </button>
                   )}
@@ -498,7 +858,6 @@ const Tables: React.FC = () => {
           })}
         </div>
       ) : (
-        /* LIST VIEW */
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
@@ -511,10 +870,13 @@ const Tables: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredTables.map(table => {
                 const status = TABLE_STATUS[table.status];
-                const order = getTableOrder(table.id);
+                const order  = getTableOrder(table.id);
                 return (
                   <tr key={table.id} className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => openTable(table)}>
-                    <td className="px-4 py-3 font-bold text-slate-800">{table.name}</td>
+                    <td className="px-4 py-3 font-bold text-slate-800 flex items-center gap-1.5">
+                      {table.status === 'READY' && <Bell size={13} className="text-purple-500" />}
+                      {table.name}
+                    </td>
                     <td className="px-4 py-3 text-slate-500">{table.zone}</td>
                     <td className="px-4 py-3 text-slate-500"><Users size={13} className="inline mr-1" />{table.seats}</td>
                     <td className="px-4 py-3">
@@ -527,15 +889,7 @@ const Tables: React.FC = () => {
                     <td className="px-4 py-3">
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         <button onClick={() => { setEditingTable(table); setTableForm({ name: table.name, seats: table.seats, zone: table.zone }); setShowTableModal(true); }}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                          <Edit2 size={14} />
-                        </button>
-                        {table.status === 'FREE' && (
-                          <button onClick={() => handleDeleteTable(table.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={13} /></button>
                       </div>
                     </td>
                   </tr>
@@ -546,24 +900,20 @@ const Tables: React.FC = () => {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          MODAL: CREAR / EDITAR MESA
-      ════════════════════════════════════════════════════════════════════════ */}
+      {/* ════ MODAL: CREAR/EDITAR MESA ════ */}
       {showTableModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowTableModal(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-black text-slate-800 text-lg">{editingTable ? 'Editar Mesa' : 'Nueva Mesa'}</h3>
-              <button onClick={() => setShowTableModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
-                <X size={20} />
-              </button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-black text-slate-800 text-lg">{editingTable ? 'Editar mesa' : 'Nueva mesa'}</h3>
+              <button onClick={() => setShowTableModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
             </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nombre *</label>
                 <input value={tableForm.name} onChange={e => setTableForm(p => ({ ...p, name: e.target.value }))}
                   placeholder="Ej: Mesa 1, Barra 3, Terraza A..."
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm" />
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -587,11 +937,9 @@ const Tables: React.FC = () => {
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowTableModal(false)}
-                className="flex-1 py-2.5 border border-slate-200 rounded-xl font-semibold text-slate-600 hover:bg-slate-50 transition-all">
-                Cancelar
-              </button>
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
               <button onClick={handleSaveTable}
-                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all">
+                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">
                 {editingTable ? 'Guardar Cambios' : 'Crear Mesa'}
               </button>
             </div>
@@ -599,9 +947,7 @@ const Tables: React.FC = () => {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          MODAL: PEDIDO DE MESA
-      ════════════════════════════════════════════════════════════════════════ */}
+      {/* ════ MODAL: PEDIDO DE MESA ════ */}
       {showOrderModal && activeTable && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onClick={() => setShowOrderModal(false)}>
           <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden"
@@ -629,7 +975,6 @@ const Tables: React.FC = () => {
 
             {/* Body */}
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-
               {/* LEFT: Product catalog */}
               <div className="flex-1 flex flex-col overflow-hidden border-r border-slate-100">
                 <div className="p-3 border-b border-slate-100">
@@ -690,9 +1035,7 @@ const Tables: React.FC = () => {
                       <div key={item.id} className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm font-semibold text-slate-800 leading-tight flex-1">{item.product_name}</p>
-                          <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-500 transition-colors mt-0.5">
-                            <X size={14} />
-                          </button>
+                          <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-500 mt-0.5"><X size={14} /></button>
                         </div>
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center gap-1.5">
@@ -704,8 +1047,24 @@ const Tables: React.FC = () => {
                           </div>
                           <p className="font-black text-slate-700 text-sm">{formatCurrency(item.price * item.quantity)}</p>
                         </div>
+                        {/* Nota del ítem */}
+                        <div className="mt-1.5 flex items-center gap-1">
+                          {item.notes ? (
+                            <button
+                              onClick={() => setEditingItemNote({ itemId: item.id, currentNote: item.notes || '' })}
+                              className="flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded-lg font-semibold w-full text-left">
+                              <MessageSquare size={9} /> {item.notes}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setEditingItemNote({ itemId: item.id, currentNote: '' })}
+                              className="text-[10px] text-slate-400 hover:text-blue-500 flex items-center gap-0.5">
+                              <MessageSquare size={9} /> + nota
+                            </button>
+                          )}
+                        </div>
                         {item.sent_to_kitchen && (
-                          <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-orange-600 font-semibold">
+                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-orange-600 font-semibold">
                             <ChefHat size={9} /> En cocina
                           </span>
                         )}
@@ -717,8 +1076,7 @@ const Tables: React.FC = () => {
                 {/* Notes */}
                 <div className="p-3 border-t border-slate-100">
                   <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
-                    placeholder="Notas para cocina..."
-                    rows={2}
+                    placeholder="Notas para cocina..." rows={2}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl outline-none resize-none focus:ring-2 focus:ring-blue-400 bg-white" />
                 </div>
 
@@ -735,21 +1093,22 @@ const Tables: React.FC = () => {
                 {/* Actions */}
                 <div className="p-3 space-y-2 border-t border-slate-100">
                   <button onClick={() => handleSaveOrder(true)} disabled={savingOrder || orderItems.length === 0}
-                    className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all">
+                    className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
                     <ChefHat size={16} /> {savingOrder ? 'Enviando...' : 'Enviar a Cocina'}
                   </button>
                   <button onClick={() => handleSaveOrder(false)} disabled={savingOrder || orderItems.length === 0}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all">
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
                     <Check size={14} /> Guardar Pedido
                   </button>
                   {activeOrder && (
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => handleMarkBilling(activeTable.id)}
-                        className="py-2 bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 rounded-xl font-semibold text-xs flex items-center justify-center gap-1 transition-all">
+                      {/* COBRAR — abre modal de pago completo */}
+                      <button onClick={handleOpenPayment}
+                        className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1 transition-all">
                         <Receipt size={13} /> Cobrar
                       </button>
                       <button onClick={() => handleFreeTable(activeTable.id, activeOrder?.id)}
-                        className="py-2 bg-green-50 border border-green-200 hover:bg-green-100 text-green-700 rounded-xl font-semibold text-xs flex items-center justify-center gap-1 transition-all">
+                        className="py-2 bg-green-50 border border-green-200 hover:bg-green-100 text-green-700 rounded-xl font-semibold text-xs flex items-center justify-center gap-1">
                         <Check size={13} /> Liberar
                       </button>
                     </div>
@@ -760,6 +1119,172 @@ const Tables: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ════ MODAL: NOTA POR ÍTEM ════ */}
+      {editingItemNote && (() => {
+        const item = orderItems.find(i => i.id === editingItemNote.itemId);
+        const product = products.find(p => p.id === item?.product_id);
+        const quickNotes = product?.category_id ? (quickNotesByCategory[product.category_id] || []) : [];
+        return (
+          <div className="fixed inset-0 bg-black/60 z-[60] flex items-end sm:items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-slate-800">Nota para este ítem</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">{item?.product_name}</p>
+                </div>
+                <button onClick={() => setEditingItemNote(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              </div>
+              <div className="p-4 space-y-3">
+                {quickNotes.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                      <Zap size={11} /> Notas rápidas
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {quickNotes.map((qn, i) => (
+                        <button key={i}
+                          onClick={() => {
+                            const cur = editingItemNote.currentNote;
+                            const next = cur ? `${cur}, ${qn}` : qn;
+                            setEditingItemNote({ ...editingItemNote, currentNote: next });
+                          }}
+                          className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors">
+                          {qn}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase mb-1">Nota personalizada</p>
+                  <textarea
+                    value={editingItemNote.currentNote}
+                    onChange={e => setEditingItemNote({ ...editingItemNote, currentNote: e.target.value })}
+                    placeholder="Ej: sin sal, término medio, sin cebolla..."
+                    rows={3}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="px-4 pb-4 flex gap-2">
+                {editingItemNote.currentNote && (
+                  <button onClick={() => setItemNote(editingItemNote.itemId, '')}
+                    className="px-3 py-2 border border-red-200 text-red-500 rounded-xl text-sm font-semibold hover:bg-red-50">
+                    Quitar nota
+                  </button>
+                )}
+                <button
+                  onClick={() => setItemNote(editingItemNote.itemId, editingItemNote.currentNote)}
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">
+                  Guardar nota
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ════ MODAL: QR MESEROS ════ */}
+      {showQrModal && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2"><QrCode size={18} /> Acceso para Meseros</h3>
+              <button onClick={() => setShowQrModal(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="bg-slate-50 rounded-xl p-4 text-center space-y-3">
+                {/* QR generado con API pública — no requiere librería */}
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(waiterQrUrl)}`}
+                  alt="QR Mesero"
+                  className="mx-auto rounded-xl border-4 border-white shadow-lg"
+                  style={{ width: 200, height: 200 }}
+                />
+                <p className="text-xs text-slate-500 break-all font-mono bg-white rounded-lg p-2 border border-slate-200">
+                  {waiterQrUrl}
+                </p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+                <p className="font-bold">¿Cómo usar?</p>
+                <p>1. Imprime este QR o muéstralo en pantalla</p>
+                <p>2. El mesero escanea con su celular</p>
+                <p>3. Selecciona su nombre e ingresa su PIN</p>
+                <p>4. Ya puede tomar pedidos desde su celular</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => {
+                    navigator.clipboard.writeText(waiterQrUrl);
+                    toast.success('Link copiado');
+                  }}
+                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50">
+                  Copiar link
+                </button>
+                <button onClick={() => {
+                    const w = window.open('', '_blank', 'width=400,height=500');
+                    if (!w) return;
+                    w.document.write(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;gap:16px">
+                      <h2 style="margin:0">Acceso Meseros</h2>
+                      <img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterQrUrl)}" style="border-radius:12px" />
+                      <p style="font-size:12px;color:#64748b;text-align:center">Escanea para tomar pedidos desde tu celular</p>
+                      <script>window.onload=()=>window.print()</script>
+                    </body></html>`);
+                    w.document.close();
+                  }}
+                  className="flex-1 py-2.5 bg-violet-600 text-white rounded-xl font-bold text-sm hover:bg-violet-700 flex items-center justify-center gap-1">
+                  <Printer size={14} /> Imprimir
+                </button>
+              </div>
+              {/* Color del mesero */}
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                  <User size={11} /> Tu color de mesero
+                </p>
+                <div className="flex items-center gap-3">
+                  <input type="color" value={waiterColor}
+                    onChange={e => setWaiterColor(e.target.value)}
+                    className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">Color identificador</p>
+                    <p className="text-xs text-slate-400">Las mesas que atiendes se marcan con este color</p>
+                  </div>
+                  <button onClick={async () => {
+                      if (!waiterId) return;
+                      await supabase.from('profiles').update({ waiter_color: waiterColor }).eq('id', waiterId);
+                      toast.success('Color guardado');
+                    }}
+                    className="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700">
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL: PAGO ════ */}
+      {showPayModal && activeTable && activeOrder && (
+        <TablePaymentModal
+          table={activeTable}
+          order={activeOrder}
+          company={company}
+          companyId={companyId!}
+          branchId={branchId}
+          session={session}
+          formatCurrency={formatCurrency}
+          navigate={navigate}
+          onClose={() => { setShowPayModal(false); }}
+          onSuccess={async () => {
+            setShowPayModal(false);
+            await Promise.all([loadTables(), loadOrders()]);
+          }}
+        />
+      )}
+
     </div>
   );
 };
