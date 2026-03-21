@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { supabase } from './supabaseClient';
 import {
   Dumbbell, Apple, Calendar, User, CheckCircle,
   ChevronDown, ChevronUp, Clock, Target, Zap,
