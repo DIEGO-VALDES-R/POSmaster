@@ -441,13 +441,14 @@ const POS: React.FC = () => {
         onRemoveItem={removeFromCart} onOpenPayment={() => setIsPaymentModalOpen(true)} formatMoney={formatMoney}
       />
 
-      {/* Modal de pago */}
+      {/* Modal de pago — CORREGIDO: company?.id en lugar de companyId */}
       {isPaymentModalOpen && (
         <PaymentModal
           totals={totals} applyIva={applyIva} defaultTaxRate={defaultTaxRate} clampedDiscount={clampedDiscount}
           isPartialMode={isPartialMode} setIsPartialMode={setIsPartialMode} shoeRepairLabel={shoeRepairLabel}
           payments={payments} currentPaymentAmount={currentPaymentAmount} setCurrentPaymentAmount={setCurrentPaymentAmount}
           currentPaymentMethod={currentPaymentMethod} setCurrentPaymentMethod={setCurrentPaymentMethod}
+          companyId={company?.id || ''}
           customerName={customerName} setCustomerName={setCustomerName}
           customerDoc={customerDoc} setCustomerDoc={setCustomerDoc}
           customerEmail={customerEmail} setCustomerEmail={setCustomerEmail}

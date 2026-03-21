@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback, useRef } from 'react';
+﻿import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BarChart2, ShoppingCart, Package, Wrench,
@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Menu, Building2, User,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
-  ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
+  ChevronDown, ChevronRight, ChevronLeft, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
   RefreshCw, TrendingDown, Cpu,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
@@ -55,6 +55,8 @@ const MODULE_PATHS: Record<string, string> = {
   payables:    '/payables',
   expenses:    '/expenses',
   hardware:    '/settings?tab=hardware',
+  settings:    '/settings',
+  branches:    '/branches',
   warehouse:   '/warehouse',
   gimnasio:    '/gimnasio',
   panaderia:   '/panaderia',
@@ -177,7 +179,9 @@ function getNavItems(
   adminItems.push({ label: 'Marketplace B2B', path: MODULE_PATHS.b2b, icon: Building2 });
   if (isPro && p('can_manage_team'))                    adminItems.push({ label: 'Equipo',    path: MODULE_PATHS.team,     icon: Users });
   if (isAdmin && hasFeature('nomina'))                  adminItems.push({ label: 'Nómina',    path: MODULE_PATHS.nomina,   icon: Users2 });
-  if (isAdmin)                                          adminItems.push({ label: 'Hardware',  path: MODULE_PATHS.hardware, icon: Cpu });
+  if (isAdmin)                                          adminItems.push({ label: 'Hardware',       path: MODULE_PATHS.hardware, icon: Cpu });
+  if (isAdmin && isPro)                                 adminItems.push({ label: 'Sucursales',      path: MODULE_PATHS.branches, icon: Building2 });
+  if (isAdmin)                                          adminItems.push({ label: 'Configuración',   path: MODULE_PATHS.settings, icon: Settings });
 
   // ── Componer resultado ───────────────────────────────────────
   const result: NavEntry[] = [
@@ -220,153 +224,26 @@ const NavLink: React.FC<{
   </Link>
 );
 
-// ── BranchSection ─────────────────────────────────────────────────────────────
-// activeSectionId: la sección que "posee" los items activos del menú
-// Solo la sección activa evalúa isActive — las demás nunca resaltan nada
-const BranchSection: React.FC<{
-  sectionId:      string;           // id único de esta sección (companyId + businessType)
-  companyId:      string;
-  branchLinkId?:  string;           // id para generar link de sucursal (solo child branches)
-  name:           string;
-  businessType:   string;
-  items:          NavEntry[];
-  activeSectionId: string;          // ← CLAVE: qué sección está actualmente activa
-  setActiveSectionId: (id: string) => void;
-  fontColor:      string;
-  defaultOpen?:   boolean;
-  onNav?:         () => void;
-  onActivate:     (companyId: string, sectionId: string) => Promise<void>;
-  switching:      boolean;
-  currentPath:    string;
-}> = ({
-  sectionId, companyId, branchLinkId, name, businessType, items,
-  activeSectionId, setActiveSectionId,
-  fontColor, defaultOpen = false,
-  onNav, onActivate, switching, currentPath,
-}) => {
-  const [open, setOpen] = useState(defaultOpen);
-  const isThisActive = activeSectionId === sectionId;
-
-  // isActive SOLO funciona si esta sección es la activa
-  // → previene que todas las secciones resalten el mismo path
-  const isActive = (path: string) => isThisActive && currentPath === path;
-
-  const icon  = BUSINESS_ICONS[businessType]  || '🏪';
-  const label = BUSINESS_LABELS[businessType] || 'Negocio';
-  const isCurrentlyActive = isThisActive;
-
-  const handleHeaderClick = async () => {
-    if (!isCurrentlyActive) {
-      await onActivate(companyId, sectionId);
-      setOpen(true);
-    } else {
-      setOpen(o => !o);
-    }
-  };
-
-  return (
-    <div className="mb-1">
-      <button
-        onClick={handleHeaderClick}
-        className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all"
-        style={{
-          background: isCurrentlyActive
-            ? 'rgba(255,255,255,0.12)'
-            : open ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)',
-          color:   fontColor,
-          border:  isCurrentlyActive ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent',
-          cursor:  'pointer',
-          opacity: switching && !isCurrentlyActive ? 0.55 : 1,
-          transition: 'all 0.15s',
-        }}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-base flex-shrink-0">{icon}</span>
-          <div className="text-left min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-xs font-bold truncate leading-tight">{name}</p>
-              {isCurrentlyActive && (
-                <span style={{
-                  background: 'rgba(59,130,246,0.35)', color: '#93c5fd',
-                  fontSize: 9, fontWeight: 700, padding: '1px 5px',
-                  borderRadius: 4, flexShrink: 0,
-                }}>ACTIVO</span>
-              )}
-            </div>
-            <p className="text-[10px] truncate leading-tight" style={{ opacity: 0.5 }}>{label}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {switching && !isCurrentlyActive && (
-            <div style={{
-              width: 10, height: 10,
-              border: '2px solid rgba(255,255,255,0.3)',
-              borderTopColor: '#fff', borderRadius: '50%',
-              animation: 'spin 0.7s linear infinite',
-            }} />
-          )}
-          {open ? <ChevronDown size={13} style={{ opacity: 0.55 }} /> : <ChevronRight size={13} style={{ opacity: 0.55 }} />}
-        </div>
-      </button>
-
-      {open && (
-        <div className="ml-3 mt-0.5 pl-2 space-y-0.5"
-          style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-
-          {!isCurrentlyActive ? (
-            /* Sección inactiva: preview + botón para abrir en nueva pestaña */
-            <>
-              {branchLinkId && (
-                <button
-                  onClick={() => window.open(`${window.location.origin}/#/sucursal/${branchLinkId}`, '_blank')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg w-full text-left"
-                  style={{ color: '#60a5fa', fontSize: 11, fontWeight: 600, background: 'rgba(59,130,246,0.1)', marginBottom: 3 }}>
-                  <ExternalLink size={11} />
-                  <span>Abrir en nueva pestaña</span>
-                </button>
-              )}
-              <div style={{ opacity: 0.35, pointerEvents: 'none' }}>
-                {flatNavItems(items).slice(0, 5).map(item => (
-                  <div key={item.path} className="flex items-center gap-2.5 px-3 py-1.5 text-sm" style={{ color: fontColor }}>
-                    <item.icon size={14} />
-                    <span style={{ fontSize: 12 }}>{item.label}</span>
-                  </div>
-                ))}
-                {flatNavItems(items).length > 5 && (
-                  <p className="px-3 py-1 text-[10px]" style={{ color: fontColor, opacity: 0.4 }}>
-                    +{flatNavItems(items).length - 5} módulos más…
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            /* Sección activa: items con grupos y separadores */
-            items.map((entry, idx) => {
-              if (isNavGroup(entry)) {
-                return (
-                  <div key={entry.group}>
-                    {idx > 0 && <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0 2px' }} />}
-                    <p style={{
-                      fontSize: 9, fontWeight: 700, letterSpacing: '0.07em',
-                      textTransform: 'uppercase', opacity: 0.4,
-                      color: fontColor, padding: '4px 12px 2px',
-                    }}>{entry.group}</p>
-                    {entry.items.map(item => (
-                      <NavLink key={item.path} item={item} isActive={isActive(item.path)} fontColor={fontColor} onClick={onNav} />
-                    ))}
-                  </div>
-                );
-              }
-              return (
-                <NavLink key={entry.path} item={entry} isActive={isActive(entry.path)} fontColor={fontColor} onClick={onNav} />
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+// ── SidebarNavItem (light theme) ──────────────────────────────────────────────
+const SidebarNavItem: React.FC<{
+  item: { label: string; path: string; icon: React.ElementType };
+  isActive: boolean;
+  onClick?: () => void;
+}> = ({ item, isActive, onClick }) => (
+  <Link
+    to={item.path}
+    onClick={onClick}
+    className="flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-150 text-sm w-full"
+    style={{
+      background: isActive ? '#eff6ff' : 'transparent',
+      color:      isActive ? '#1d4ed8' : '#475569',
+      fontWeight: isActive ? 600 : 400,
+    }}
+  >
+    <item.icon size={15} style={{ flexShrink: 0 }} />
+    <span className="truncate">{item.label}</span>
+  </Link>
+);
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
@@ -378,11 +255,11 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const [childBranches, setChildBranches] = useState<any[]>([]);
   const [switching, setSwitching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  // ── sectionId activo: companyId + businessType ────────────────────────────
-  // Garantiza que cada sección (incluso del mismo negocio con múltiples tipos)
-  // sea independiente. Ej: "abc123__restaurante" vs "abc123__salon"
-  const makeSectionId = (cid: string, bt: string) => `${cid}__${bt}`;
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showBranchDrop, setShowBranchDrop] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const branchDropRef = useRef<HTMLDivElement>(null);
 
   const cfg = (company?.config as any) || {};
   const normalizeType = (t: string) => {
@@ -396,73 +273,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     : cfg.business_type ? [cfg.business_type] : ['general'];
   const mainBusinessTypes: string[] = [...new Set(rawTypes.filter(Boolean).map(normalizeType))];
 
-  // El sectionId activo por defecto es el primer tipo del negocio actual
-  const defaultSectionId = companyId
-    ? makeSectionId(companyId, mainBusinessTypes[0] || 'general')
-    : '';
-  const [activeSectionId, setActiveSectionIdState] = useState(defaultSectionId);
-
-  // Sincronizar tipo de negocio activo con localStorage al inicializar
-  useEffect(() => {
-    const bt = defaultSectionId.split('__')[1] || mainBusinessTypes[0] || 'general';
-    localStorage.setItem('posmaster_active_business_type', bt);
-    window.dispatchEvent(new Event('posmaster_business_type_changed'));
-  }, [defaultSectionId]);
-
-  // Cuando el companyId cambia (switchCompany), actualizar el sectionId activo
-  const prevCompanyId = useRef<string | null>(null);
-  useEffect(() => {
-    if (companyId && companyId !== prevCompanyId.current) {
-      prevCompanyId.current = companyId;
-      const firstType = mainBusinessTypes[0] || 'general';
-      setActiveSectionIdState(makeSectionId(companyId, firstType));
-    }
-  }, [companyId]);
-
-  const prevBtKey = useRef<string>('');
-  useEffect(() => {
-    if (!companyId) return;
-    const btKey = mainBusinessTypes.join(',');
-    if (btKey && btKey !== prevBtKey.current) {
-      prevBtKey.current = btKey;
-      const firstType = mainBusinessTypes[0] || 'general';
-      setActiveSectionIdState(makeSectionId(companyId, firstType));
-      localStorage.setItem('posmaster_active_business_type', firstType);
-      window.dispatchEvent(new Event('posmaster_business_type_changed'));
-    }
-  }, [mainBusinessTypes.join(','), companyId]);
-
-  const handleLogout = async () => { await supabase.auth.signOut(); };
-
-  const handleRefreshAll = async () => {
-    setRefreshing(true);
-    try {
-      await refreshAll();
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const plan      = company?.subscription_plan || 'BASIC';
-
-  // Onboarding — mostrar la primera vez que un ADMIN nuevo entra
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  useEffect(() => {
-    if (!companyId || !company || userRole !== 'ADMIN') return;
-    const key = `onboarding_done_${companyId}`;
-    if (!localStorage.getItem(key)) setShowOnboarding(true);
-  }, [companyId, company, userRole]);
-  // BUG FIX: branches are created with plan='BASIC' but their parent is PRO.
-  // Employees who log into a branch must still see the full menu.
-  const isBranch  = !!(company as any)?.negocio_padre_id;
-  const isPro     = isBranch || ['PRO', 'ENTERPRISE', 'MASTER'].includes(plan);
-  const isAdmin   = userRole === 'MASTER' || userRole === 'ADMIN';
+  const plan    = company?.subscription_plan || 'BASIC';
+  const isBranch = !!(company as any)?.negocio_padre_id;
+  const isPro   = isBranch || ['PRO', 'ENTERPRISE', 'MASTER'].includes(plan);
+  const isAdmin = userRole === 'MASTER' || userRole === 'ADMIN';
   const brandColor = (company?.config as any)?.primary_color || '#1e293b';
   const fontColor  = (company?.config as any)?.font_color    || '#ffffff';
   const companyName = company?.name ?? 'POSmaster';
   const logoUrl     = company?.logo_url ?? null;
 
-  // Id del negocio raíz
   const [rootCompanyId, setRootCompanyId] = useState<string | null>(null);
   useEffect(() => {
     if (!company?.id) return;
@@ -471,7 +290,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   }, [company?.id]);
 
   useEffect(() => {
-    // Employees of a branch (non-admin) must NEVER see or switch to other companies
     if (!rootCompanyId || !isPro || (isBranch && !isAdmin)) { setChildBranches([]); return; }
     supabase
       .from('companies')
@@ -482,332 +300,433 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
       .then(({ data }) => setChildBranches(data || []));
   }, [rootCompanyId, isPro, isBranch, isAdmin]);
 
-  // Activar una sección: si es otra empresa → switchCompany, luego setActiveSectionId
-  const handleActivate = useCallback(async (cid: string, sid: string) => {
-    setActiveSectionIdState(sid);
-    // Extraer el businessType del sectionId (formato: "companyId__businessType")
-    const activeBt = sid.split('__')[1] || 'general';
-    localStorage.setItem('posmaster_active_business_type', activeBt);
-    // Notificar a DatabaseContext para que recargue los productos del nuevo tipo
+  const handleLogout  = async () => { await supabase.auth.signOut(); };
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    try { await refreshAll(); } finally { setRefreshing(false); }
+  };
+
+  const handleActivate = useCallback(async (cid: string) => {
+    const bt = mainBusinessTypes[0] || 'general';
+    localStorage.setItem('posmaster_active_business_type', bt);
     window.dispatchEvent(new Event('posmaster_business_type_changed'));
     if (cid !== companyId) {
       setSwitching(true);
       await switchCompany(cid);
       setSwitching(false);
     }
-    // Navegar al dashboard al cambiar sección
     navigate('/');
-  }, [companyId, switchCompany, navigate]);
+    setShowBranchDrop(false);
+  }, [companyId, switchCompany, navigate, mainBusinessTypes]);
 
-  const hexToRgb = (hex: string) => {
-    if (!hex || hex.length < 7) return '30,41,59';
-    return `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
-  };
-  const brandRgb = brandColor.startsWith('#') ? hexToRgb(brandColor) : '30,41,59';
+  // Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (!companyId || !company || userRole !== 'ADMIN') return;
+    const key = `onboarding_done_${companyId}`;
+    if (!localStorage.getItem(key)) setShowOnboarding(true);
+  }, [companyId, company, userRole]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) setShowUserMenu(false);
+      if (branchDropRef.current && !branchDropRef.current.contains(e.target as Node)) setShowBranchDrop(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Biz type sync
+  useEffect(() => {
+    const bt = mainBusinessTypes[0] || 'general';
+    localStorage.setItem('posmaster_active_business_type', bt);
+    window.dispatchEvent(new Event('posmaster_business_type_changed'));
+  }, [mainBusinessTypes.join(',')]);
+
+  // ── Nav entries ────────────────────────────────────────────────────────────
+  const navEntries = useMemo(() =>
+    getNavItems(mainBusinessTypes[0] || 'general', hasPermission, isAdmin, isPro, hasFeature, customRole),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mainBusinessTypes[0], isAdmin, isPro, customRole]
+  );
+
+  // Detect active section from current path
+  const activeSectionFromPath = useMemo(() => {
+    for (const entry of navEntries) {
+      if (isNavGroup(entry) && entry.items.some(i => location.pathname.startsWith(i.path === '/' ? '/__' : i.path))) {
+        return entry.group;
+      }
+    }
+    return location.pathname === '/' ? '__dashboard__' : null;
+  }, [location.pathname, navEntries]);
+
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+
+  // Sync selected section with route
+  useEffect(() => {
+    if (activeSectionFromPath) {
+      setSelectedSection(activeSectionFromPath);
+      if (activeSectionFromPath !== '__dashboard__') setSidebarOpen(true);
+    }
+  }, [activeSectionFromPath]);
+
+  const currentGroupItems = useMemo(() =>
+    navEntries.find(e => isNavGroup(e) && (e as NavGroup).group === selectedSection) as NavGroup | undefined,
+    [navEntries, selectedSection]
+  );
+
+  const hasSidebar = !!currentGroupItems && selectedSection !== '__dashboard__';
 
   const roleDisplay =
     userRole === 'MASTER' ? 'Propietario' :
     userRole === 'ADMIN'  ? 'Administrador' : userRole || 'Usuario';
 
-  const isActivePath = (p: string) => location.pathname === p;
+  const shortenGroup = (g: string) =>
+    g === 'Clientes y Finanzas' ? 'Clientes' :
+    g === 'Administración' ? 'Admin' :
+    g.startsWith('Módulo ') ? g.slice(7) : g;
 
-  const SidebarContent = ({ onNav }: { onNav?: () => void }) => {
-    // Branch employees must only see their own company, never the parent root.
-    // Only ADMIN/MASTER can see and switch between companies.
-    const rootCid = (isBranch && !isAdmin) ? (companyId || '') : (rootCompanyId || companyId || '');
+  const sectionIcon = (g: string): React.ElementType => {
+    if (g === 'Ventas')              return ShoppingCart;
+    if (g === 'Inventario')          return Package;
+    if (g === 'Clientes y Finanzas') return UserRound;
+    if (g === 'Administración')      return BarChart2;
+    if (g.startsWith('Módulo'))      return Wrench;
+    return FileText;
+  };
 
-    return (
-      <>
-        {/* Header */}
-        <div className="p-4 flex items-center gap-3 flex-shrink-0"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
-            style={{ background: logoUrl ? '#fff' : 'rgba(0,0,0,0.3)' }}>
-            {logoUrl
-              ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain mix-blend-multiply" />
-              : <Building2 size={20} className="text-white" />}
+  const handleTabClick = (group: string) => {
+    if (group === '__dashboard__') {
+      navigate('/');
+      setSelectedSection('__dashboard__');
+    } else {
+      setSelectedSection(group);
+      setSidebarOpen(true);
+    }
+  };
+
+  const isTabActive = (group: string) => {
+    if (group === '__dashboard__') return selectedSection === '__dashboard__' || location.pathname === '/';
+    return selectedSection === group;
+  };
+
+  const rootCid = (isBranch && !isAdmin) ? (companyId || '') : (rootCompanyId || companyId || '');
+
+  // ── Mobile full-screen nav ─────────────────────────────────────────────────
+  const MobileNav = () => (
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: brandColor }}>
+      <div className="flex items-center justify-between p-4 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg overflow-hidden" style={{ background: 'rgba(0,0,0,0.25)' }}>
+            {logoUrl ? <img src={logoUrl} alt="" className="w-full h-full object-contain" /> : <Building2 size={16} className="text-white m-auto mt-1" />}
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-bold text-sm leading-tight truncate" style={{ color: fontColor }} title={companyName}>
-              {companyName}
-            </h1>
-            <p className="text-[10px]" style={{ color: fontColor, opacity: 0.5 }}>POSmaster</p>
-          </div>
-
-          {/* Quick branch switcher icon — solo si hay sucursales */}
-          {childBranches.length > 0 && isAdmin && (
-            <div className="relative flex-shrink-0" title="Cambiar sucursal">
-              <button
-                onClick={e => { e.stopPropagation(); (window as any)._branchDropOpen = !(window as any)._branchDropOpen; document.getElementById('branch-quick-drop')?.classList.toggle('hidden'); }}
-                className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
-                style={{ background: 'rgba(255,255,255,0.15)', color: fontColor }}>
-                <Building2 size={14} />
-              </button>
-              <div id="branch-quick-drop" className="hidden absolute right-0 top-9 z-50 rounded-xl shadow-xl border overflow-hidden"
-                style={{ background: '#1e293b', borderColor: 'rgba(255,255,255,0.15)', minWidth: 200 }}>
-                {/* Sede principal */}
-                <button
-                  onClick={() => { handleActivate(rootCid, `${rootCid}__general`); document.getElementById('branch-quick-drop')?.classList.add('hidden'); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
-                  style={{ borderBottom: '0.5px solid rgba(255,255,255,0.1)' }}>
-                  <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: brandColor }}>
-                    <Building2 size={11} className="text-white" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-white truncate">{companyName}</p>
-                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sede principal</p>
-                  </div>
-                  {companyId === rootCid && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-auto flex-shrink-0" />}
-                </button>
-                {/* Sucursales hijas */}
-                {childBranches.map(b => (
-                  <button key={b.id}
-                    onClick={() => { const bt = b.config?.business_type || 'general'; handleActivate(b.id, `${b.id}__${bt}`); document.getElementById('branch-quick-drop')?.classList.add('hidden'); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
-                    style={{ borderBottom: '0.5px solid rgba(255,255,255,0.08)' }}>
-                    <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: (b.config as any)?.primary_color || '#475569' }}>
-                      <Building2 size={11} className="text-white" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-white truncate">{b.name}</p>
-                      <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sucursal</p>
-                    </div>
-                    {companyId === b.id && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-auto flex-shrink-0" />}
-                  </button>
+          <p className="font-bold text-sm" style={{ color: fontColor }}>{companyName}</p>
+        </div>
+        <button onClick={() => setIsMobileMenuOpen(false)} style={{ color: fontColor, opacity: 0.7 }}>
+          <X size={22} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3">
+        {/* Dashboard */}
+        <Link to="/" onClick={() => setIsMobileMenuOpen(false)}
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg mb-1 text-sm font-medium"
+          style={{ background: location.pathname === '/' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)', color: fontColor }}>
+          <LayoutDashboard size={16} /> Dashboard
+        </Link>
+        {navEntries.filter(isNavGroup).map(entry => {
+          const g = entry as NavGroup;
+          const Icon = sectionIcon(g.group);
+          return (
+            <div key={g.group} className="mb-2">
+              <p className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: fontColor, opacity: 0.45 }}>
+                <Icon size={12} /> {shortenGroup(g.group)}
+              </p>
+              <div className="space-y-0.5">
+                {g.items.map(item => (
+                  <Link key={item.path} to={item.path} onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-4 py-2 rounded-lg text-sm"
+                    style={{
+                      background: location.pathname === item.path ? 'rgba(255,255,255,0.18)' : 'transparent',
+                      color: fontColor, opacity: location.pathname === item.path ? 1 : 0.8,
+                      fontWeight: location.pathname === item.path ? 600 : 400,
+                    }}>
+                    <item.icon size={14} /> {item.label}
+                  </Link>
                 ))}
               </div>
             </div>
-          )}
+          );
+        })}
+      </div>
+      <div className="p-3 flex-shrink-0 space-y-1" style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.2)' }}>
+          <Globe size={13} style={{ color: fontColor, opacity: 0.7 }} />
+          <select value={currency} onChange={e => setCurrency(e.target.value as CurrencyCode)}
+            className="bg-transparent text-xs focus:outline-none w-full cursor-pointer"
+            style={{ color: fontColor }}>
+            <option value="COP" className="text-slate-900">COP (Peso)</option>
+            <option value="USD" className="text-slate-900">USD (Dólar)</option>
+            <option value="EUR" className="text-slate-900">EUR (Euro)</option>
+          </select>
         </div>
-
-        {(childBranches.length > 0 || mainBusinessTypes.length > 1) && (
-          <div className="px-4 pt-3 pb-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: fontColor, opacity: 0.35 }}>
-              Negocios
-            </p>
-          </div>
-        )}
-
-        {/* Acordeón */}
-        <nav className="flex-1 p-3 overflow-y-auto space-y-1">
-          {/* Negocio principal — una sección por cada tipo de negocio */}
-          {mainBusinessTypes.map((bt) => {
-            const sid = makeSectionId(rootCid, bt);
-            return (
-              <BranchSection
-                key={sid}
-                sectionId={sid}
-                companyId={rootCid}
-                name={companyName}
-                businessType={bt}
-                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature, customRole)}
-                activeSectionId={activeSectionId}
-                setActiveSectionId={setActiveSectionIdState}
-                fontColor={fontColor}
-                defaultOpen={activeSectionId === sid}
-                onNav={onNav}
-                onActivate={handleActivate}
-                switching={switching}
-                currentPath={location.pathname}
-              />
-            );
-          })}
-
-          {/* Sucursales hijas */}
-          {childBranches.map(b => {
-            const bt = b.config?.business_type || b.config?.business_types?.[0] || 'general';
-            const sid = makeSectionId(b.id, bt);
-            return (
-              <BranchSection
-                key={sid}
-                sectionId={sid}
-                companyId={b.id}
-                branchLinkId={b.id}
-                name={b.name}
-                businessType={bt}
-                items={getNavItems(bt, hasPermission, isAdmin, isPro, hasFeature, customRole)}
-                activeSectionId={activeSectionId}
-                setActiveSectionId={setActiveSectionIdState}
-                fontColor={fontColor}
-                defaultOpen={activeSectionId === sid}
-                onNav={onNav}
-                onActivate={handleActivate}
-                switching={switching}
-                currentPath={location.pathname}
-              />
-            );
-          })}
-        </nav>
-
-        {/* Sucursales + Configuración */}
-        <div className="px-3 pb-2 flex-shrink-0"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 10 }}>
-          {isPro && isAdmin && (
-            <Link to="/branches" onClick={onNav}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all text-sm w-full"
-              style={{
-                background: isActivePath('/branches') ? 'rgba(255,255,255,0.18)' : 'transparent',
-                color: fontColor, fontWeight: isActivePath('/branches') ? 700 : 400,
-                opacity: isActivePath('/branches') ? 1 : 0.8,
-              }}>
-              <Building2 size={16} /> Sucursales
-            </Link>
-          )}
-          {isAdmin && (
-            <Link to="/settings" onClick={onNav}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all text-sm w-full"
-              style={{
-                background: isActivePath('/settings') ? 'rgba(255,255,255,0.18)' : 'transparent',
-                color: fontColor, fontWeight: isActivePath('/settings') ? 700 : 400,
-                opacity: isActivePath('/settings') ? 1 : 0.8,
-              }}>
-              <Settings size={16} /> Configuración
-            </Link>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="p-3 space-y-1.5 flex-shrink-0"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.2)' }}>
-            <Globe size={14} style={{ color: fontColor, opacity: 0.7 }} />
-            <select value={currency} onChange={e => setCurrency(e.target.value as CurrencyCode)}
-              className="bg-transparent text-xs font-medium focus:outline-none w-full cursor-pointer"
-              style={{ color: fontColor }}>
-              <option value="COP" className="text-slate-900">COP (Peso)</option>
-              <option value="USD" className="text-slate-900">USD (Dólar)</option>
-              <option value="EUR" className="text-slate-900">EUR (Euro)</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.2)' }}>
-            <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
-              <User size={13} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium truncate" style={{ color: fontColor }}>{company?.name || companyName}</p>
-              <p className="text-[10px]" style={{ color: fontColor, opacity: 0.6 }}>{roleDisplay}</p>
-            </div>
-            <NotificationBell companyId={companyId || null} fontColor={fontColor} />
-          </div>
-
-          {onAdminPanel && (
-            <button onClick={onAdminPanel}
-              className="flex w-full items-center gap-2 px-3 py-2 text-purple-300 hover:bg-purple-900/20 rounded-lg transition-colors text-xs font-medium">
-              <ShieldCheck size={14} /> Panel POSmaster
-            </button>
-          )}
-          <button onClick={handleLogout}
-            className="flex w-full items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-900/20 rounded-lg transition-colors text-xs font-medium">
-            <LogOut size={14} /> Cerrar Sesión
+        {onAdminPanel && (
+          <button onClick={() => { onAdminPanel(); setIsMobileMenuOpen(false); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-purple-300 rounded-lg text-xs font-medium">
+            <ShieldCheck size={13} /> Panel POSmaster
           </button>
-        </div>
-
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </>
-    );
-  };
+        )}
+        <button onClick={handleLogout}
+          className="flex w-full items-center gap-2 px-3 py-2 text-red-400 rounded-lg text-xs font-medium">
+          <LogOut size={13} /> Cerrar Sesión
+        </button>
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   return (
     <>
-      {showOnboarding && (
-        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
-      )}
-      <div className="flex h-screen bg-slate-50">
-        <aside className="hidden md:flex flex-col w-60 text-white shadow-xl flex-shrink-0"
-          style={{ background: brandColor, transition: 'background 0.4s ease' }}>
-          <SidebarContent />
-        </aside>
+      {showOnboarding && <OnboardingWizard onComplete={() => setShowOnboarding(false)} />}
+      <div className="flex flex-col h-screen" style={{ background: '#f8fafc' }}>
 
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex flex-col"
-          style={{ background: `rgba(${brandRgb},0.97)` }}>
-          <div className="flex justify-end p-4 flex-shrink-0">
-            <button onClick={() => setIsMobileMenuOpen(false)} className="text-white text-2xl font-bold">✕</button>
-          </div>
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <SidebarContent onNav={() => setIsMobileMenuOpen(false)} />
-          </div>
-        </div>
-      )}
+        {/* ── TOP NAV ─────────────────────────────────────────────────────── */}
+        <header className="flex items-center gap-2 px-3 flex-shrink-0 z-30"
+          style={{ background: brandColor, height: 56, borderBottom: '1px solid rgba(0,0,0,0.15)' }}>
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Banner cuando se está en una sucursal */}
-        {company && (company as any).negocio_padre_id && (
-          <div style={{
-            background: 'linear-gradient(135deg,#1d4ed8,#4f46e5)',
-            color: '#fff', padding: '5px 16px', fontSize: 12, fontWeight: 600,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>
-            <span>🏢 Sucursal: <strong>{company.name}</strong></span>
-            <button
-              onClick={async () => {
-                if (rootCompanyId) {
-                  const firstBt = mainBusinessTypes[0] || 'general';
-                  await handleActivate(rootCompanyId, makeSectionId(rootCompanyId, firstBt));
-                }
-              }}
+          {/* Logo + Company */}
+          <div className="flex items-center gap-2.5 flex-shrink-0 mr-2">
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0"
+              style={{ background: logoUrl ? '#fff' : 'rgba(0,0,0,0.3)' }}>
+              {logoUrl
+                ? <img src={logoUrl} alt="" className="w-full h-full object-contain mix-blend-multiply" />
+                : <Building2 size={16} className="text-white" />}
+            </div>
+            <div className="hidden md:block min-w-0">
+              <p className="text-xs font-bold leading-tight truncate max-w-[130px]" style={{ color: fontColor }}>{companyName}</p>
+              <p className="text-[9px]" style={{ color: fontColor, opacity: 0.45 }}>POSmaster</p>
+            </div>
+          </div>
+
+          {/* Branch selector */}
+          {(childBranches.length > 0) && isAdmin && (
+            <div className="relative flex-shrink-0 hidden md:block" ref={branchDropRef}>
+              <button onClick={() => setShowBranchDrop(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+                style={{ background: 'rgba(255,255,255,0.12)', color: fontColor, border: '1px solid rgba(255,255,255,0.2)' }}>
+                <Building2 size={11} />
+                <span className="max-w-[80px] truncate">{company?.name}</span>
+                <ChevronDown size={10} style={{ opacity: 0.6 }} />
+              </button>
+              {showBranchDrop && (
+                <div className="absolute left-0 top-10 z-50 rounded-xl shadow-xl overflow-hidden"
+                  style={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)', minWidth: 200 }}>
+                  <button onClick={() => handleActivate(rootCid)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
+                    style={{ borderBottom: '0.5px solid rgba(255,255,255,0.1)' }}>
+                    <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: brandColor }}>
+                      <Building2 size={10} className="text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-white truncate">{companyName}</p>
+                      <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sede principal</p>
+                    </div>
+                    {companyId === rootCid && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
+                  </button>
+                  {childBranches.map(b => (
+                    <button key={b.id} onClick={() => handleActivate(b.id)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/10 transition-colors"
+                      style={{ borderBottom: '0.5px solid rgba(255,255,255,0.08)' }}>
+                      <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                        style={{ background: (b.config as any)?.primary_color || '#475569' }}>
+                        <Building2 size={10} className="text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-white truncate">{b.name}</p>
+                        <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Sucursal</p>
+                      </div>
+                      {companyId === b.id && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section tabs — desktop */}
+          <nav className="hidden md:flex items-center gap-0.5 flex-1 justify-center">
+            {/* Dashboard */}
+            <button onClick={() => handleTabClick('__dashboard__')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all"
               style={{
-                background: 'rgba(255,255,255,0.2)', border: 'none',
-                color: '#fff', padding: '2px 10px', borderRadius: 6,
-                cursor: 'pointer', fontWeight: 700, fontSize: 11,
+                background: isTabActive('__dashboard__') ? 'rgba(255,255,255,0.2)' : 'transparent',
+                color: fontColor,
+                opacity: isTabActive('__dashboard__') ? 1 : 0.7,
+                border: isTabActive('__dashboard__') ? '1px solid rgba(255,255,255,0.25)' : '1px solid transparent',
               }}>
+              <LayoutDashboard size={15} /> Dashboard
+            </button>
+
+            {navEntries.filter(isNavGroup).map(entry => {
+              const g = entry as NavGroup;
+              const Icon = sectionIcon(g.group);
+              const active = isTabActive(g.group);
+              return (
+                <button key={g.group} onClick={() => handleTabClick(g.group)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+                  style={{
+                    background: active ? 'rgba(255,255,255,0.2)' : 'transparent',
+                    color: fontColor,
+                    opacity: active ? 1 : 0.7,
+                    border: active ? '1px solid rgba(255,255,255,0.25)' : '1px solid transparent',
+                  }}>
+                  <Icon size={15} /> {shortenGroup(g.group)}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+
+            {/* Currency (compact) */}
+            <div className="hidden md:flex items-center gap-1 px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <Globe size={11} style={{ color: fontColor, opacity: 0.6 }} />
+              <select value={currency} onChange={e => setCurrency(e.target.value as CurrencyCode)}
+                className="bg-transparent text-[10px] focus:outline-none cursor-pointer"
+                style={{ color: fontColor }}>
+                <option value="COP" className="text-slate-900">COP</option>
+                <option value="USD" className="text-slate-900">USD</option>
+                <option value="EUR" className="text-slate-900">EUR</option>
+              </select>
+            </div>
+
+            {/* Refresh */}
+            <button onClick={handleRefreshAll} disabled={refreshing || isLoading}
+              className="p-2 rounded-lg transition-all disabled:opacity-40"
+              style={{ color: fontColor, background: refreshing ? 'rgba(255,255,255,0.12)' : 'transparent' }}
+              title="Actualizar datos">
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+
+            {/* Notifications */}
+            <NotificationBell companyId={companyId || null} fontColor={fontColor} />
+
+            {/* User menu */}
+            <div className="relative" ref={userMenuRef}>
+              <button onClick={() => setShowUserMenu(o => !o)}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs transition-all"
+                style={{ background: showUserMenu ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)', color: fontColor }}>
+                <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                  <User size={11} className="text-white" />
+                </div>
+                <span className="hidden md:block max-w-[80px] truncate font-medium">{roleDisplay}</span>
+                <ChevronDown size={10} style={{ opacity: 0.6 }} />
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-10 z-50 rounded-xl shadow-xl overflow-hidden"
+                  style={{ background: '#fff', border: '0.5px solid #e2e8f0', minWidth: 200 }}>
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <p className="text-xs font-bold text-slate-800 truncate">{companyName}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{roleDisplay}</p>
+                  </div>
+                  {onAdminPanel && (
+                    <button onClick={() => { onAdminPanel(); setShowUserMenu(false); }}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-purple-600 hover:bg-purple-50 transition-colors">
+                      <ShieldCheck size={13} /> Panel POSmaster
+                    </button>
+                  )}
+                  <button onClick={handleLogout}
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-red-500 hover:bg-red-50 transition-colors">
+                    <LogOut size={13} /> Cerrar Sesión
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile hamburger */}
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg"
+              style={{ color: fontColor, background: 'rgba(255,255,255,0.08)' }}>
+              <Menu size={18} />
+            </button>
+          </div>
+        </header>
+
+        {/* Branch banner */}
+        {company && (company as any).negocio_padre_id && (
+          <div style={{ background: 'linear-gradient(135deg,#1d4ed8,#4f46e5)', color: '#fff', padding: '4px 16px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <span>🏢 Sucursal: <strong>{company.name}</strong></span>
+            <button onClick={() => rootCompanyId && handleActivate(rootCompanyId)}
+              style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '2px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 10 }}>
               ← Volver al principal
             </button>
           </div>
         )}
 
-        <header className="md:hidden bg-white border-b border-slate-200 p-4 flex justify-between items-center shadow-sm flex-shrink-0">
-          <div className="flex items-center gap-2">
-            {logoUrl && <img src={logoUrl} className="w-8 h-8 rounded object-cover" alt="logo" />}
-            <h1 className="font-bold text-slate-800 text-sm">{companyName}</h1>
-          </div>
-          <div className="flex items-center gap-2">
+        {/* ── BODY ────────────────────────────────────────────────────────── */}
+        <div className="flex flex-1 overflow-hidden">
+
+          {/* Sidebar */}
+          <aside className="hidden md:flex flex-col flex-shrink-0 overflow-hidden transition-all duration-200"
+            style={{
+              width: hasSidebar && sidebarOpen ? 210 : 0,
+              background: '#fff',
+              borderRight: hasSidebar && sidebarOpen ? '1px solid #e2e8f0' : 'none',
+            }}>
+            {hasSidebar && currentGroupItems && (
+              <>
+                <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    {shortenGroup(currentGroupItems.group)}
+                  </p>
+                </div>
+                <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+                  {currentGroupItems.items.map(item => (
+                    <SidebarNavItem
+                      key={item.path}
+                      item={item}
+                      isActive={location.pathname === item.path}
+                    />
+                  ))}
+                </nav>
+              </>
+            )}
+          </aside>
+
+          {/* Sidebar toggle button */}
+          {hasSidebar && (
             <button
-              onClick={handleRefreshAll}
-              disabled={refreshing || isLoading}
-              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-40"
-              title="Actualizar">
-              <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+              onClick={() => setSidebarOpen(o => !o)}
+              className="hidden md:flex items-center justify-center flex-shrink-0 transition-all hover:bg-slate-100"
+              style={{ width: 16, background: '#fff', borderRight: '1px solid #e2e8f0', color: '#94a3b8' }}
+              title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}>
+              {sidebarOpen
+                ? <ChevronLeft size={11} />
+                : <ChevronRight size={11} />}
             </button>
-            <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-600">
-              <Menu size={24} />
-            </button>
-          </div>
-        </header>
+          )}
 
-        {/* ── Barra superior desktop con botón Actualizar ── */}
-        <div className="hidden md:flex items-center justify-end px-6 py-2 border-b border-slate-200 bg-white flex-shrink-0">
-          <button
-            onClick={handleRefreshAll}
-            disabled={refreshing || isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-40"
-            title="Actualizar todos los datos">
-            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Actualizando...' : 'Actualizar'}
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4 md:p-8">
-          <div className="max-w-7xl mx-auto h-full">
-            {isLoading || switching
-              ? (
+          {/* Main content */}
+          <main className="flex-1 overflow-auto">
+            <div className="p-4 md:p-8 max-w-7xl mx-auto h-full">
+              {isLoading || switching ? (
                 <div className="flex items-center justify-center h-full flex-col gap-3">
-                  <div style={{
-                    width: 36, height: 36,
-                    border: '3px solid #e2e8f0', borderTop: '3px solid #3b82f6',
-                    borderRadius: '50%', animation: 'spin 0.7s linear infinite',
-                  }} />
+                  <div style={{ width: 36, height: 36, border: '3px solid #e2e8f0', borderTop: '3px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
                   <p className="text-slate-400 text-sm animate-pulse">
                     {switching ? 'Cambiando sucursal…' : 'Cargando datos…'}
                   </p>
                 </div>
-              )
-              : children}
-          </div>
+              ) : children}
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
+
+        {/* Mobile nav */}
+        {isMobileMenuOpen && <MobileNav />}
+
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </>
   );
 };

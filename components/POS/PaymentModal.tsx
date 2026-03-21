@@ -1,9 +1,11 @@
-import React from 'react';
-import { X, Trash2, Plus, Printer } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Trash2, Plus, Printer, User } from 'lucide-react';
 import { PaymentMethod } from '../../types';
 import PayPalCheckout from '../PayPalCheckout';
+import { supabase } from '../../supabaseClient';
 
 interface PaymentModalProps {
+  companyId: string;
   totals: {
     subtotalBruto: number;
     discountAmount: number;
@@ -90,7 +92,71 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   onFinalize,
   formatMoney,
+  companyId,
 }) => {
+  // ── Autocomplete clientes ─────────────────────────────────────────────────
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [loadingSugg, setLoadingSugg] = useState(false);
+  const suggestRef = useRef<HTMLDivElement>(null);
+
+  const searchCustomers = async (q: string) => {
+    if (q.trim().length < 1) {
+      setSuggestions([]);
+      setShowSuggest(false);
+      return;
+    }
+    setLoadingSugg(true);
+    try {
+      console.log('[POS AutoComplete] companyId recibido:', companyId, '| buscando:', q);
+
+      // Primero sin filtro company_id para ver si hay datos en la tabla
+      const { data: sinFiltro, error: e1 } = await supabase
+        .from('customers')
+        .select('id, name, document_number, email, phone, company_id')
+        .ilike('name', `%${q}%`)
+        .limit(10);
+      console.log('[POS AutoComplete] Sin company_id filter:', sinFiltro, 'error:', e1);
+
+      // Luego con filtro
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, document_number, email, phone')
+        .eq('company_id', companyId)
+        .ilike('name', `%${q}%`)
+        .order('name')
+        .limit(8);
+      console.log('[POS AutoComplete] Con company_id filter:', data, 'error:', error);
+
+      // Usar resultado sin filtro si el filtrado da vacío (para diagnóstico)
+      const result = (data && data.length > 0) ? data : (sinFiltro || []);
+      setSuggestions(result);
+      setShowSuggest(result.length > 0);
+    } catch (e) {
+      console.error('[POS AutoComplete] Error:', e);
+    } finally {
+      setLoadingSugg(false);
+    }
+  };
+
+  const selectCustomer = (c: any) => {
+    setCustomerName(c.name || '');
+    setCustomerDoc(c.document_number || '');
+    setCustomerEmail(c.email || '');
+    setCustomerPhone(c.phone || '');
+    setSuggestions([]);
+    setShowSuggest(false);
+  };
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (suggestRef.current && !suggestRef.current.contains(e.target as Node))
+        setShowSuggest(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
   return (
     <>
       {/* Main Payment Modal */}
@@ -139,49 +205,113 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
           <div className="flex-1 overflow-auto p-6">
             {/* Datos del cliente */}
             <div className="mb-6 grid grid-cols-2 gap-4">
-              {[
-                {
-                  label: 'Nombre Cliente',
-                  value: customerName,
-                  set: setCustomerName,
-                  placeholder: 'Consumidor Final',
-                  type: 'text',
-                },
-                {
-                  label: 'CC / NIT',
-                  value: customerDoc,
-                  set: setCustomerDoc,
-                  placeholder: '222222222',
-                  type: 'text',
-                },
-                {
-                  label: 'Email',
-                  value: customerEmail,
-                  set: setCustomerEmail,
-                  placeholder: 'cliente@email.com',
-                  type: 'email',
-                },
-                {
-                  label: 'Telefono (WhatsApp)',
-                  value: customerPhone,
-                  set: setCustomerPhone,
-                  placeholder: '300 123 4567',
-                  type: 'tel',
-                },
-              ].map(({ label, value, set, placeholder, type }) => (
-                <div key={label}>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {label}
-                  </label>
-                  <input
-                    type={type}
-                    className="w-full border border-slate-300 rounded-lg px-4 py-2"
-                    placeholder={placeholder}
-                    value={value}
-                    onChange={(e) => set(e.target.value)}
+              {/* Campo nombre con autocomplete */}
+              <div className="col-span-2" ref={suggestRef} style={{ position: 'relative' }}>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Nombre Cliente
+                </label>
+                <div className="relative">
+                  <User
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
                   />
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg pl-9 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    placeholder="Consumidor Final"
+                    value={customerName}
+                    onChange={(e) => {
+                      setCustomerName(e.target.value);
+                      searchCustomers(e.target.value);
+                    }}
+                    onFocus={() => {
+                      if (customerName.length >= 1) searchCustomers(customerName);
+                    }}
+                    autoComplete="off"
+                  />
+                  {loadingSugg && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  )}
                 </div>
-              ))}
+                {showSuggest && suggestions.length > 0 && (
+                  <div
+                    className="absolute left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 overflow-hidden"
+                    style={{ zIndex: 9999 }}
+                  >
+                    {suggestions.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          selectCustomer(c);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 text-left border-b border-slate-50 last:border-0"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-blue-600 text-xs font-bold">
+                            {c.name?.[0]?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-800 text-sm truncate">
+                            {c.name}
+                          </p>
+                          <p className="text-xs text-slate-400 truncate">
+                            {[c.document_number, c.phone]
+                              .filter(Boolean)
+                              .join(' · ') ||
+                              c.email ||
+                              '—'}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* CC / NIT */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  CC / NIT
+                </label>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2"
+                  placeholder="222222222"
+                  value={customerDoc}
+                  onChange={(e) => setCustomerDoc(e.target.value)}
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2"
+                  placeholder="cliente@email.com"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                />
+              </div>
+
+              {/* Teléfono */}
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Telefono (WhatsApp)
+                </label>
+                <input
+                  type="tel"
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2"
+                  placeholder="300 123 4567"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="flex gap-8 mb-8">
