@@ -45,6 +45,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
   const [updatePrices, setUpdatePrices] = useState(true);        // actualizar precio/costo
   const [updateSupplier, setUpdateSupplier] = useState(true);    // actualizar proveedor
   const [newLotOnDiffSupplier, setNewLotOnDiffSupplier] = useState(false); // lote separado si proveedor diferente
+  const [registerAsCompra, setRegisterAsCompra] = useState(true);              // registrar en kardex como compra
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -226,9 +227,23 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
           }
           const { error: e } = await supabase.from('products').update(updatePayload).eq('id', existing.id);
           error = e;
+          // Registrar movimiento COMPRA si se sumó stock
+          if (!e && registerAsCompra && (addToStock || updateStock) && (row.stock_quantity ?? 0) > 0) {
+            await supabase.from('inventory_movements').insert({
+              company_id:     companyId,
+              branch_id:      branchId || null,
+              product_id:     existing.id,
+              type:           'COMPRA',
+              quantity:       row.stock_quantity ?? 0,
+              unit_cost:      row.cost || 0,
+              total_cost:     (row.stock_quantity ?? 0) * (row.cost || 0),
+              reference_type: 'excel_import',
+              notes:          `Importación Excel — ${row.supplier_name ? 'Proveedor: ' + row.supplier_name : 'sin proveedor'}`,
+            });
+          }
         } else {
           // No existe: insertar nuevo
-          const { error: e } = await supabase.from('products').insert({
+          const { data: inserted, error: e } = await supabase.from('products').insert({
             company_id: companyId, branch_id: branchId || null, name: row.name, sku: row.sku,
             barcode: row.barcode || null, category: row.category || null,
             brand: row.brand || null, description: row.description || null,
@@ -238,8 +253,22 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             type: row.type === 'SERVICE' ? 'SERVICE' : 'STANDARD',
             is_active: true,
             ...(supplier_id ? { supplier_id } : {}),
-          });
+          }).select('id').single();
           error = e;
+          // Registrar movimiento COMPRA para producto nuevo con stock inicial
+          if (!e && registerAsCompra && inserted?.id && (row.stock_quantity ?? 0) > 0) {
+            await supabase.from('inventory_movements').insert({
+              company_id:     companyId,
+              branch_id:      branchId || null,
+              product_id:     inserted.id,
+              type:           'COMPRA',
+              quantity:       row.stock_quantity ?? 0,
+              unit_cost:      row.cost || 0,
+              total_cost:     (row.stock_quantity ?? 0) * (row.cost || 0),
+              reference_type: 'excel_import',
+              notes:          `Importación Excel — stock inicial${row.supplier_name ? ' · Proveedor: ' + row.supplier_name : ''}`,
+            });
+          }
         }
         if (error) { updated[i]._status = 'error'; updated[i]._error = error.message; errors++; }
         else { updated[i]._status = 'ok'; ok++; }
@@ -356,6 +385,21 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               💡 Productos nuevos (SKU no existe) siempre se insertan completos. Con "Nuevo lote", el SKU del lote se genera automáticamente como SKU-PROVEEDOR.
             </p>
           </div>
+
+          {/* Registrar como compra — destacado */}
+          <button type="button" onClick={() => setRegisterAsCompra(v => !v)}
+            className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 transition-all text-left ${registerAsCompra ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+            <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${registerAsCompra ? 'bg-teal-500' : 'bg-white border-2 border-slate-300'}`}>
+              {registerAsCompra && <svg width="10" height="7" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round"/></svg>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className={`text-sm font-bold ${registerAsCompra ? 'text-teal-700' : 'text-slate-600'}`}>📦 Registrar como compra en Reportes</p>
+                <span className="text-[10px] bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded font-bold">Recomendado</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">Cada producto importado aparece en Reportes → Compras con su proveedor, cantidad y costo total</p>
+            </div>
+          </button>
 
           {/* Upload area */}
           <div onClick={() => fileRef.current?.click()}

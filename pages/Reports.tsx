@@ -46,7 +46,8 @@ interface MovementRow {
   id: string; created_at: string; type: string;
   quantity: number; unit_cost: number; total_cost: number;
   reference_id?: string; reference_type?: string; notes?: string;
-  products?: { name: string; sku: string };
+  products?: { name: string; sku: string; supplier_id?: string; suppliers?: { name: string } };
+  supplier_name?: string; // parsed from notes for excel imports
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -86,6 +87,18 @@ const payMethodLabel: Record<string, string> = {
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
+
+const getMovSupplier = (m: MovementRow): string => {
+  // From product's linked supplier
+  if ((m.products as any)?.suppliers?.name) return (m.products as any).suppliers.name;
+  // From notes for excel imports: "Importación Excel — Proveedor: Juan"
+  if (m.notes) {
+    const match = m.notes.match(/Proveedor:\s*(.+?)(?:\s*·|$)/);
+    if (match) return match[1].trim();
+  }
+  return '—';
+};
+
 const Reports: React.FC = () => {
   const { companyId, branchId, company, hasFeature } = useDatabase();
   const { formatMoney } = useCurrency();
@@ -161,7 +174,7 @@ const Reports: React.FC = () => {
     if (!companyId) return;
     let q = supabase
       .from('inventory_movements')
-      .select('id,created_at,type,quantity,unit_cost,total_cost,reference_id,reference_type,notes,products(name,sku)')
+      .select('id,created_at,type,quantity,unit_cost,total_cost,reference_id,reference_type,notes,products(name,sku,suppliers(name))')
       .eq('company_id', companyId)
       .eq('type', 'COMPRA')
       .gte('created_at', fromISO)
@@ -405,9 +418,10 @@ const Reports: React.FC = () => {
         'Cantidad': m.quantity,
         'Costo U.': m.unit_cost,
         'Total':    m.total_cost || 0,
+        'Proveedor': getMovSupplier(m),
         'Notas':    m.notes || '',
       }));
-      rows.push({ 'Fecha': 'TOTAL', 'Producto': '', 'SKU': '', 'Cantidad': comprasKPI.totalUnids, 'Costo U.': 0, 'Total': comprasKPI.totalCosto, 'Notas': '' } as any);
+      rows.push({ 'Fecha': 'TOTAL', 'Producto': '', 'SKU': '', 'Cantidad': comprasKPI.totalUnids, 'Costo U.': 0, 'Total': comprasKPI.totalCosto, 'Proveedor': '', 'Notas': '' } as any);
       const ws = XLSX.utils.json_to_sheet(rows);
       ws['!cols'] = [12,30,14,10,14,14,30].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws, 'Compras');
@@ -497,9 +511,9 @@ const Reports: React.FC = () => {
     } else if (activeTab === 'compras') {
       doc.text(`Total invertido: ${formatMoney(comprasKPI.totalCosto)}  ·  Unidades: ${comprasKPI.totalUnids}  ·  Movimientos: ${comprasKPI.count}`, 14, summaryY);
       drawTable(
-        ['Fecha','Producto','SKU','Cant.','Costo U.','Total','Notas'],
+        ['Fecha','Producto','SKU','Cant.','Costo U.','Total','Proveedor','Notas'],
         movements.map(m => [m.created_at.slice(0,10), m.products?.name||'—', m.products?.sku||'—',
-          String(m.quantity), formatMoney(m.unit_cost||0), formatMoney(m.total_cost||0), m.notes||'']),
+          String(m.quantity), formatMoney(m.unit_cost||0), formatMoney(m.total_cost||0), getMovSupplier(m), m.notes||'']),
         summaryY+6, [24,50,22,14,24,24,52],
         ['','','TOTAL',String(comprasKPI.totalUnids),'',formatMoney(comprasKPI.totalCosto),'']
       );
@@ -758,7 +772,7 @@ const Reports: React.FC = () => {
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Fecha','Producto','SKU','Cantidad','Costo U.','Total','Notas'].map(h => (
+                    <tr>{['Fecha','Producto','SKU','Cantidad','Costo U.','Total','Proveedor','Notas'].map(h => (
                       <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                     ))}</tr>
                   </thead>
@@ -780,6 +794,7 @@ const Reports: React.FC = () => {
                         <td className="px-3 py-2.5 font-bold text-slate-700">{m.quantity}</td>
                         <td className="px-3 py-2.5 text-slate-600">{formatMoney(m.unit_cost || 0)}</td>
                         <td className="px-3 py-2.5 font-bold text-teal-700">{formatMoney(m.total_cost || 0)}</td>
+                        <td className="px-3 py-2.5 text-slate-500 text-xs">{getMovSupplier(m)}</td>
                         <td className="px-3 py-2.5 text-slate-400 text-xs truncate max-w-[150px]">{m.notes || '—'}</td>
                       </tr>
                     ))}
