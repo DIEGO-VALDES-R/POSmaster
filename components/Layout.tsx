@@ -53,7 +53,7 @@ const MODULE_PATHS: Record<string, string> = {
   receivables: '/receivables',
   payables:    '/payables',
   expenses:    '/expenses',
-  hardware:    '/settings?tab=hardware',
+  hardware:    '/hardware',
   settings:    '/settings',
   branches:    '/branches',
   warehouse:   '/warehouse',
@@ -312,6 +312,12 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   );
 
   const activeSectionFromPath = useMemo(() => {
+    // Rutas independientes que no pertenecen a ningún grupo
+    const independentPaths = navEntries
+      .filter(e => !isNavGroup(e) && (e as NavItem).path !== MODULE_PATHS.dashboard)
+      .map(e => (e as NavItem).path);
+    // Si estamos en una ruta independiente, no activar ningún grupo
+    if (independentPaths.includes(location.pathname)) return null;
     for (const entry of navEntries) {
       if (isNavGroup(entry) && entry.items.some(i => location.pathname.startsWith(i.path === '/' ? '/__' : i.path))) {
         return entry.group;
@@ -323,11 +329,14 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeSectionFromPath) {
-      setSelectedSection(activeSectionFromPath);
-      if (activeSectionFromPath !== '__dashboard__') setSidebarOpen(true);
+    setSelectedSection(activeSectionFromPath);
+    if (activeSectionFromPath && activeSectionFromPath !== '__dashboard__') {
+      setSidebarOpen(true);
+    } else {
+      // Ruta independiente o dashboard: cerrar sidebar y limpiar sección
+      setSidebarOpen(false);
     }
-  }, [activeSectionFromPath]);
+  }, [activeSectionFromPath, location.pathname]);
 
   const currentGroupItems = useMemo(() =>
     navEntries.find(e => isNavGroup(e) && (e as NavGroup).group === selectedSection) as NavGroup | undefined,
@@ -358,7 +367,13 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     if (group === '__dashboard__') {
       navigate('/');
       setSelectedSection('__dashboard__');
+      setSidebarOpen(false);
     } else {
+      // Navegar automáticamente al primer item del grupo
+      const groupEntry = navEntries.find(e => isNavGroup(e) && (e as NavGroup).group === group) as NavGroup | undefined;
+      if (groupEntry && groupEntry.items.length > 0) {
+        navigate(groupEntry.items[0].path);
+      }
       setSelectedSection(group);
       setSidebarOpen(true);
     }
@@ -576,11 +591,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
               <div className="flex items-center ml-2" style={{ borderLeft: '1px solid rgba(255,255,255,0.15)', paddingLeft: 8 }}>
                 {navEntries.filter(e => !isNavGroup(e) && (e as NavItem).path !== MODULE_PATHS.dashboard).map(entry => {
                   const item = entry as NavItem;
-                  const itemBasePath = item.path.split('?')[0];
-                  const itemQuery = item.path.includes('?') ? item.path.split('?')[1] : null;
-                  const active = itemQuery
-                    ? location.pathname === itemBasePath && location.search.includes(itemQuery)
-                    : location.pathname.startsWith(item.path);
+                  const active = location.pathname === item.path;
                   return (
                     <Link
                       key={item.path}
