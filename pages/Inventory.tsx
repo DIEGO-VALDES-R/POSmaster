@@ -40,10 +40,11 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ ok: 0, errors: 0 });
   // Opciones de reimportación
-  const [updateStock, setUpdateStock] = useState(false);      // reemplazar stock
-  const [addToStock, setAddToStock]   = useState(false);      // sumar al stock existente
-  const [updatePrices, setUpdatePrices] = useState(true);     // actualizar precio/costo
-  const [updateSupplier, setUpdateSupplier] = useState(true); // actualizar proveedor
+  const [updateStock, setUpdateStock] = useState(false);         // reemplazar stock
+  const [addToStock, setAddToStock]   = useState(false);         // sumar al stock existente
+  const [updatePrices, setUpdatePrices] = useState(true);        // actualizar precio/costo
+  const [updateSupplier, setUpdateSupplier] = useState(true);    // actualizar proveedor
+  const [newLotOnDiffSupplier, setNewLotOnDiffSupplier] = useState(false); // lote separado si proveedor diferente
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -164,7 +165,43 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
 
         let error: any = null;
         if (existing) {
-          // Ya existe: actualizar según opciones del usuario
+          // ── Lote nuevo por proveedor diferente ──────────────────────────────
+          // Si está activado, y el proveedor del Excel es distinto al del producto,
+          // crear un producto nuevo con SKU sufijado en lugar de actualizar
+          if (newLotOnDiffSupplier && supplier_id && row.stock_quantity && row.stock_quantity > 0) {
+            const existingFull = await supabase.from('products')
+              .select('supplier_id').eq('id', existing.id).single();
+            const existingSupplier = existingFull.data?.supplier_id;
+            const isDifferentSupplier = existingSupplier && existingSupplier !== supplier_id;
+            if (isDifferentSupplier) {
+              // Generar SKU único con sufijo del proveedor
+              const supplierObj = suppliers.find(s => s.id === supplier_id);
+              const suffix = (supplierObj?.name || 'LOTE').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 6);
+              let newSku = `${row.sku}-${suffix}`;
+              // Verificar que el nuevo SKU no exista
+              const { data: skuCheck } = await supabase.from('products')
+                .select('id').eq('company_id', companyId).eq('sku', newSku).maybeSingle();
+              if (skuCheck) newSku = `${newSku}-${Date.now().toString().slice(-4)}`;
+              const { error: e } = await supabase.from('products').insert({
+                company_id: companyId, branch_id: branchId || null,
+                name: row.name, sku: newSku,
+                barcode: null, category: row.category || null,
+                brand: row.brand || null, description: row.description || null,
+                price: row.price, cost: row.cost,
+                stock_quantity: row.stock_quantity ?? 0, stock_min: row.stock_min ?? 0,
+                tax_rate: row.tax_rate ?? 19, type: 'STANDARD', is_active: true,
+                supplier_id,
+              });
+              error = e;
+              if (!e) updated[i]._status = 'ok';
+              else { updated[i]._status = 'error'; updated[i]._error = e.message; errors++; }
+              setProgress(Math.round(((i + 1) / updated.length) * 100));
+              setRows([...updated]);
+              if (!e) ok++;
+              continue; // Saltar el resto del procesamiento de esta fila
+            }
+          }
+          // ── Actualizar producto existente ────────────────────────────────────
           const updatePayload: any = {
             name: row.name,
             category: row.category || null,
@@ -182,7 +219,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             updatePayload.stock_quantity = row.stock_quantity ?? 0;
           }
           if (addToStock && !updateStock) {
-            // Sumar la cantidad del Excel al stock actual
             updatePayload.stock_quantity = (existing.stock_quantity || 0) + (row.stock_quantity ?? 0);
           }
           if (updateSupplier && supplier_id) {
@@ -292,12 +328,15 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               { key: 'addToStock',   state: addToStock,   set: setAddToStock,   label: 'Sumar al stock existente', desc: 'Ej: tienes 10 unidades y el Excel trae 20 → queda en 30', recommended: true },
               { key: 'updateStock',  state: updateStock,  set: setUpdateStock,  label: 'Reemplazar stock', desc: 'Establece el stock exacto del Excel (útil para conteo físico)', recommended: false },
               { key: 'updateSupplier', state: updateSupplier, set: setUpdateSupplier, label: 'Actualizar proveedor', desc: 'Asigna o cambia el proveedor según la columna "Proveedor"', recommended: true },
+              { key: 'newLotOnDiffSupplier', state: newLotOnDiffSupplier, set: setNewLotOnDiffSupplier, label: 'Nuevo lote si proveedor diferente', desc: 'Ej: 20 Samsung de Juan + 10 Samsung de Diego → dos líneas separadas en inventario', recommended: false },
             ].map(opt => (
               <button key={opt.key} type="button"
                 onClick={() => {
                   // addToStock y updateStock son mutuamente excluyentes
                   if (opt.key === 'addToStock' && !opt.state) setUpdateStock(false);
                   if (opt.key === 'updateStock' && !opt.state) setAddToStock(false);
+                  // newLotOnDiffSupplier requiere que updateSupplier esté activo
+                  if (opt.key === 'newLotOnDiffSupplier' && !opt.state) setUpdateSupplier(true);
                   opt.set(!opt.state);
                 }}
                 className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border transition-colors text-left ${opt.state ? 'border-blue-300 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
@@ -314,7 +353,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               </button>
             ))}
             <p className="text-[10px] text-slate-400 pt-1">
-              💡 Productos nuevos (SKU no existe) siempre se insertan completos sin importar las opciones.
+              💡 Productos nuevos (SKU no existe) siempre se insertan completos. Con "Nuevo lote", el SKU del lote se genera automáticamente como SKU-PROVEEDOR.
             </p>
           </div>
 
