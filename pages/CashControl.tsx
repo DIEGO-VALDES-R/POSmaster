@@ -402,10 +402,7 @@ const CashControl: React.FC = () => {
             {openingDrawer ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <DollarSign size={16} />}
             Abrir Cajón
           </button>
-          <button onClick={() => setShowDrawerConfig(true)} title="Configurar protocolo del cajón"
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all">
-            <Settings size={18} />
-          </button>
+
           <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${session?.status === 'OPEN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
             {session?.status === 'OPEN' ? <Unlock size={20} /> : <Lock size={20} />}
             {session?.status === 'OPEN' ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
@@ -679,13 +676,7 @@ const CashControl: React.FC = () => {
         </div>
       )}
 
-      {showDrawerConfig && (
-        <DrawerConfigModal
-          config={drawerConfig}
-          onChange={saveDrawerConfig}
-          onClose={() => setShowDrawerConfig(false)}
-        />
-      )}
+
 
       {/* ── Modal Egreso de Caja ─────────────────────────────────────── */}
       {showExpenseModal && (
