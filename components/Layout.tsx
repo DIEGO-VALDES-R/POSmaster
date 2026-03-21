@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, BarChart2, ShoppingCart, Package, Wrench,
   Tag,
-  Settings, LogOut, Menu, Building2, User,
+  Settings, LogOut, Menu, Building2, User, Power,
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ChevronLeft, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
@@ -641,41 +641,13 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
             <NotificationBell companyId={companyId || null} fontColor={fontColor} />
 
             {/* User menu */}
-            <div className="relative" ref={userMenuRef}>
-              <button onClick={() => setShowUserMenu(o => !o)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ml-1"
-                style={{
-                  background: showUserMenu ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)',
-                  color: fontColor,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                }}>
-                <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(255,255,255,0.2)' }}>
-                  <User size={13} className="text-white" />
-                </div>
-                <span className="hidden md:block max-w-[90px] truncate">{roleDisplay}</span>
-                <ChevronDown size={12} style={{ opacity: 0.6 }} />
-              </button>
-              {showUserMenu && (
-                <div className="absolute right-0 top-12 z-50 rounded-xl shadow-2xl overflow-hidden"
-                  style={{ background: '#fff', border: '0.5px solid #e2e8f0', minWidth: 210 }}>
-                  <div className="px-4 py-3.5" style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <p className="text-xs font-bold text-slate-800 truncate">{companyName}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{roleDisplay}</p>
-                  </div>
-                  {onAdminPanel && (
-                    <button onClick={() => { onAdminPanel(); setShowUserMenu(false); }}
-                      className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors">
-                      <ShieldCheck size={14} /> Panel POSmaster
-                    </button>
-                  )}
-                  <button onClick={handleLogout}
-                    className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors">
-                    <LogOut size={14} /> Cerrar Sesión
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Botón directo Cerrar Sesión */}
+            <button onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all ml-1 hover:bg-red-600"
+              style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)' }}>
+              <Power size={15} />
+              <span className="hidden md:block">Cerrar Sesión</span>
+            </button>
 
             {/* Mobile hamburger */}
             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg ml-1"
