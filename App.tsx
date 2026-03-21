@@ -3,7 +3,8 @@ import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import { DatabaseProvider } from './contexts/DatabaseContext';
 import Layout from './components/Layout';
-import { LandingPage, RegisterPage, AdminPanel, ClientPortal } from './LandingPage';
+import { LandingPage, RegisterPage, ClientPortal } from './LandingPage';
+const SuperAdminDashboard = React.lazy(() => import('./pages/SuperAdminDashboard'));
 import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
 import { Toaster } from 'react-hot-toast';
@@ -636,7 +637,7 @@ const App: React.FC = () => {
     </>
   );
 
-  if (view === 'admin')    return (<><Toaster position="top-right" /><AdminPanel onExit={() => supabase.auth.signOut()} onPreview={(id: string) => { setPreviewCompanyId(id); setView('preview'); }} /></>);
+  if (view === 'admin')    return (<><Toaster position="top-right" /><Suspense fallback={<PageLoader />}><SuperAdminDashboard onExit={() => supabase.auth.signOut()} onPreview={(id: string) => { setPreviewCompanyId(id); setView('preview'); }} /></Suspense></>);
   if (view === 'register') return (<><Toaster position="top-right" /><RegisterPage onBack={() => setView('login')} onSuccess={() => setView('login')} /></>);
   if (view === 'portal')   return (<><Toaster position="top-right" /><ClientPortal onBack={() => setView('landing')} /></> );
   if (view === 'pending'  && session) return (<><Toaster position="top-right" /><PendingScreen  email={userEmail} onRetry={retryCheck} /></>);
