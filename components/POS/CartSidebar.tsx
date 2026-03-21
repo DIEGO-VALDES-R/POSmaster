@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ShoppingCart,
   Trash2,
   Minus,
+  Plus,
   CreditCard,
   Tag,
 } from 'lucide-react';
@@ -51,6 +52,18 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
   onOpenPayment,
   formatMoney,
 }) => {
+  const [editingQty, setEditingQty] = useState<{ idx: number; val: string } | null>(null);
+
+  const handleQtyBlur = (idx: number, currentQty: number) => {
+    if (!editingQty || editingQty.idx !== idx) return;
+    const parsed = parseInt(editingQty.val, 10);
+    if (!isNaN(parsed) && parsed > 0 && parsed !== currentQty) {
+      const delta = parsed - currentQty;
+      onUpdateQuantity(idx, delta);
+    }
+    setEditingQty(null);
+  };
+
   return (
     <div className="w-96 flex flex-col bg-white rounded-xl shadow-lg border border-slate-200">
       {/* Header */}
@@ -104,6 +117,23 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
                     className="p-1 hover:bg-slate-200 rounded"
                   >
                     <Minus size={14} />
+                  </button>
+                  {/* Cantidad editable directamente */}
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingQty?.idx === idx ? editingQty.val : item.quantity}
+                    onFocus={() => setEditingQty({ idx, val: String(item.quantity) })}
+                    onChange={e => setEditingQty({ idx, val: e.target.value })}
+                    onBlur={() => handleQtyBlur(idx, item.quantity)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleQtyBlur(idx, item.quantity); }}
+                    className="w-10 text-center text-sm font-bold border border-slate-300 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 py-0.5"
+                  />
+                  <button
+                    onClick={() => onUpdateQuantity(idx, 1)}
+                    className="p-1 hover:bg-slate-200 rounded"
+                  >
+                    <Plus size={14} />
                   </button>
                   <button
                     onClick={() => onRemoveItem(idx)}
