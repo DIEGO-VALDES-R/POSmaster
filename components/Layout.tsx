@@ -7,7 +7,7 @@ import {
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
-  RefreshCw, TrendingDown,
+  RefreshCw, TrendingDown, Cpu,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -54,6 +54,7 @@ const MODULE_PATHS: Record<string, string> = {
   receivables: '/receivables',
   payables:    '/payables',
   expenses:    '/expenses',
+  hardware:    '/settings?tab=hardware',
   warehouse:   '/warehouse',
   gimnasio:    '/gimnasio',
   panaderia:   '/panaderia',
@@ -174,8 +175,9 @@ function getNavItems(
   const adminItems: NavItem[] = [];
   adminItems.push({ label: 'Reportes', path: MODULE_PATHS.reports, icon: BarChart2 });
   adminItems.push({ label: 'Marketplace B2B', path: MODULE_PATHS.b2b, icon: Building2 });
-  if (isPro && p('can_manage_team'))                    adminItems.push({ label: 'Equipo',  path: MODULE_PATHS.team,   icon: Users });
-  if (isAdmin && hasFeature('nomina'))                  adminItems.push({ label: 'Nómina',  path: MODULE_PATHS.nomina, icon: Users2 });
+  if (isPro && p('can_manage_team'))                    adminItems.push({ label: 'Equipo',    path: MODULE_PATHS.team,     icon: Users });
+  if (isAdmin && hasFeature('nomina'))                  adminItems.push({ label: 'Nómina',    path: MODULE_PATHS.nomina,   icon: Users2 });
+  if (isAdmin)                                          adminItems.push({ label: 'Hardware',  path: MODULE_PATHS.hardware, icon: Cpu });
 
   // ── Componer resultado ───────────────────────────────────────
   const result: NavEntry[] = [
