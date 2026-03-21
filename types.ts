@@ -84,8 +84,14 @@ export interface CompanyConfig {
 
 export interface DianSettings {
   company_id: string;
-  // ── Factus API ──────────────────────────────────────────────────
-  factus_token: string;          // Bearer token de la cuenta Factus del cliente
+  // ── Factus OAuth2 (método recomendado) ──────────────────────────
+  factus_client_id?: string;     // Client ID de la app OAuth Factus
+  factus_client_secret?: string; // Client Secret OAuth Factus
+  factus_username?: string;      // Correo de login en Factus
+  factus_password?: string;      // Contraseña de login en Factus
+  // ── Factus token cacheado (gestionado automáticamente) ──────────
+  factus_token: string;          // access_token vigente (auto-renovable)
+  factus_token_expiry?: string;  // ISO string de expiración del token
   factus_env: 'sandbox' | 'production';  // Ambiente
   // ── Resolución DIAN ─────────────────────────────────────────────
   resolution_number: string;     // Número resolución DIAN
@@ -96,7 +102,7 @@ export interface DianSettings {
   current_number: number;        // Correlativo actual
   // ── Empresa (para Factus) ────────────────────────────────────────
   nit_digit: string;             // Dígito verificación NIT
-  // ── Legado (no se usan con Factus pero se mantienen) ────────────
+  // ── Legado ───────────────────────────────────────────────────────
   software_id?: string;
   software_pin?: string;
   technical_key?: string;

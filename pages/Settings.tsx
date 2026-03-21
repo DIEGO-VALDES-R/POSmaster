@@ -1,9 +1,10 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   Save, Building, Receipt, Shield, X, CreditCard, 
   Upload, Image as ImageIcon, Lock, KeyRound, 
   FileCode, Check, AlertTriangle, Palette, Crown,
-  Eye, EyeOff, ShieldCheck
+  Eye, EyeOff, ShieldCheck, Printer, Wifi, Monitor, Cpu
 } from 'lucide-react';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { toast } from 'react-hot-toast';
@@ -60,6 +61,7 @@ const MASTER_KEY = 'admin123';
 const Settings: React.FC = () => {
   const { company, updateCompanyConfig, saveDianSettings, refreshCompany } = useDatabase();
 
+  // Mantenemos el ID que aparece en tu captura de Supabase
   const safeCompany = company || {
     id: 'b44f2b8c-e792-4d15-a661-ecadc111fbcd', 
     name: 'iPhone Shop Usa', 
@@ -86,18 +88,39 @@ const Settings: React.FC = () => {
   const allowedMethods = ALLOWED_PAYMENT_METHODS[plan] || ALLOWED_PAYMENT_METHODS['BASIC'];
 
   const [formData, setFormData] = useState(safeCompany);
-  // ── CAMBIO: Eliminado 'HARDWARE' del tipo y del estado ──
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS' | 'CATALOGO'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS' | 'CATALOGO' | 'HARDWARE'>('GENERAL');
+
+  // Abrir tab según parámetro URL (?tab=hardware)
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab')?.toUpperCase();
+    if (tab === 'HARDWARE') setActiveTab('HARDWARE');
+  }, [location.search]);
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
 
+  // ── Hardware: cajón registradora ──────────────────────────────────────────
+  type DrawerProtocol = 'escpos-usb' | 'escpos-network' | 'windows-print';
+  interface DrawerConfig { protocol: DrawerProtocol; networkIp?: string; networkPort?: number; windowsPrinter?: string; }
+  const [drawerConfig, setDrawerConfig] = useState<DrawerConfig>(() => {
+    try { return JSON.parse(localStorage.getItem('posmaster_drawer_config') || '{}'); } catch { return {}; }
+  });
+  const [drawerSaved, setDrawerSaved] = useState(false);
+  const saveDrawerConfig = (cfg: DrawerConfig) => {
+    try { localStorage.setItem('posmaster_drawer_config', JSON.stringify(cfg)); } catch {}
+    setDrawerConfig(cfg);
+    setDrawerSaved(true);
+    setTimeout(() => setDrawerSaved(false), 2500);
+  };
   const [deleteInvoicePin, setDeleteInvoicePin] = useState<string>(
     (safeCompany.config as any)?.delete_invoice_pin || ''
   );
+  // ── PIN auth: requiere contraseña del propietario para editar el PIN de facturas
   const [pinAuthOpen, setPinAuthOpen] = useState(false);
   const [pinAuthPassword, setPinAuthPassword] = useState('');
   const [pinAuthShowPw, setPinAuthShowPw] = useState(false);
   const [pinAuthLoading, setPinAuthLoading] = useState(false);
-  const [pinUnlocked, setPinUnlocked] = useState(false);
+  const [pinUnlocked, setPinUnlocked] = useState(false); // true = edición desbloqueada
   const [primaryColor, setPrimaryColor] = useState(
     safeCompany.primary_color || (safeCompany.config as any)?.primary_color || '#3b82f6'
   );
@@ -107,10 +130,11 @@ const Settings: React.FC = () => {
   const [fontColor, setFontColor] = useState(
     (safeCompany.config as any)?.font_color || '#ffffff'
   );
-  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1;
+  // businessTypes es ahora un array — BASIC: 1, PRO: hasta 3, ENTERPRISE: ilimitado
+  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1; // BASIC y TRIAL = 1
   const parseBusinessTypes = (cfg: any): string[] => {
     if (Array.isArray(cfg?.business_types)) return cfg.business_types;
-    if (cfg?.business_type) return [cfg.business_type];
+    if (cfg?.business_type) return [cfg.business_type]; // migración de dato antiguo
     return ['general'];
   };
   const [businessTypes, setBusinessTypes] = useState<string[]>(
@@ -118,11 +142,14 @@ const Settings: React.FC = () => {
   );
   const toggleBusinessType = (id: string) => {
     setBusinessTypes(prev => {
+      // Si ya está seleccionado, deseleccionar (pero nunca dejar vacío)
       if (prev.includes(id)) {
         if (prev.length === 1) return prev;
         return prev.filter(t => t !== id);
       }
+      // BASIC y TRIAL: swap directo — reemplaza el único seleccionado
       if (plan === 'BASIC' || plan === 'TRIAL') return [id];
+      // PRO: hasta 3
       if (prev.length >= maxBusinessTypes) {
         toast.error('El plan PRO permite hasta 3 tipos. Actualiza a ENTERPRISE para tener todos.');
         return prev;
@@ -133,25 +160,28 @@ const Settings: React.FC = () => {
 
   const [savingBranding, setSavingBranding] = useState(false);
   const [invoiceTerms, setInvoiceTerms] = useState<string>('');
+  // ── Catálogo WhatsApp ────────────────────────────────────────────────────
   const [catalogEnabled, setCatalogEnabled] = useState<boolean>((safeCompany as any).catalog_enabled || false);
   const [catalogWhatsapp, setCatalogWhatsapp] = useState<string>((safeCompany as any).catalog_whatsapp || '');
   const [catalogMessage, setCatalogMessage] = useState<string>((safeCompany as any).catalog_message || '¡Hola! Me interesa este producto:');
   const [catalogLinkCopied, setCatalogLinkCopied] = useState(false);
 
+  // Sincronizar TODOS los estados cuando el contexto carga/actualiza company
+  // Resuelve el caso donde company llega null en el primer render (async)
   useEffect(() => {
     if (!company) return;
     const cfg = (company.config as any) || {};
     setFormData(company as any);
     setTaxRate(cfg.tax_rate ?? 0);
     setDeleteInvoicePin(cfg.delete_invoice_pin || '');
-    setPinUnlocked(false);
+    setPinUnlocked(false); // re-lock whenever company reloads
     setPrimaryColor(cfg.primary_color || '#3b82f6');
     setSecondaryColor(cfg.secondary_color || '#6366f1');
     setFontColor(cfg.font_color || '#ffffff');
+    // Resuelve el bug donde Odontologia (y otros tipos) no aparecian seleccionados
     setBusinessTypes(parseBusinessTypes(cfg));
     setInvoiceTerms(cfg.invoice_terms || '');
   }, [company]);
-
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
     dataphone: { enabled: false, label: 'Datáfono físico',      icon: '📟', acquirer: 'redeban', note: '' },
@@ -186,6 +216,7 @@ const Settings: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // LOGICA DE GUARDADO CORREGIDA PARA 'business_settings'
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -196,25 +227,33 @@ const Settings: React.FC = () => {
           config: { ...(formData.config || {}), tax_rate: taxRate, delete_invoice_pin: deleteInvoicePin }
         });
         toast.success('Configuración General Guardada');
-        setPinUnlocked(false);
+        setPinUnlocked(false); // re-lock PIN after saving
       } 
       else if (activeTab === 'DIAN') {
+        // Guardar en company.config — cada campo Factus vive aquí
         const currentConfig = (safeCompany.config as any) || {};
         const newConfig = {
           ...currentConfig,
-          factus_token:        dianForm.factus_token,
-          factus_env:          dianForm.factus_env,
-          dian_resolution:     dianForm.resolution_number,
+          factus_client_id:     (dianForm as any).factus_client_id    || currentConfig.factus_client_id,
+          factus_client_secret: (dianForm as any).factus_client_secret || currentConfig.factus_client_secret,
+          factus_username:      (dianForm as any).factus_username      || currentConfig.factus_username,
+          factus_password:      (dianForm as any).factus_password      || currentConfig.factus_password,
+          factus_env:           dianForm.factus_env,
+          dian_resolution:      dianForm.resolution_number,
           dian_resolution_date: dianForm.resolution_date,
-          dian_prefix:         dianForm.prefix,
-          dian_range_from:     dianForm.range_from,
-          dian_range_to:       dianForm.range_to,
-          dian_nit_digit:      dianForm.nit_digit,
+          dian_prefix:          dianForm.prefix,
+          dian_range_from:      dianForm.range_from,
+          dian_range_to:        dianForm.range_to,
+          dian_nit_digit:       dianForm.nit_digit,
+          // Limpiar token cacheado para forzar re-autenticación al guardar nuevas credenciales
+          factus_token:         '',
+          factus_token_expiry:  '',
         };
         const { error } = await supabase
           .from('companies')
           .update({ config: newConfig })
           .eq('id', safeCompany.id);
+
         if (error) throw error;
         saveDianSettings(dianForm);
         toast.success('✅ Configuración Factus guardada');
@@ -230,13 +269,14 @@ const Settings: React.FC = () => {
     if (!safeCompany.id) return;
     setSavingBranding(true);
     try {
+      // Merge colors into the config jsonb column (already exists in companies)
       const currentConfig = safeCompany.config || {};
       const newConfig = {
         ...currentConfig,
         primary_color: primaryColor,
         secondary_color: secondaryColor,
         font_color: fontColor,
-        business_type: businessTypes[0] || 'general',
+        business_type: businessTypes[0] || 'general',   // compatibilidad legacy
         business_types: businessTypes,
         invoice_terms: invoiceTerms,
       };
@@ -244,6 +284,7 @@ const Settings: React.FC = () => {
         .update({ config: newConfig })
         .eq('id', safeCompany.id);
       if (error) throw error;
+      // Refrescar el company en contexto para que Layout refleje cambios al instante
       await refreshCompany();
       toast.success('¡Personalización guardada!');
     } catch (err: any) {
@@ -305,6 +346,7 @@ const Settings: React.FC = () => {
     }
   };
 
+  // ── Verificar contraseña real del propietario antes de editar PIN de facturas
   const handlePinAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pinAuthPassword) return;
@@ -352,9 +394,11 @@ const Settings: React.FC = () => {
     }
   };
 
+  const currentPlan = PLANS.find(p => p.id === safeCompany.subscription_plan) || PLANS[0];
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* HEADER CON TABS — sin botón Hardware */}
+      {/* HEADER CON TABS */}
       <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Configuracion</h2>
@@ -381,13 +425,17 @@ const Settings: React.FC = () => {
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'CATALOGO' ? 'bg-green-100 text-green-700' : 'text-slate-600 hover:bg-slate-50'}`}>
             🛍️ Catálogo WhatsApp
           </button>
+          <button type="button" onClick={() => setActiveTab('HARDWARE')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'HARDWARE' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+            <Cpu size={15} /> Hardware
+          </button>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
           
-          {/* TAB GENERAL */}
+          {/* TAB GENERAL - COMPLETO */}
           {activeTab === 'GENERAL' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
@@ -440,6 +488,7 @@ const Settings: React.FC = () => {
                   <p className="text-[10px] text-slate-400 mt-1">Se aplica a productos nuevos por defecto</p>
                 </div>
 
+                {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
                 <div className="md:col-span-2 border border-amber-200 bg-amber-50 rounded-xl p-4">
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-amber-100 rounded-lg flex-shrink-0">
@@ -453,45 +502,82 @@ const Settings: React.FC = () => {
                         Se solicitará este PIN de 4 dígitos antes de eliminar cualquier factura del historial.
                         Para cambiar este PIN debes verificar tu identidad con tu contraseña de acceso.
                       </p>
+
                       {!pinUnlocked ? (
+                        /* LOCKED STATE */
                         <div className="flex items-center gap-3">
                           <div className="flex gap-1.5">
                             {[0,1,2,3].map(i => (
                               <div key={i} className="w-8 h-9 rounded-lg bg-amber-100 border-2 border-amber-300 flex items-center justify-center">
-                                <span className="text-amber-700 text-lg">{deleteInvoicePin.length > i ? '●' : '—'}</span>
+                                <span className="text-amber-700 text-lg">
+                                  {deleteInvoicePin.length > i ? '●' : '—'}
+                                </span>
                               </div>
                             ))}
                           </div>
-                          <button type="button"
+                          <button
+                            type="button"
                             onClick={() => { setPinAuthOpen(true); setPinAuthPassword(''); setPinAuthShowPw(false); }}
-                            className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors">
+                            className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors"
+                          >
                             <KeyRound size={13} />
                             {deleteInvoicePin.length === 4 ? 'Cambiar PIN' : 'Configurar PIN'}
                           </button>
-                          {deleteInvoicePin.length === 4 && <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-lg">✓ PIN activo</span>}
-                          {deleteInvoicePin.length === 0 && <span className="text-xs text-slate-400">Sin protección activa</span>}
+                          {deleteInvoicePin.length === 4 && (
+                            <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-lg">✓ PIN activo</span>
+                          )}
+                          {deleteInvoicePin.length === 0 && (
+                            <span className="text-xs text-slate-400">Sin protección activa</span>
+                          )}
                         </div>
                       ) : (
+                        /* UNLOCKED STATE */
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-2">
-                            <ShieldCheck size={14} /> Identidad verificada — puedes editar el PIN
+                            <ShieldCheck size={14} />
+                            Identidad verificada — puedes editar el PIN
                           </div>
                           <div className="flex items-center gap-3 flex-wrap">
-                            <input type="password" maxLength={4} placeholder="Nuevo PIN (4 dígitos)" value={deleteInvoicePin} autoFocus
-                              onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); setDeleteInvoicePin(v); }}
-                              className="w-36 px-3 py-2 border-2 border-amber-400 bg-white rounded-lg outline-none focus:ring-2 focus:ring-amber-400 font-mono text-center text-lg tracking-widest" />
-                            <button type="button" onClick={() => setPinUnlocked(false)} className="text-xs text-slate-500 hover:text-red-600 underline">Cancelar</button>
+                            <input
+                              type="password"
+                              maxLength={4}
+                              placeholder="Nuevo PIN (4 dígitos)"
+                              value={deleteInvoicePin}
+                              autoFocus
+                              onChange={e => {
+                                const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                setDeleteInvoicePin(v);
+                              }}
+                              className="w-36 px-3 py-2 border-2 border-amber-400 bg-white rounded-lg outline-none focus:ring-2 focus:ring-amber-400 font-mono text-center text-lg tracking-widest"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => { setPinUnlocked(false); }}
+                              className="text-xs text-slate-500 hover:text-red-600 underline"
+                            >
+                              Cancelar
+                            </button>
                             {deleteInvoicePin.length === 4 && (
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-lg">✓ Listo — guarda los cambios</span>
-                                <button type="button"
-                                  onClick={() => { setPinUnlocked(false); setPinAuthOpen(true); setPinAuthPassword(''); setPinAuthShowPw(false); }}
-                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition-colors">
-                                  <KeyRound size={12} /> Cambiar PIN
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPinUnlocked(false);
+                                    setPinAuthOpen(true);
+                                    setPinAuthPassword('');
+                                    setPinAuthShowPw(false);
+                                  }}
+                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition-colors"
+                                >
+                                  <KeyRound size={12} />
+                                  Cambiar PIN
                                 </button>
                               </div>
                             )}
-                            {deleteInvoicePin.length === 0 && <span className="text-xs text-slate-500">Dejar vacío = sin PIN</span>}
+                            {deleteInvoicePin.length === 0 && (
+                              <span className="text-xs text-slate-500">Dejar vacío = sin PIN</span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -502,12 +588,13 @@ const Settings: React.FC = () => {
             </div>
           )}
 
-          {/* TAB BRANDING */}
+          {/* TAB BRANDING - COMPLETO */}
           {activeTab === 'BRANDING' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-8">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                 <Palette size={20} className="text-blue-600" /> Personalización de Marca
               </h3>
+              
               <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm">
                 <div style={{ background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` }} className="p-4 flex items-center gap-3">
                   <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center text-white font-bold">
@@ -525,13 +612,20 @@ const Settings: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-sm font-semibold text-slate-700">Tipo de negocio</label>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${plan === 'ENTERPRISE' ? 'bg-purple-100 text-purple-700' : plan === 'PRO' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {plan === 'ENTERPRISE' ? '✨ Todos disponibles' : plan === 'PRO' ? `${businessTypes.length}/3 seleccionados` : plan === 'TRIAL' ? `${businessTypes.length}/1 · Prueba` : `${businessTypes.length}/1 seleccionado`}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    plan === 'ENTERPRISE' ? 'bg-purple-100 text-purple-700' :
+                    plan === 'PRO'        ? 'bg-blue-100 text-blue-700' :
+                                           'bg-slate-100 text-slate-500'
+                  }`}>
+                    {plan === 'ENTERPRISE' ? '✨ Todos disponibles' :
+                     plan === 'PRO'        ? `${businessTypes.length}/3 seleccionados` :
+                     plan === 'TRIAL'      ? `${businessTypes.length}/1 · Prueba` :
+                                            `${businessTypes.length}/1 seleccionado`}
                   </span>
                 </div>
                 {(plan === 'BASIC' || plan === 'TRIAL') && (
                   <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-                    ⚠️ {plan === 'TRIAL' ? 'Plan de prueba' : 'Plan BASIC'}: solo puedes tener <strong>1 tipo de negocio</strong>. Actualiza a <strong>PRO</strong> para hasta 3, o <strong>ENTERPRISE</strong> para todos.
+                    ⚠️ {plan === 'TRIAL' ? 'Plan de prueba' : 'Plan BASIC'}: solo puedes tener <strong>1 tipo de negocio</strong>. Al seleccionar uno nuevo el anterior se reemplaza automáticamente. Actualiza a <strong>PRO</strong> para hasta 3, o <strong>ENTERPRISE</strong> para todos.
                   </p>
                 )}
                 {plan === 'PRO' && (
@@ -542,13 +636,23 @@ const Settings: React.FC = () => {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {BUSINESS_TYPES.map(bt => {
                     const isSelected = businessTypes.includes(bt.id);
+                    // Solo bloquear en PRO cuando ya tiene 3 y este no está seleccionado
                     const isLocked = plan === 'PRO' && !isSelected && businessTypes.length >= maxBusinessTypes;
                     return (
-                      <button key={bt.id} type="button" onClick={() => toggleBusinessType(bt.id)} disabled={isLocked}
-                        className={`p-3 rounded-lg border-2 text-sm font-medium text-left transition-all relative ${isSelected ? 'border-blue-500 bg-blue-50 text-blue-700' : isLocked ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed' : 'border-slate-200 hover:border-slate-300 text-slate-600'}`}>
+                      <button key={bt.id} type="button" onClick={() => toggleBusinessType(bt.id)}
+                        disabled={isLocked}
+                        className={`p-3 rounded-lg border-2 text-sm font-medium text-left transition-all relative ${
+                          isSelected  ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                          isLocked    ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed' :
+                                        'border-slate-200 hover:border-slate-300 text-slate-600'
+                        }`}>
                         {bt.label}
-                        {isSelected && <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px]">✓</span>}
-                        {isLocked && <span className="absolute top-1.5 right-1.5 text-[10px]">🔒</span>}
+                        {isSelected && (
+                          <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px]">✓</span>
+                        )}
+                        {isLocked && (
+                          <span className="absolute top-1.5 right-1.5 text-[10px]">🔒</span>
+                        )}
                       </button>
                     );
                   })}
@@ -571,7 +675,8 @@ const Settings: React.FC = () => {
                 <label className="block text-sm font-semibold text-slate-700 mb-3">Color de fuentes <span className="text-slate-400 font-normal text-xs">(textos del menú lateral)</span></label>
                 <div className="flex flex-wrap gap-3 items-center">
                   {FONT_PRESETS.map(fp => (
-                    <button key={fp.label} type="button" title={fp.label} onClick={() => setFontColor(fp.color)}
+                    <button key={fp.label} type="button" title={fp.label}
+                      onClick={() => setFontColor(fp.color)}
                       className={`w-10 h-10 rounded-full border-4 transition-all flex items-center justify-center text-xs font-bold ${fontColor === fp.color ? 'border-slate-800 scale-110 shadow-lg' : 'border-transparent hover:scale-105'}`}
                       style={{ background: fp.color === '#ffffff' ? '#e2e8f0' : fp.color === '#0f172a' ? '#0f172a' : fp.color, color: fp.color === '#ffffff' || fp.color === '#e2e8f0' ? '#0f172a' : '#fff' }}>
                       A
@@ -589,12 +694,22 @@ const Settings: React.FC = () => {
                 </div>
               </div>
 
+              {/* Términos y condiciones de factura */}
               <div className="mt-2 p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                <label className="block text-sm font-bold text-slate-700">📄 Términos y Condiciones de la Factura</label>
-                <p className="text-xs text-slate-400">Aparecerán al pie de cada factura impresa. Personaliza según el tipo de negocio. Usa mayúsculas para títulos de sección y • para items de lista.</p>
-                <textarea value={invoiceTerms} onChange={e => setInvoiceTerms(e.target.value)} rows={8}
+                <label className="block text-sm font-bold text-slate-700">
+                  📄 Términos y Condiciones de la Factura
+                </label>
+                <p className="text-xs text-slate-400">
+                  Aparecerán al pie de cada factura impresa. Personaliza según el tipo de negocio.
+                  Usa mayúsculas para títulos de sección y • para items de lista.
+                </p>
+                <textarea
+                  value={invoiceTerms}
+                  onChange={e => setInvoiceTerms(e.target.value)}
+                  rows={8}
                   placeholder={"GARANTÍA\n• Productos tienen garantía de 30 días\n• No se aceptan devoluciones sin factura\n\nCONDICIONES\n• El establecimiento no se hace responsable por pérdida o daño de objetos personales"}
-                  className="w-full text-xs text-slate-700 bg-white border border-slate-200 rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300 font-mono leading-relaxed" />
+                  className="w-full text-xs text-slate-700 bg-white border border-slate-200 rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300 font-mono leading-relaxed"
+                />
               </div>
 
               <button type="button" onClick={handleSaveBranding} disabled={savingBranding}
@@ -605,9 +720,11 @@ const Settings: React.FC = () => {
             </div>
           )}
 
-          {/* TAB DIAN */}
+          {/* ══ TAB DIAN / FACTUS ══════════════════════════════════════════════════ */}
           {activeTab === 'DIAN' && (
             <div className="space-y-5">
+
+              {/* ── Encabezado ─────────────────────────────────────────────── */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
@@ -622,78 +739,150 @@ const Settings: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* Instrucción Factus */}
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-5 text-xs text-blue-700 space-y-1">
                   <p className="font-bold text-blue-800">¿Cómo obtener tu token de Factus?</p>
-                  <p>1. Entra a <strong>factus.com.co</strong> y crea tu cuenta (cada empresa usa la suya).</p>
-                  <p>2. Ve a <strong>Perfil → API Tokens</strong> y genera un token.</p>
-                  <p>3. Pega el token abajo. Factus ya tiene tu resolución DIAN configurada.</p>
+                  <p>1. Crea tu cuenta en <strong>factus.com.co</strong> (una cuenta por empresa).</p>
+                  <p>2. En Factus ve a <strong>Perfil → Aplicaciones OAuth</strong> y crea una aplicación para obtener <code>client_id</code> y <code>client_secret</code>.</p>
+                  <p>3. Ingresa las credenciales abajo. El token se renueva automáticamente cada hora.</p>
                 </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                  {/* ── Sección OAuth ── */}
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Token API de Factus <span className="text-red-500">*</span></label>
-                    <input type="password" placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9..."
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-400"
-                      value={dianForm.factus_token || ''} onChange={e => setDianForm(f => ({ ...f, factus_token: e.target.value }))} />
-                    <p className="text-[10px] text-slate-400 mt-0.5">Se guarda cifrado. Nunca lo compartás.</p>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3">
+                      <p className="text-xs font-bold text-blue-700 mb-1">🔐 Credenciales OAuth2 (recomendado)</p>
+                      <p className="text-[11px] text-blue-600">El token se obtiene y renueva automáticamente. No necesitas pegarlo manualmente.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Client ID <span className="text-red-500">*</span></label>
+                        <input type="text" placeholder="Tu Client ID de Factus"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                          value={(dianForm as any).factus_client_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, factus_client_id: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Client Secret <span className="text-red-500">*</span></label>
+                        <input type="password" placeholder="Tu Client Secret de Factus"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                          value={(dianForm as any).factus_client_secret || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, factus_client_secret: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Correo Factus <span className="text-red-500">*</span></label>
+                        <input type="email" placeholder="correo@tuempresa.com"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                          value={(dianForm as any).factus_username || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, factus_username: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Contraseña Factus <span className="text-red-500">*</span></label>
+                        <input type="password" placeholder="Contraseña de tu cuenta Factus"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400"
+                          value={(dianForm as any).factus_password || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, factus_password: e.target.value }))} />
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Ambiente */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Ambiente</label>
-                    <select className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
-                      value={dianForm.factus_env || 'sandbox'} onChange={e => setDianForm(f => ({ ...f, factus_env: e.target.value as any }))}>
+                    <select
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                      value={dianForm.factus_env || 'sandbox'}
+                      onChange={e => setDianForm(f => ({ ...f, factus_env: e.target.value as any }))}>
                       <option value="sandbox">🧪 Sandbox / Pruebas (homologación)</option>
                       <option value="production">🏭 Producción (facturas reales)</option>
                     </select>
                   </div>
+
+                  {/* Prefijo resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Prefijo de resolución</label>
                     <input type="text" placeholder="SETP"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm font-mono uppercase"
-                      value={dianForm.prefix || ''} onChange={e => setDianForm(f => ({ ...f, prefix: e.target.value.toUpperCase() }))} />
+                      value={dianForm.prefix || ''}
+                      onChange={e => setDianForm(f => ({ ...f, prefix: e.target.value.toUpperCase() }))} />
+                    <p className="text-[10px] text-slate-400 mt-0.5">Se usa para seleccionar la resolución activa en Factus automáticamente.</p>
                   </div>
+
+                  {/* Número resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Número de resolución DIAN</label>
                     <input type="text" placeholder="18764000001"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm font-mono"
-                      value={dianForm.resolution_number || ''} onChange={e => setDianForm(f => ({ ...f, resolution_number: e.target.value }))} />
+                      value={dianForm.resolution_number || ''}
+                      onChange={e => setDianForm(f => ({ ...f, resolution_number: e.target.value }))} />
                   </div>
+
+                  {/* Fecha resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Fecha resolución</label>
-                    <input type="date" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
-                      value={dianForm.resolution_date || ''} onChange={e => setDianForm(f => ({ ...f, resolution_date: e.target.value }))} />
+                    <input type="date"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                      value={dianForm.resolution_date || ''}
+                      onChange={e => setDianForm(f => ({ ...f, resolution_date: e.target.value }))} />
                   </div>
+
+                  {/* Rango desde */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Rango desde</label>
                     <input type="number" min="1" placeholder="1"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
-                      value={dianForm.range_from || ''} onChange={e => setDianForm(f => ({ ...f, range_from: +e.target.value }))} />
+                      value={dianForm.range_from || ''}
+                      onChange={e => setDianForm(f => ({ ...f, range_from: +e.target.value }))} />
                   </div>
+
+                  {/* Rango hasta */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Rango hasta</label>
                     <input type="number" min="1" placeholder="5000000"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
-                      value={dianForm.range_to || ''} onChange={e => setDianForm(f => ({ ...f, range_to: +e.target.value }))} />
+                      value={dianForm.range_to || ''}
+                      onChange={e => setDianForm(f => ({ ...f, range_to: +e.target.value }))} />
                   </div>
+
+                  {/* Dígito NIT */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Dígito verificación NIT</label>
                     <input type="text" maxLength={1} placeholder="0"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm font-mono"
-                      value={dianForm.nit_digit || ''} onChange={e => setDianForm(f => ({ ...f, nit_digit: e.target.value }))} />
+                      value={dianForm.nit_digit || ''}
+                      onChange={e => setDianForm(f => ({ ...f, nit_digit: e.target.value }))} />
                   </div>
                 </div>
               </div>
+
+              {/* ── Tipos de documento habilitados ──────────────────────── */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                 <h4 className="font-bold text-slate-700 text-sm mb-3">Documentos habilitados</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="flex items-start gap-3 p-3 border border-slate-200 rounded-xl">
-                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><Receipt size={16} className="text-blue-600" /></div>
-                    <div><p className="text-sm font-bold text-slate-800">Factura electrónica de venta (FEV)</p><p className="text-xs text-slate-500">Para ventas a empresas o personas con NIT/CC. Plena validez legal.</p></div>
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Receipt size={16} className="text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Factura electrónica de venta (FEV)</p>
+                      <p className="text-xs text-slate-500">Para ventas a empresas o personas con NIT/CC. Plena validez legal.</p>
+                    </div>
                   </div>
                   <div className="flex items-start gap-3 p-3 border border-slate-200 rounded-xl">
-                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0"><span className="text-sm">🧾</span></div>
-                    <div><p className="text-sm font-bold text-slate-800">Documento equivalente POS</p><p className="text-xs text-slate-500">Para ventas rápidas a consumidor final sin identificación.</p></div>
+                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm">🧾</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">Documento equivalente POS</p>
+                      <p className="text-xs text-slate-500">Para ventas rápidas a consumidor final sin identificación.</p>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* ── Alerta producción ───────────────────────────────────── */}
               {(dianForm.factus_env || 'sandbox') === 'production' && (
                 <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl flex gap-3">
                   <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={18} />
@@ -710,40 +899,40 @@ const Settings: React.FC = () => {
         {/* SIDEBAR DERECHO */}
         <div className="space-y-6">
           {(() => {
-            const PLAN_INFO: Record<string, { label: string; color: string; accent: string; icon: string; features: string[] }> = {
-              TRIAL:      { label: '7 días gratis',   color: 'bg-emerald-600', accent: 'text-emerald-400', icon: '🎁', features: ['Acceso completo 7 días', 'POS y ventas', 'Inventario', 'Control de caja', 'Sin compromiso'] },
-              BASIC:      { label: 'Plan Basic',       color: 'bg-slate-600',   accent: 'text-slate-300',   icon: '📦', features: ['1 sucursal · 1 usuario', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Cartera / CxC', 'Soporte WhatsApp'] },
-              PRO:        { label: 'Plan Pro',         color: 'bg-blue-600',    accent: 'text-blue-400',    icon: '⭐', features: ['Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'Dashboard multi-sucursal', 'Soporte Prioritario'] },
-              ENTERPRISE: { label: 'Plan Enterprise', color: 'bg-purple-600',  accent: 'text-purple-400',  icon: '🏢', features: ['Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación DIAN', 'API + Webhooks', 'Soporte Dedicado · SLA 99.9%'] },
-            };
-            const info = PLAN_INFO[plan] || PLAN_INFO['BASIC'];
-            const statusLabel: Record<string, string> = { ACTIVE: 'Activo', INACTIVE: 'Inactivo', PENDING: 'Pendiente', PAST_DUE: 'Vencido', TRIAL: 'En prueba' };
-            const statusColor: Record<string, string> = { ACTIVE: 'text-green-400', INACTIVE: 'text-red-400', PENDING: 'text-yellow-400', PAST_DUE: 'text-orange-400', TRIAL: 'text-emerald-400' };
-            const st = safeCompany.subscription_status || 'ACTIVE';
-            return (
-              <div className="bg-slate-900 text-white p-5 rounded-xl shadow-lg relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-3 opacity-10"><Shield size={90} /></div>
-                <div className="flex items-center gap-3 mb-4 relative z-10">
-                  <div className={`p-2 ${info.color} rounded-lg text-lg leading-none`}>{info.icon}</div>
-                  <div>
-                    <h4 className="font-bold text-sm">{info.label}</h4>
-                    <p className={`text-xs font-semibold ${statusColor[st] || 'text-slate-400'}`}>● {statusLabel[st] || st}</p>
-                  </div>
-                </div>
-                <div className="space-y-1.5 mb-5 relative z-10">
-                  {info.features.map((feat, i) => (
-                    <div key={i} className="flex gap-2 items-center text-xs text-slate-300">
-                      <Check size={11} className={info.accent} /><span>{feat}</span>
+              const PLAN_INFO: Record<string, { label: string; color: string; accent: string; icon: string; features: string[] }> = {
+                TRIAL:      { label: '7 días gratis',   color: 'bg-emerald-600', accent: 'text-emerald-400', icon: '🎁', features: ['Acceso completo 7 días', 'POS y ventas', 'Inventario', 'Control de caja', 'Sin compromiso'] },
+                BASIC:      { label: 'Plan Basic',       color: 'bg-slate-600',   accent: 'text-slate-300',   icon: '📦', features: ['1 sucursal · 1 usuario', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Cartera / CxC', 'Soporte WhatsApp'] },
+                PRO:        { label: 'Plan Pro',         color: 'bg-blue-600',    accent: 'text-blue-400',    icon: '⭐', features: ['Hasta 3 sucursales', 'Hasta 5 usuarios', 'Roles y permisos', 'Dashboard multi-sucursal', 'Soporte Prioritario'] },
+                ENTERPRISE: { label: 'Plan Enterprise', color: 'bg-purple-600',  accent: 'text-purple-400',  icon: '🏢', features: ['Sucursales ilimitadas', 'Usuarios ilimitados', 'Facturación DIAN', 'API + Webhooks', 'Soporte Dedicado · SLA 99.9%'] },
+              };
+              const info = PLAN_INFO[plan] || PLAN_INFO['BASIC'];
+              const statusLabel: Record<string, string> = { ACTIVE: 'Activo', INACTIVE: 'Inactivo', PENDING: 'Pendiente', PAST_DUE: 'Vencido', TRIAL: 'En prueba' };
+              const statusColor: Record<string, string> = { ACTIVE: 'text-green-400', INACTIVE: 'text-red-400', PENDING: 'text-yellow-400', PAST_DUE: 'text-orange-400', TRIAL: 'text-emerald-400' };
+              const st = safeCompany.subscription_status || 'ACTIVE';
+              return (
+                <div className="bg-slate-900 text-white p-5 rounded-xl shadow-lg relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-3 opacity-10"><Shield size={90} /></div>
+                  <div className="flex items-center gap-3 mb-4 relative z-10">
+                    <div className={`p-2 ${info.color} rounded-lg text-lg leading-none`}>{info.icon}</div>
+                    <div>
+                      <h4 className="font-bold text-sm">{info.label}</h4>
+                      <p className={`text-xs font-semibold ${statusColor[st] || 'text-slate-400'}`}>● {statusLabel[st] || st}</p>
                     </div>
-                  ))}
+                  </div>
+                  <div className="space-y-1.5 mb-5 relative z-10">
+                    {info.features.map((feat, i) => (
+                      <div key={i} className="flex gap-2 items-center text-xs text-slate-300">
+                        <Check size={11} className={info.accent} /><span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setIsSecurityCheckOpen(true)}
+                    className={`w-full py-2 ${info.color} hover:opacity-90 rounded-lg font-bold text-sm flex items-center justify-center gap-2 relative z-10 transition-all`}>
+                    <Crown size={15} /> Gestionar plan
+                  </button>
                 </div>
-                <button type="button" onClick={() => setIsSecurityCheckOpen(true)}
-                  className={`w-full py-2 ${info.color} hover:opacity-90 rounded-lg font-bold text-sm flex items-center justify-center gap-2 relative z-10 transition-all`}>
-                  <Crown size={15} /> Gestionar plan
-                </button>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
           {activeTab !== 'BRANDING' && (
             <button type="submit" disabled={isSaving} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-70">
@@ -755,6 +944,8 @@ const Settings: React.FC = () => {
         {/* TAB PAGOS */}
         {activeTab === 'PAGOS' && (
           <div className="md:col-span-3 space-y-5">
+
+            {/* HEADER */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
                 <CreditCard size={20} className="text-purple-600" /> Métodos de pago del negocio
@@ -772,7 +963,8 @@ const Settings: React.FC = () => {
                   <div className="text-xs" style={{ color: plan === 'PRO' ? '#7c3aed' : '#15803d' }}>
                     {plan === 'PRO'
                       ? <><strong>Plan Pro:</strong> tienes Efectivo, Transferencia y Wompi. Actualiza a <strong>Enterprise</strong> para Bold, PayU y Datáfono físico.</>
-                      : <><strong>Plan Basic:</strong> tienes Efectivo y Transferencia. Actualiza a <strong>Pro</strong> para Wompi o <strong>Enterprise</strong> para todos los métodos.</>}
+                      : <><strong>Plan Basic:</strong> tienes Efectivo y Transferencia. Actualiza a <strong>Pro</strong> para Wompi o <strong>Enterprise</strong> para todos los métodos.</>
+                    }
                   </div>
                   <button onClick={() => setIsSecurityCheckOpen(true)}
                     className="whitespace-nowrap text-xs font-bold px-3 py-1.5 rounded-lg text-white"
@@ -805,8 +997,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('dataphone') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.dataphone.enabled ? 'border-blue-400' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -851,8 +1044,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('transfer') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.transfer.enabled ? 'border-indigo-400' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -918,8 +1112,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('wompi') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.wompi.enabled ? 'border-emerald-400' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -957,7 +1152,8 @@ const Settings: React.FC = () => {
                         </select>
                       </div>
                       <div className="flex items-end">
-                        <a href="https://comercios.wompi.co" target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-600 hover:underline">🔗 Crear / ver mi cuenta Wompi</a>
+                        <a href="https://comercios.wompi.co" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-emerald-600 hover:underline">🔗 Crear / ver mi cuenta Wompi</a>
                       </div>
                     </div>
                     <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-xs text-emerald-800">
@@ -966,8 +1162,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('bold') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.bold.enabled ? 'border-yellow-400' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -995,8 +1192,10 @@ const Settings: React.FC = () => {
                       <p className="text-xs text-slate-400 mt-1">Encuéntrala en tu Dashboard Bold → Desarrolladores → API Keys.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <a href="https://bold.co" target="_blank" rel="noopener noreferrer" className="text-xs text-yellow-600 hover:underline">🔗 Ir a mi cuenta Bold</a>
-                      <a href="https://docs.bold.co" target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:underline">📄 Documentación Bold</a>
+                      <a href="https://bold.co" target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-yellow-600 hover:underline">🔗 Ir a mi cuenta Bold</a>
+                      <a href="https://docs.bold.co" target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-slate-400 hover:underline">📄 Documentación Bold</a>
                     </div>
                     <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-xs text-yellow-800">
                       ✅ Al cobrar, el POS creará un link de pago Bold por el monto exacto y lo mostrará como QR o enlace. El cliente paga y el dinero llega a tu cuenta Bold. POSmaster no toca el pago.
@@ -1004,8 +1203,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('payu') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.payu.enabled ? 'border-orange-400' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -1045,8 +1245,10 @@ const Settings: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <a href="https://www.payu.com.co" target="_blank" rel="noopener noreferrer" className="text-xs text-orange-600 hover:underline">🔗 Ir a mi cuenta PayU</a>
-                      <a href="https://developers.payulatam.com" target="_blank" rel="noopener noreferrer" className="text-xs text-slate-400 hover:underline">📄 Documentación PayU</a>
+                      <a href="https://www.payu.com.co" target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-orange-600 hover:underline">🔗 Ir a mi cuenta PayU</a>
+                      <a href="https://developers.payulatam.com" target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-slate-400 hover:underline">📄 Documentación PayU</a>
                     </div>
                     <div className="p-3 bg-orange-50 border border-orange-100 rounded-lg text-xs text-orange-800">
                       ✅ Al cobrar, el POS redirigirá al checkout de PayU con el monto exacto. El cliente paga y el dinero llega a tu cuenta PayU. POSmaster no toca el pago.
@@ -1054,8 +1256,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+
+            )}
             {allowedMethods.includes('paypal') && (
               <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.paypal?.enabled ? 'border-blue-500' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-1">
@@ -1093,7 +1296,8 @@ const Settings: React.FC = () => {
                         </select>
                       </div>
                       <div className="flex items-end">
-                        <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">🔗 Obtener mi Client ID en PayPal Developer</a>
+                        <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline">🔗 Obtener mi Client ID en PayPal Developer</a>
                       </div>
                     </div>
                     <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
@@ -1102,8 +1306,9 @@ const Settings: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
 
+            )}
+            {/* BOTÓN GUARDAR */}
             <div className="flex justify-end pb-2">
               <button onClick={handleSavePayments} disabled={savingPayments}
                 className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-all shadow-md disabled:opacity-60">
@@ -1111,19 +1316,30 @@ const Settings: React.FC = () => {
                 Guardar configuración de pagos
               </button>
             </div>
+
           </div>
         )}
 
-        {/* TAB CATÁLOGO */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* TAB CATÁLOGO WHATSAPP                                             */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'CATALOGO' && (() => {
           const catalogUrl = `${window.location.origin}${window.location.pathname}#/catalogo/${safeCompany.id}`;
           const waShareUrl = `https://wa.me/?text=${encodeURIComponent('🛍️ Mira nuestro catálogo en línea:\n' + catalogUrl)}`;
           return (
             <div className="md:col-span-3 space-y-5">
+
+              {/* Header */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">🛍️ Catálogo Digital por WhatsApp</h3>
-                <p className="text-sm text-slate-500">Comparte un enlace público con tus clientes para que vean tus productos y te escriban directamente por WhatsApp.</p>
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
+                  🛍️ Catálogo Digital por WhatsApp
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Comparte un enlace público con tus clientes para que vean tus productos y te escriban directamente por WhatsApp.
+                </p>
               </div>
+
+              {/* Toggle habilitar */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1135,11 +1351,13 @@ const Settings: React.FC = () => {
                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${catalogEnabled ? 'left-7' : 'left-1'}`} />
                   </button>
                 </div>
+
                 {catalogEnabled && (
                   <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
                     <p className="text-xs font-bold text-green-700 mb-2">🔗 Link de tu catálogo:</p>
                     <div className="flex gap-2">
-                      <input readOnly value={catalogUrl} className="flex-1 text-xs bg-white border border-green-200 rounded-lg px-3 py-2 text-slate-600 font-mono" />
+                      <input readOnly value={catalogUrl}
+                        className="flex-1 text-xs bg-white border border-green-200 rounded-lg px-3 py-2 text-slate-600 font-mono" />
                       <button type="button"
                         onClick={() => { navigator.clipboard.writeText(catalogUrl); setCatalogLinkCopied(true); setTimeout(() => setCatalogLinkCopied(false), 2000); }}
                         className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 whitespace-nowrap">
@@ -1151,12 +1369,15 @@ const Settings: React.FC = () => {
                         Compartir
                       </a>
                     </div>
-                    <a href={catalogUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
+                    <a href={catalogUrl} target="_blank" rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
                       👁️ Ver catálogo como cliente →
                     </a>
                   </div>
                 )}
               </div>
+
+              {/* Configuración WhatsApp */}
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                 <h4 className="font-semibold text-slate-700">Configuración de contacto</h4>
                 <div>
@@ -1164,11 +1385,15 @@ const Settings: React.FC = () => {
                     Número de WhatsApp
                     <span className="ml-2 text-xs text-slate-400 font-normal">Con o sin código de país (ej: 3001234567 o 573001234567)</span>
                   </label>
-                  <input value={catalogWhatsapp} onChange={e => setCatalogWhatsapp(e.target.value)} placeholder="3001234567"
+                  <input value={catalogWhatsapp} onChange={e => setCatalogWhatsapp(e.target.value)}
+                    placeholder="3001234567"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400" />
                   {catalogWhatsapp && (
-                    <a href={`https://wa.me/${catalogWhatsapp.replace(/\D/g,'').replace(/^(?!57)/,'57')}`} target="_blank" rel="noopener noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">✓ Probar este número →</a>
+                    <a href={`https://wa.me/${catalogWhatsapp.replace(/\D/g,'').replace(/^(?!57)/,'57')}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
+                      ✓ Probar este número →
+                    </a>
                   )}
                 </div>
                 <div>
@@ -1176,12 +1401,16 @@ const Settings: React.FC = () => {
                     Mensaje de apertura
                     <span className="ml-2 text-xs text-slate-400 font-normal">Se envía antes del nombre del producto</span>
                   </label>
-                  <textarea value={catalogMessage} onChange={e => setCatalogMessage(e.target.value)} rows={2}
-                    placeholder="¡Hola! Me interesa este producto:"
+                  <textarea value={catalogMessage} onChange={e => setCatalogMessage(e.target.value)}
+                    rows={2} placeholder="¡Hola! Me interesa este producto:"
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400 resize-none" />
-                  <p className="text-xs text-slate-400 mt-1">Vista previa: "<em>{catalogMessage} *Nombre del producto* Precio: $35.000</em>"</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Vista previa del mensaje que recibe tu WhatsApp: "<em>{catalogMessage} *Nombre del producto* Precio: $35.000</em>"
+                  </p>
                 </div>
               </div>
+
+              {/* Info */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
                 <p className="font-semibold text-slate-600">¿Cómo funciona?</p>
                 <p>• Comparte el link por WhatsApp, Instagram o donde quieras</p>
@@ -1189,18 +1418,130 @@ const Settings: React.FC = () => {
                 <p>• Cada producto tiene un botón "Pedir por WhatsApp" que abre el chat directo contigo</p>
                 <p>• Para ocultar un producto del catálogo, desactívalo en Inventario</p>
               </div>
+
+              {/* Botón guardar */}
               <div className="flex justify-end">
                 <button type="button" onClick={handleSaveCatalog} disabled={savingCatalog}
                   className="px-6 py-2.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 text-sm">
                   {savingCatalog ? 'Guardando...' : '💾 Guardar configuración'}
                 </button>
               </div>
+
             </div>
           );
         })()}
+
+
+      {/* ── TAB: HARDWARE ─────────────────────────────────────────── */}
+      {activeTab === 'HARDWARE' && (
+        <div className="md:col-span-3 space-y-6">
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Printer size={18} className="text-slate-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">Cajón registradora</h3>
+                <p className="text-xs text-slate-400">Cómo se abre el cajón al completar una venta</p>
+              </div>
+              {drawerSaved && <span className="ml-auto text-xs font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Guardado</span>}
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="space-y-2">
+                {([
+                  { id: 'escpos-usb',     icon: '🖨️', label: 'USB (ESC/POS via WebUSB)',  desc: 'Impresora térmica por USB directo. Requiere Chrome / Edge.' },
+                  { id: 'escpos-network', icon: '🌐', label: 'Red / IP (ESC/POS)',           desc: 'Impresora térmica con IP en la red local.' },
+                  { id: 'windows-print',  icon: '🪟', label: 'Impresora Windows',            desc: 'Impresora instalada en el sistema operativo.' },
+                ] as const).map(opt => (
+                  <label key={opt.id} className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${(drawerConfig.protocol || 'escpos-usb') === opt.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <input type="radio" name="drawer-proto" value={opt.id}
+                      checked={(drawerConfig.protocol || 'escpos-usb') === opt.id}
+                      onChange={() => setDrawerConfig((p: any) => ({ ...p, protocol: opt.id }))}
+                      className="mt-1" />
+                    <span className="text-lg mt-0.5">{opt.icon}</span>
+                    <div>
+                      <p className="font-semibold text-sm text-slate-800">{opt.label}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {(drawerConfig.protocol || 'escpos-usb') === 'escpos-network' && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">IP de la impresora</label>
+                    <input value={(drawerConfig as any).networkIp || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, networkIp: e.target.value }))}
+                      placeholder="192.168.1.100" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Puerto</label>
+                    <input type="number" value={(drawerConfig as any).networkPort || 9100}
+                      onChange={e => setDrawerConfig((p: any) => ({ ...p, networkPort: parseInt(e.target.value) || 9100 }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                  </div>
+                </div>
+              )}
+
+              {(drawerConfig.protocol || 'escpos-usb') === 'windows-print' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre de impresora (opcional)</label>
+                  <input value={(drawerConfig as any).windowsPrinter || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, windowsPrinter: e.target.value }))}
+                    placeholder="Ej: POS58 Thermal Printer" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                  <p className="text-xs text-slate-400 mt-1">Dejar vacío usa la impresora predeterminada</p>
+                </div>
+              )}
+
+              <button onClick={() => saveDrawerConfig(drawerConfig)}
+                className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 flex items-center justify-center gap-2">
+                <Cpu size={15} /> Guardar configuración del cajón
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Monitor size={18} className="text-slate-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">Lector de códigos de barras</h3>
+                <p className="text-xs text-slate-400">Sin configuración — funciona automáticamente como teclado</p>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-sm font-semibold text-blue-800 mb-1">✅ Sin configuración requerida</p>
+                <p className="text-xs text-blue-600">Conecta el lector por USB. El POS detecta el código escaneado y busca el producto automáticamente. Compatible con cualquier lector HID estándar.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Wifi size={18} className="text-slate-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">Balanza electrónica</h3>
+                <p className="text-xs text-slate-400">Para negocios con productos pesables</p>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-sm font-semibold text-amber-800 mb-1">⚖️ Se configura en el POS</p>
+                <p className="text-xs text-amber-700">Al agregar un producto pesable en el Punto de Venta aparece la opción de conectar la balanza. Protocolos: Serial (Web Serial API), código de barras y manual.</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
       </form>
 
-      {/* MODAL SEGURIDAD */}
+
+      {/* MODAL DE SEGURIDAD (PASSWORD ADMIN) */}
       {isSecurityCheckOpen && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -1225,12 +1566,15 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL PLANES */}
+      {/* MODAL DE SUSCRIPCION (PLANES) */}
       {isSubscriptionModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-              <div><h3 className="font-bold text-2xl text-slate-800">Planes de Suscripcion</h3><p className="text-slate-500 text-sm">Actualiza tu capacidad de operacion</p></div>
+              <div>
+                <h3 className="font-bold text-2xl text-slate-800">Planes de Suscripcion</h3>
+                <p className="text-slate-500 text-sm">Actualiza tu capacidad de operacion</p>
+              </div>
               <button onClick={() => setIsSubscriptionModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} className="text-slate-500" /></button>
             </div>
             <div className="flex-1 overflow-auto p-6 bg-slate-50/50">
@@ -1273,45 +1617,71 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL PIN AUTH */}
+      {/* ── MODAL: Verificar contraseña para editar PIN de facturas ── */}
       {pinAuthOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+            {/* Header */}
             <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-5 text-center">
               <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
                 <ShieldCheck size={28} className="text-white" />
               </div>
               <h3 className="text-white font-bold text-lg">Verificación de Identidad</h3>
-              <p className="text-white/80 text-xs mt-1">Para modificar el PIN de facturas, confirma tu contraseña de acceso al sistema</p>
+              <p className="text-white/80 text-xs mt-1">
+                Para modificar el PIN de facturas, confirma tu contraseña de acceso al sistema
+              </p>
             </div>
+            {/* Body */}
             <form onSubmit={handlePinAuth} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Tu contraseña de acceso</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Tu contraseña de acceso
+                </label>
                 <div className="relative">
-                  <input type={pinAuthShowPw ? 'text' : 'password'} autoFocus value={pinAuthPassword}
-                    onChange={e => setPinAuthPassword(e.target.value)} placeholder="Ingresa tu contraseña..."
-                    className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-amber-400 text-sm" />
-                  <button type="button" onClick={() => setPinAuthShowPw(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <input
+                    type={pinAuthShowPw ? 'text' : 'password'}
+                    autoFocus
+                    value={pinAuthPassword}
+                    onChange={e => setPinAuthPassword(e.target.value)}
+                    placeholder="Ingresa tu contraseña..."
+                    className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPinAuthShowPw(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
                     {pinAuthShowPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 mt-1.5">Esta es la misma contraseña con la que iniciaste sesión.</p>
+                <p className="text-xs text-slate-400 mt-1.5">
+                  Esta es la misma contraseña con la que iniciaste sesión.
+                </p>
               </div>
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => { setPinAuthOpen(false); setPinAuthPassword(''); }}
-                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-lg font-semibold text-sm hover:bg-slate-50">Cancelar</button>
-                <button type="submit" disabled={pinAuthLoading || !pinAuthPassword}
-                  className="flex-1 py-2.5 bg-amber-600 text-white rounded-lg font-bold text-sm hover:bg-amber-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPinAuthOpen(false); setPinAuthPassword(''); }}
+                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-lg font-semibold text-sm hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={pinAuthLoading || !pinAuthPassword}
+                  className="flex-1 py-2.5 bg-amber-600 text-white rounded-lg font-bold text-sm hover:bg-amber-700 disabled:opacity-60 flex items-center justify-center gap-2"
+                >
                   {pinAuthLoading
                     ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Verificando...</>
-                    : <><ShieldCheck size={15} /> Verificar</>}
+                    : <><ShieldCheck size={15} /> Verificar</>
+                  }
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
     </div>
   );
 };
