@@ -205,6 +205,37 @@ const POS: React.FC = () => {
     } catch (e) { console.error('prefill error', e); }
   }, [products]);
 
+  // ── Prefill desde pedido B2B ──────────────────────────────────────────────
+  useEffect(() => {
+    const raw = sessionStorage.getItem('pos_prefill_b2b');
+    if (!raw || !products.length) return;
+    try {
+      const prefill = JSON.parse(raw);
+      sessionStorage.removeItem('pos_prefill_b2b');
+      const newCart: any[] = (prefill.items || []).map((item: any) => {
+        const real = products.find((p) => p.id === item.product_id);
+        const vp: any = real || {
+          id: item.product_id || 'b2b-' + Math.random(),
+          name: item.description,
+          price: item.price,
+          cost: 0,
+          type: 'STANDARD',
+          sku: 'B2B',
+          stock_quantity: 999,
+          tax_rate: 0,
+        };
+        return { product: vp, quantity: item.quantity ?? 1, price: item.price, tax_rate: 0, discount: 0 };
+      });
+      if (newCart.length > 0) {
+        setCart(newCart);
+        toast.success(
+          `🛒 Pedido B2B ${prefill.order_number} de ${prefill.buyer_name} cargado · Total: $${prefill.total_amount?.toLocaleString('es-CO')}`,
+          { duration: 6000 }
+        );
+      }
+    } catch (e) { console.error('b2b prefill error', e); }
+  }, [products]);
+
   // ── Escáner de barras ─────────────────────────────────────────────────────
   const { isScanning } = useBarcodeScanner((barcode) => {
     const product = products.find((p) => p.sku.toLowerCase() === barcode.toLowerCase());

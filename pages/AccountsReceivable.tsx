@@ -3,12 +3,19 @@ import { Filter, AlertTriangle, Clock, X, DollarSign, Plus, Receipt, RefreshCw }
 import { useCurrency } from '../contexts/CurrencyContext';
 import { receivableService, Receivable } from '../services/receivableService';
 import { useCompany } from '../hooks/useCompany';
+import { useDatabase } from '../contexts/DatabaseContext';
 import { supabase } from '../supabaseClient';
+import InvoiceModal from '../components/InvoiceModal';
 import toast from 'react-hot-toast';
 
 const AccountsReceivable: React.FC = () => {
   const { formatMoney } = useCurrency();
   const { companyId } = useCompany();
+  const { company } = useDatabase();
+
+  // Invoice modal state
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceSale, setInvoiceSale] = useState<any>(null);
   const [receivables, setReceivables] = useState<Receivable[]>([]);
   const [summary, setSummary] = useState({ totalPortfolio: 0, overdue30: 0, collectedThisMonth: 0 });
   const [loading, setLoading] = useState(true);
@@ -22,7 +29,7 @@ const AccountsReceivable: React.FC = () => {
   const [newForm, setNewForm] = useState({ customer_name: '', total_amount: '', paid_amount: '0', due_date: '', notes: '' });
 
   // Facturas POS con saldo pendiente
-  const [activeTab, setActiveTab] = useState<'cartera' | 'facturas'>('facturas');
+  const [activeTab, setActiveTab] = useState<'cartera' | 'facturas'>('cartera');
   const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
   const [loadingInv, setLoadingInv] = useState(false);
   const [showInvPayModal, setShowInvPayModal] = useState(false);
@@ -61,13 +68,71 @@ const AccountsReceivable: React.FC = () => {
   useEffect(() => { load(); loadPendingInvoices(); }, [companyId]);
 
   const handlePayment = async () => {
-    if (!selectedRec?.id || !payAmount) return;
+    if (!selectedRec?.id || !payAmount || !companyId) return;
     const amount = parseFloat(payAmount);
-    if (isNaN(amount) || amount <= 0 || amount > selectedRec.balance) { toast.error('Monto inválido'); return; }
+    if (isNaN(amount) || amount <= 0 || amount > (selectedRec.balance + 0.01)) {
+      toast.error('Monto inválido'); return;
+    }
     setSaving(true);
     try {
+      // 1. Registrar abono en receivables
       await receivableService.registerPayment(selectedRec.id, amount, payMethod, payNotes);
-      toast.success('Abono registrado'); setShowPayModal(false); load();
+
+      // 2. Generar número de recibo de abono
+      const ts  = Date.now().toString().slice(-6);
+      const rnd = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+      const recNum = `REC-${ts}${rnd}`;
+
+      // 3. Crear factura / recibo de abono en historial
+      const isFullPayment = amount >= selectedRec.balance - 0.01;
+      const { data: inv } = await supabase.from('invoices').insert({
+        company_id:        companyId,
+        invoice_number:    recNum,
+        customer_name:     selectedRec.customer_name,
+        customer_document: selectedRec.customer_document || null,
+        subtotal:          amount,
+        tax_amount:        0,
+        total_amount:      amount,
+        status:            'COMPLETED',
+        payment_method:    [{ method: payMethod, amount }],
+        notes:             `Abono CxC${selectedRec.notes ? ' — ' + selectedRec.notes : ''} · Referencia original: ${selectedRec.invoice_id || '—'}`,
+      }).select('*').single();
+
+      if (inv) {
+        // Items de la factura — descripción del abono
+        await supabase.from('invoice_items').insert({
+          invoice_id:  inv.id,
+          product_id:  null,
+          quantity:    1,
+          price:       amount,
+          tax_rate:    0,
+          discount:    0,
+        });
+
+        // 4. Preparar sale para InvoiceModal
+        const saleForModal = {
+          ...inv,
+          customer_name:     selectedRec.customer_name,
+          customer_document: selectedRec.customer_document,
+          _cartItems: [{
+            product:  { name: isFullPayment ? 'Pago total CxC' : 'Abono a cuenta por cobrar' },
+            quantity: 1,
+            price:    amount,
+            tax_rate: 0,
+            discount: 0,
+          }],
+        };
+
+        setShowPayModal(false);
+        setInvoiceSale(saleForModal);
+        setShowInvoiceModal(true);
+        toast.success(`✅ Abono de ${formatMoney(amount)} registrado · Recibo ${recNum}`);
+        load();
+      } else {
+        toast.success('Abono registrado');
+        setShowPayModal(false);
+        load();
+      }
     } catch (e: any) { toast.error(e.message); }
     finally { setSaving(false); }
   };
@@ -235,7 +300,7 @@ const AccountsReceivable: React.FC = () => {
           ) : (
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>{['Cliente','Monto Orig.','Saldo','Vencimiento','Estado','Acción'].map(h => (
+                <tr>{['Cliente','Referencia','Monto Orig.','Saldo','Vencimiento','Estado','Acción'].map(h => (
                   <th key={h} className="px-6 py-4 font-semibold text-slate-700">{h}</th>
                 ))}</tr>
               </thead>
@@ -243,6 +308,7 @@ const AccountsReceivable: React.FC = () => {
                 {receivables.map(rec => (
                   <tr key={rec.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 font-medium text-slate-900">{rec.customer_name}</td>
+                    <td className="px-6 py-4 text-xs text-slate-400">{rec.notes || '—'}</td>
                     <td className="px-6 py-4 text-slate-500">{formatMoney(rec.total_amount)}</td>
                     <td className="px-6 py-4 font-bold text-slate-800">{formatMoney(rec.balance)}</td>
                     <td className="px-6 py-4 text-slate-600">{new Date(rec.due_date).toLocaleDateString()}</td>
@@ -422,6 +488,14 @@ const AccountsReceivable: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Modal de factura / recibo de abono ── */}
+      <InvoiceModal
+        isOpen={showInvoiceModal}
+        onClose={() => { setShowInvoiceModal(false); setInvoiceSale(null); }}
+        sale={invoiceSale}
+        company={company as any}
+      />
     </div>
   );
 };

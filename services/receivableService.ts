@@ -7,6 +7,7 @@ export interface Receivable {
   company_id: string;
   customer_id?: string;
   customer_name: string;
+  customer_document?: string;
   invoice_id?: string;
   total_amount: number;
   paid_amount: number;

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Store, Search, Package, ShoppingCart, Send, Check,
   X, Clock, Truck, AlertCircle, Plus, Minus, Building2,
@@ -9,6 +10,7 @@ import {
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { useCurrency } from '../contexts/CurrencyContext';
+import { receivableService } from '../services/receivableService';
 import toast from 'react-hot-toast';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -97,7 +99,44 @@ const CONN_STATUS_CFG: Record<ConnectionStatus, { label: string; cls: string }> 
 // ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
 
 const B2BMarketplace: React.FC = () => {
-  const { company, companyId } = useDatabase();
+  const { company, companyId, refreshCompany, branchId } = useDatabase();
+  const navigate = useNavigate();
+
+  // ── AUDIO / VOZ ───────────────────────────────────────────────────────────────
+  const lastOrderCountRef = useRef<number>(0);
+
+  const playNewOrderAlert = useCallback(() => {
+    // 1. Voz por Web Speech API
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const msg = new SpeechSynthesisUtterance('Nueva solicitud de pedido B2B recibida');
+      msg.lang  = 'es-CO';
+      msg.rate  = 0.95;
+      msg.pitch = 1.1;
+      msg.volume = 1;
+      window.speechSynthesis.speak(msg);
+    }
+    // 2. Sonido de respaldo con Web Audio API
+    try {
+      const ctx  = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const play = (freq: number, start: number, dur: number, vol = 0.4) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      play(523, 0,    0.18);  // Do
+      play(659, 0.2,  0.18);  // Mi
+      play(784, 0.4,  0.18);  // Sol
+      play(1047, 0.6, 0.35);  // Do alto
+    } catch { /* silencio si el browser lo bloquea */ }
+  }, []);
   const { formatMoney } = useCurrency();
 
   const [tab, setTab] = useState<ViewTab>('directory');
@@ -110,6 +149,10 @@ const B2BMarketplace: React.FC = () => {
   const [sellerProducts, setSellerProducts]   = useState<any[]>([]);
   const [cart, setCart]                 = useState<B2BOrderItem[]>([]);
   const [showOrderForm, setShowOrderForm]     = useState(false);
+  const [showPayModal, setShowPayModal]       = useState(false);
+  const [payModalOrder, setPayModalOrder]     = useState<B2BOrder | null>(null);
+  const [payMethod, setPayMethod]             = useState<'CASH' | 'TRANSFER' | 'CARD' | 'NEQUI' | 'DAVIPLATA'>('CASH');
+  const [payAmountReceived, setPayAmountReceived] = useState('');
 
   // Orders
   const [myOrders, setMyOrders]         = useState<B2BOrder[]>([]);
@@ -199,15 +242,66 @@ const B2BMarketplace: React.FC = () => {
     }
   }, [companyId, company]);
 
+  // ── REALTIME: alerta de nuevo pedido recibido ─────────────────────────────────
+  useEffect(() => {
+    if (!companyId) return;
+
+    const channel = supabase
+      .channel(`b2b_orders_${companyId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'INSERT',
+          schema: 'public',
+          table:  'b2b_orders',
+          filter: `seller_id=eq.${companyId}`,
+        },
+        (payload: any) => {
+          // Reproducir alerta de voz + sonido
+          playNewOrderAlert();
+          // Toast con info del pedido
+          toast(
+            (t) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <strong style={{ fontSize: 14 }}>🛒 Nuevo pedido B2B</strong>
+                <span style={{ fontSize: 12, color: '#475569' }}>
+                  {payload.new.buyer_name} · {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(payload.new.total_amount)}
+                </span>
+                <button
+                  onClick={() => { setTab('received_orders'); toast.dismiss(t.id); }}
+                  style={{ marginTop: 4, padding: '4px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                  Ver pedido →
+                </button>
+              </div>
+            ),
+            { duration: 12000, icon: '🔔' }
+          );
+          // Recargar lista de pedidos recibidos
+          loadReceivedOrders();
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [companyId, playNewOrderAlert, loadReceivedOrders]);
+
   // Load seller products when viewing catalog
   const loadSellerProducts = async (sellerId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('products')
-      .select('id, name, sku, price, stock_quantity, category, description, image_url')
+      .select('id, name, sku, price, stock_quantity, category, description, image_url, type')
       .eq('company_id', sellerId)
-      .eq('is_active', true)
-      .gt('stock_quantity', 0)
-      .order('name');
+      .neq('type', 'SERVICE')          // excluir servicios sin stock físico
+      .order('category', { ascending: true })
+      .order('name',     { ascending: true });
+    if (error) {
+      console.error('B2B catalog error:', error.message);
+      // Si error es de RLS, dar mensaje claro
+      if (error.code === '42501' || error.message.includes('policy')) {
+        toast.error('No se puede acceder al catálogo. Verifica las políticas de la base de datos.');
+      }
+    }
+    // Mostrar todos los productos, incluyendo los con stock 0 (el vendedor decide qué tiene)
     setSellerProducts(data || []);
   };
 
@@ -284,7 +378,6 @@ const B2BMarketplace: React.FC = () => {
           order_id:  newOrder.id,
           status:    'PENDING',
           note:      `Pedido creado por ${company?.name}`,
-          user_name: company?.name,
         });
       }
 
@@ -313,55 +406,114 @@ const B2BMarketplace: React.FC = () => {
     await supabase.from('b2b_order_history').insert({
       order_id:  orderId,
       status:    newStatus,
-      note:      note || ORDER_STATUS_CFG[newStatus].label,
-      user_name: company?.name,
+      note:      (note || ORDER_STATUS_CFG[newStatus].label) + (company?.name ? ` — ${company.name}` : ''),
     });
 
-    // Si se acepta, generar factura automáticamente
-    if (newStatus === 'ACCEPTED') {
+    // ── Al DESPACHAR o ENTREGAR → descontar stock + factura + CxC ──────────────
+    if (newStatus === 'SHIPPED' || newStatus === 'DELIVERED') {
       const order = receivedOrders.find(o => o.id === orderId);
-      if (order) {
-        const ts  = Date.now().toString().slice(-6);
-        const rnd = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-        const invNum = `B2B-FAC-${ts}${rnd}`;
-        const { data: inv } = await supabase.from('invoices').insert({
-          company_id:     companyId,
-          invoice_number: invNum,
-          subtotal:       order.subtotal,
-          tax_amount:     order.tax_amount,
-          total_amount:   order.total_amount,
-          status:         'COMPLETED',
-          business_type:  null,
-          payment_method: {
-            method:        order.payment_type === 'IMMEDIATE' ? 'TRANSFER' : 'CREDIT',
-            amount:        order.total_amount,
-            customer_name: order.buyer_name,
-            payment_status: order.payment_type === 'IMMEDIATE' ? 'PAID' : 'PENDING',
-            b2b_order:     order.order_number,
-          },
+      if (order && !order.invoice_id) {
+
+        // 1. Descontar stock sin RPC — actualización directa
+        for (const item of order.items) {
+          if (item.product_id) {
+            try {
+              const { data: prod } = await supabase
+                .from('products')
+                .select('stock_quantity')
+                .eq('id', item.product_id)
+                .single();
+              if (prod) {
+                await supabase.from('products').update({
+                  stock_quantity: Math.max(0, (prod.stock_quantity || 0) - item.quantity),
+                }).eq('id', item.product_id);
+              }
+            } catch { /* continuar si falla un ítem */ }
+          }
+        }
+
+        // 2. Generar factura
+        const ts     = Date.now().toString().slice(-6);
+        const rnd    = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+        const invNum = `B2B-${ts}${rnd}`;
+        const payMethod = order.payment_type === 'PREPAID' ? 'TRANSFER' : 'CREDIT';
+
+        // Buscar datos del comprador para la factura
+        const { data: buyerCompany } = await supabase
+          .from('companies')
+          .select('name, nit')
+          .eq('id', order.buyer_id)
+          .single();
+
+        const { data: inv, error: invErr } = await supabase.from('invoices').insert({
+          company_id:        companyId,
+          branch_id:         branchId,
+          invoice_number:    invNum,
+          subtotal:          order.subtotal,
+          tax_amount:        order.tax_amount,
+          total_amount:      order.total_amount,
+          status:            'COMPLETED',
+          customer_name:     buyerCompany?.name || order.buyer_name,
+          customer_document: buyerCompany?.nit   || null,
+          payment_method:    [{ method: payMethod, amount: order.total_amount }],
+          notes:             `Pedido B2B ${order.order_number} — ${order.buyer_name}`,
         }).select('id').single();
 
+        if (invErr) {
+          toast.error('Error factura: ' + invErr.message);
+          loadReceivedOrders();
+          return;
+        }
+
         if (inv) {
-          // Items de la factura
           await supabase.from('invoice_items').insert(
             order.items.map(i => ({
-              invoice_id:  inv.id,
-              product_id:  null,
-              description: i.product_name,
-              quantity:    i.quantity,
-              price:       i.unit_price,
-              tax_rate:    0,
+              invoice_id: inv.id,
+              product_id: i.product_id || null,
+              quantity:   i.quantity,
+              price:      i.unit_price,
+              tax_rate:   0,
+              discount:   0,
             }))
           );
-          // Vincular factura al pedido
-          await supabase.from('b2b_orders')
-            .update({ invoice_id: inv.id }).eq('id', orderId);
-          toast.success(`✅ Pedido aceptado — Factura ${invNum} generada`);
+          await supabase.from('b2b_orders').update({ invoice_id: inv.id }).eq('id', orderId);
+
+          if (order.payment_type === 'CREDIT') {
+            // CRÉDITO → crear CxC directamente
+            const dueDate = new Date();
+            dueDate.setDate(dueDate.getDate() + 30);
+            try {
+              await receivableService.create({
+                company_id:    companyId!,
+                customer_name: order.buyer_name,
+                invoice_id:    inv.id,
+                total_amount:  order.total_amount,
+                paid_amount:   0,
+                due_date:      dueDate.toISOString().split('T')[0],
+                status:        'PENDING',
+                notes:         `Pedido B2B ${order.order_number}`,
+              });
+            } catch (e: any) { toast.error('CxC error: ' + e.message); }
+            toast.success(`✅ ${newStatus === 'SHIPPED' ? 'Despachado' : 'Entregado'} · Factura ${invNum} · CxC creada a 30 días`);
+            loadReceivedOrders();
+
+          } else {
+            // CONTADO → abrir modal de cobro con los datos del pedido
+            const orderWithInv = { ...order, invoice_id: inv.id };
+            setPayModalOrder(orderWithInv);
+            setPayAmountReceived(String(order.total_amount));
+            setPayMethod('CASH');
+            setShowPayModal(true);
+            loadReceivedOrders();
+          }
         }
+      } else {
+        toast.success(`Pedido actualizado: ${ORDER_STATUS_CFG[newStatus].label}`);
       }
+    } else {
+      toast.success(`Pedido actualizado: ${ORDER_STATUS_CFG[newStatus].label}`);
     }
 
-    toast.success(`Pedido actualizado: ${ORDER_STATUS_CFG[newStatus].label}`);
     loadReceivedOrders();
     loadMyOrders();
   };
@@ -393,6 +545,47 @@ const B2BMarketplace: React.FC = () => {
       (c.seller_id === companyId && c.buyer_id === sellerId && c.status === 'ACTIVE')
     );
 
+  // ── PROCESAR COBRO B2B (modal de pago) ───────────────────────────────────────
+
+  const processB2BPayment = async () => {
+    if (!payModalOrder?.invoice_id || !companyId) return;
+    const received = parseFloat(payAmountReceived) || 0;
+    if (received < payModalOrder.total_amount) {
+      toast.error('El monto recibido no puede ser menor al total del pedido');
+      return;
+    }
+
+    // Actualizar factura con método de pago real y marcar como PAID
+    const { error } = await supabase.from('invoices').update({
+      payment_method: [{ method: payMethod, amount: payModalOrder.total_amount }],
+      status: 'COMPLETED',
+    }).eq('id', payModalOrder.invoice_id);
+
+    if (error) { toast.error('Error actualizando factura: ' + error.message); return; }
+
+    // Actualizar pedido a DELIVERED y payment_status PAID
+    await supabase.from('b2b_orders').update({
+      status:         'DELIVERED',
+      payment_status: 'PAID',
+      updated_at:     new Date().toISOString(),
+    }).eq('id', payModalOrder.id);
+
+    await supabase.from('b2b_order_history').insert({
+      order_id: payModalOrder.id,
+      status:   'DELIVERED',
+      note:     `Pago recibido: ${payMethod} · $${payModalOrder.total_amount.toLocaleString('es-CO')}`,
+    });
+
+    const change = received - payModalOrder.total_amount;
+    toast.success(
+      `✅ Pago registrado · ${payMethod}${change > 0 ? ` · Cambio: ${formatMoney(change)}` : ''}`,
+      { duration: 6000 }
+    );
+    setShowPayModal(false);
+    setPayModalOrder(null);
+    loadReceivedOrders();
+  };
+
   // ── SAVE B2B SETTINGS ─────────────────────────────────────────────────────────
 
   const saveB2bSettings = async () => {
@@ -406,7 +599,9 @@ const B2BMarketplace: React.FC = () => {
       b2b_terms:       b2bForm.b2b_terms || null,
     }).eq('id', companyId);
     if (error) { toast.error(error.message); return; }
-    toast.success(b2bForm.b2b_enabled ? '✅ Tu empresa ahora es visible en el directorio B2B' : 'Configuración B2B guardada');
+    // Refresh company in context so the form reflects the saved state immediately
+    await refreshCompany();
+    toast.success(b2bForm.b2b_enabled ? '✅ Tu empresa ahora es visible en el directorio B2B' : 'Configuración guardada');
     setShowSettings(false);
     loadDirectory();
   };
@@ -472,7 +667,10 @@ const B2BMarketplace: React.FC = () => {
         {sellerProducts.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
             <Package size={40} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Esta empresa no tiene productos disponibles</p>
+            <p className="font-semibold text-slate-600">Esta empresa no tiene productos en su catálogo</p>
+            <p className="text-sm mt-1.5 max-w-sm mx-auto">
+              El proveedor debe agregar productos desde su módulo de <strong>Inventario</strong> para que aparezcan aquí.
+            </p>
           </div>
         ) : (
           Object.entries(productsByCategory).map(([cat, prods]) => (
@@ -684,14 +882,33 @@ const B2BMarketplace: React.FC = () => {
               Cargando directorio...
             </div>
           ) : filteredCompanies.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400">
-              <Store size={48} className="mx-auto mb-4 opacity-30" />
-              <p className="font-bold text-lg">Sin empresas en el directorio</p>
-              <p className="text-sm mt-1">Activa tu perfil B2B para aparecer aquí y conectarte con otras empresas.</p>
-              <button onClick={() => setShowSettings(true)}
-                className="mt-4 px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">
-                Activar mi perfil B2B
-              </button>
+            <div className="space-y-4">
+              {/* Tu estado de perfil */}
+              <div className={`rounded-xl border p-5 flex items-center gap-4 ${b2bForm.b2b_enabled ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${b2bForm.b2b_enabled ? 'bg-green-200' : 'bg-amber-200'}`}>
+                  <Store size={18} className={b2bForm.b2b_enabled ? 'text-green-700' : 'text-amber-700'} />
+                </div>
+                <div className="flex-1">
+                  <p className={`font-bold text-sm ${b2bForm.b2b_enabled ? 'text-green-800' : 'text-amber-800'}`}>
+                    {b2bForm.b2b_enabled ? '✅ Tu perfil B2B está activo' : '⚠️ Tu perfil B2B no está activo'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${b2bForm.b2b_enabled ? 'text-green-600' : 'text-amber-600'}`}>
+                    {b2bForm.b2b_enabled
+                      ? 'Eres visible en el directorio. Aún no hay otras empresas registradas.'
+                      : 'Activa tu perfil para aparecer en el directorio y conectarte con otras empresas.'}
+                  </p>
+                </div>
+                <button onClick={() => setShowSettings(true)}
+                  className={`px-4 py-2 rounded-xl font-bold text-sm flex-shrink-0 ${b2bForm.b2b_enabled ? 'bg-green-700 text-white hover:bg-green-800' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>
+                  {b2bForm.b2b_enabled ? 'Editar perfil' : 'Activar perfil'}
+                </button>
+              </div>
+              {/* Empty state */}
+              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+                <Store size={40} className="mx-auto mb-3 opacity-20" />
+                <p className="font-bold text-base text-slate-600">Sin otras empresas en el directorio</p>
+                <p className="text-sm mt-1">Cuando otras empresas activen su perfil B2B, aparecerán aquí.</p>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -953,14 +1170,20 @@ const B2BMarketplace: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
               {/* Toggle activo */}
-              <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className={`flex items-center justify-between p-4 rounded-xl border ${b2bForm.b2b_enabled ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
                 <div>
-                  <p className="font-bold text-blue-800">Visible en el directorio B2B</p>
-                  <p className="text-xs text-blue-600 mt-0.5">Otras empresas podrán encontrarte y hacerte pedidos</p>
+                  <p className={`font-bold ${b2bForm.b2b_enabled ? 'text-green-800' : 'text-slate-700'}`}>
+                    {b2bForm.b2b_enabled ? '✅ Visible en el directorio B2B' : '⬜ No visible en el directorio'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${b2bForm.b2b_enabled ? 'text-green-600' : 'text-slate-500'}`}>
+                    {b2bForm.b2b_enabled
+                      ? 'Otras empresas pueden encontrarte y hacerte pedidos'
+                      : 'Activa el switch para aparecer en el directorio B2B'}
+                  </p>
                 </div>
                 <button
                   onClick={() => setB2bForm(f => ({ ...f, b2b_enabled: !f.b2b_enabled }))}
-                  className={`w-12 h-6 rounded-full transition-colors ${b2bForm.b2b_enabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                  className={`w-12 h-6 rounded-full transition-colors flex-shrink-0 ${b2bForm.b2b_enabled ? 'bg-green-500' : 'bg-slate-300'}`}>
                   <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5 ${b2bForm.b2b_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
@@ -1007,6 +1230,97 @@ const B2BMarketplace: React.FC = () => {
               <button onClick={saveB2bSettings}
                 className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-black hover:bg-blue-700">
                 Guardar perfil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL DE COBRO B2B ─────────────────────────────────────────────── */}
+      {showPayModal && payModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+
+            {/* Header */}
+            <div className="bg-emerald-600 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-black text-lg">Cobro B2B</h2>
+                <p className="text-emerald-100 text-xs mt-0.5">Pedido {payModalOrder.order_number}</p>
+              </div>
+              <button onClick={() => setShowPayModal(false)} className="text-emerald-200 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Detalle del pedido */}
+            <div className="px-6 pt-5 pb-3">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm text-slate-500">Cliente</span>
+                <span className="font-bold text-slate-800">{payModalOrder.buyer_name}</span>
+              </div>
+
+              {/* Items */}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-100 mb-4">
+                {payModalOrder.items.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-700 truncate">{item.product_name}</p>
+                      <p className="text-xs text-slate-400">{item.quantity} × {formatMoney(item.unit_price)}</p>
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 ml-3">{formatMoney(item.total)}</p>
+                  </div>
+                ))}
+                <div className="flex justify-between items-center px-4 py-3 bg-emerald-50">
+                  <span className="font-black text-emerald-800">TOTAL</span>
+                  <span className="font-black text-emerald-700 text-lg">{formatMoney(payModalOrder.total_amount)}</span>
+                </div>
+              </div>
+
+              {/* Método de pago */}
+              <div className="mb-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Método de pago</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['CASH','CARD','TRANSFER','NEQUI','DAVIPLATA'] as const).map(m => (
+                    <button key={m} onClick={() => setPayMethod(m)}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all border ${payMethod === m ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                      {m === 'CASH' ? '💵 Efectivo' : m === 'CARD' ? '💳 Tarjeta' : m === 'TRANSFER' ? '🏦 Transferencia' : m === 'NEQUI' ? '📱 Nequi' : '📱 Daviplata'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Monto recibido */}
+              {payMethod === 'CASH' && (
+                <div className="mb-4">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Monto recibido</p>
+                  <input
+                    type="number"
+                    value={payAmountReceived}
+                    onChange={e => setPayAmountReceived(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-300 rounded-xl text-lg font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-400 text-right"
+                    placeholder="0"
+                  />
+                  {parseFloat(payAmountReceived) > payModalOrder.total_amount && (
+                    <div className="flex justify-between items-center mt-2 px-1">
+                      <span className="text-sm text-slate-500">Cambio</span>
+                      <span className="text-lg font-black text-blue-600">
+                        {formatMoney(parseFloat(payAmountReceived) - payModalOrder.total_amount)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Botones */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button onClick={() => setShowPayModal(false)}
+                className="flex-1 py-3 border border-slate-300 text-slate-600 rounded-xl font-semibold hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button onClick={processB2BPayment}
+                className="flex-2 flex-1 py-3 bg-emerald-600 text-white rounded-xl font-black hover:bg-emerald-700 flex items-center justify-center gap-2">
+                <DollarSign size={16} /> Confirmar pago
               </button>
             </div>
           </div>
