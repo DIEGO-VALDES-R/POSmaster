@@ -6,7 +6,7 @@ import {
   Users, LogOut, Search, Plus, Edit2, Trash2, Eye, Activity,
   CheckCircle, Clock, AlertCircle, XCircle, RefreshCw,
   ChevronDown, ChevronRight, ShieldCheck, Mail, Lock,
-  TrendingUp, BarChart2, Package, Zap,
+  TrendingUp, BarChart2, Package, Zap, Receipt, Send,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -176,7 +176,7 @@ const UserMgmtModal: React.FC<{ company: any; onClose: () => void }> = ({ compan
 };
 
 // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
-type Panel = 'overview' | 'companies' | 'contracts' | 'settings';
+type Panel = 'overview' | 'companies' | 'contracts' | 'settings' | 'billing';
 
 const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string) => void }> = ({ onExit, onPreview }) => {
   const [panel, setPanel] = useState<Panel>('overview');
@@ -405,6 +405,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
   const NAVITEMS: { key: Panel; label: string; icon: React.ReactNode; badge?: number }[] = [
     { key: 'overview',   label: 'Dashboard',       icon: <LayoutDashboard size={16} /> },
     { key: 'companies',  label: 'Clientes',         icon: <Building2 size={16} />, badge: companies.length },
+    { key: 'billing',    label: 'Cobros',           icon: <Receipt size={16} />,   badge: companies.filter(c => c.subscription_status === 'PAST_DUE' || c.subscription_status === 'PENDING').length || undefined },
     { key: 'contracts',  label: 'Contratos',        icon: <FileText size={16} />,  badge: signed },
     { key: 'settings',   label: 'Configuración',    icon: <DollarSign size={16} /> },
   ];
@@ -587,6 +588,605 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     </div>
   );
 
+  // ── BILLING PANEL ──────────────────────────────────────────────────────────
+  const BillingPanel = () => {
+    const PLAN_PRICES: Record<string, number> = {
+      TRIAL: 0,
+      BASIC: parseInt(pricingData.basic_price?.replace(/\D/g,'') || '62000'),
+      PRO: parseInt(pricingData.pro_price?.replace(/\D/g,'') || '120000'),
+      ENTERPRISE: parseInt(pricingData.enterprise_price?.replace(/\D/g,'') || '249900'),
+    };
+
+    const mesActual = new Date().toLocaleString('es-CO', { month: 'long', year: 'numeric' });
+    const periodoLabel = mesActual.charAt(0).toUpperCase() + mesActual.slice(1);
+
+    const [subPanel, setSubPanel] = React.useState<'cobros' | 'historial' | 'cotizaciones'>('cobros');
+    const [pagados, setPagados] = React.useState<Set<string>>(new Set());
+    const [facturando, setFacturando] = React.useState<string | null>(null);
+
+    // Descuentos por cliente: { [companyId]: { tipo: 'pct'|'val', valor: number, meses: number } }
+    const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>({});
+
+    const [facturaConfig, setFacturaConfig] = React.useState<{
+      factus_client_id: string;
+      factus_client_secret: string;
+      factus_username: string;
+      factus_password: string;
+      factus_env: string;
+      mi_nit: string;
+      mi_nombre: string;
+    }>({
+      factus_client_id: '', factus_client_secret: '',
+      factus_username: '', factus_password: '',
+      factus_env: 'sandbox', mi_nit: '1130668482',
+      mi_nombre: 'DIEGO FERNANDO VALDES RANGEL',
+    });
+    const [showConfig, setShowConfig] = React.useState(false);
+    const [resultados, setResultados] = React.useState<Record<string, { cufe: string; pdf_url: string; numero: string; valor: number; fecha: string }>>({});
+
+    // Historial desde audit_logs
+    const [historial, setHistorial] = React.useState<any[]>([]);
+    const [loadingHistorial, setLoadingHistorial] = React.useState(false);
+
+    // Cotizaciones
+    const [cotizaciones, setCotizaciones] = React.useState<Array<{
+      id: string; company: any; meses: number; descTipo: 'pct'|'val'; descValor: number; nota: string;
+    }>>([]);
+    const [showCotForm, setShowCotForm] = React.useState(false);
+    const [cotForm, setCotForm] = React.useState({ companyId: '', meses: 1, descTipo: 'pct' as 'pct'|'val', descValor: 0, nota: '' });
+
+    const clientesActivos = companies.filter(c => c.subscription_plan !== 'TRIAL');
+    const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
+
+    const calcPrecio = (company: any, mesesExtra = 1) => {
+      const base = (PLAN_PRICES[company.subscription_plan] || 62000) * mesesExtra;
+      const d = descuentos[company.id];
+      if (!d || d.valor <= 0) return base;
+      if (d.tipo === 'pct') return Math.round(base * (1 - d.valor / 100));
+      return Math.max(base - d.valor, 0);
+    };
+
+    const setDescuento = (companyId: string, field: string, value: any) => {
+      setDescuentos(prev => ({
+        ...prev,
+        [companyId]: { tipo: 'pct', valor: 0, meses: 1, ...(prev[companyId] || {}), [field]: value },
+      }));
+    };
+
+    const togglePagado = (id: string) => {
+      setPagados(prev => {
+        const n = new Set(prev);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+      });
+    };
+
+    const facturar = async (company: any) => {
+      if (!facturaConfig.factus_client_id || !facturaConfig.factus_username) {
+        toast.error('Configura tus credenciales de Factus primero'); setShowConfig(true); return;
+      }
+      const precio = PLAN_PRICES[company.subscription_plan] || 62000;
+      if (precio === 0) { toast.error('Plan sin precio configurado'); return; }
+
+      setFacturando(company.id);
+      try {
+        // 1. Obtener token OAuth de Factus
+        const base = facturaConfig.factus_env === 'production'
+          ? 'https://api.factus.com.co'
+          : 'https://api-sandbox.factus.com.co';
+
+        const tokenRes = await fetch(`${base}/oauth/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+          body: new URLSearchParams({
+            grant_type: 'password',
+            client_id: facturaConfig.factus_client_id,
+            client_secret: facturaConfig.factus_client_secret,
+            username: facturaConfig.factus_username,
+            password: facturaConfig.factus_password,
+          }),
+        });
+        if (!tokenRes.ok) { toast.error('Error al obtener token de Factus'); return; }
+        const { access_token } = await tokenRes.json();
+
+        // 2. Obtener rango de numeración activo
+        const rangosRes = await fetch(`${base}/v1/numbering-ranges?state=1`, {
+          headers: { 'Authorization': `Bearer ${access_token}`, 'Accept': 'application/json' },
+        });
+        const rangosData = await rangosRes.json();
+        const rangos = rangosData.data || rangosData || [];
+        const rango = rangos[0];
+        if (!rango?.id) { toast.error('No hay rango de numeración activo en Factus'); return; }
+
+        // 3. Armar payload de factura
+        const tieneNit = company.nit && company.nit.trim() !== '';
+        const docNum = tieneNit
+          ? company.nit.replace(/[^0-9]/g, '')
+          : '222222222222';
+
+        const payload = {
+          document: '01',
+          numbering_range_id: rango.id,
+          reference_code: `PM-${company.id.slice(0,8).toUpperCase()}`,
+          observation: `Mensualidad POSmaster - ${periodoLabel}`,
+          payment_form: '1',
+          payment_due_date: new Date().toISOString().split('T')[0],
+          payment_method_code: '10',
+          customer: {
+            identification: docNum,
+            dv: null,
+            company: tieneNit ? company.name : null,
+            trade_name: tieneNit ? company.name : null,
+            names: company.name,
+            address: company.address || 'Colombia',
+            email: company.email || 'sin-email@posmaster.org',
+            mobile: company.phone || null,
+            phone: company.phone || null,
+            type_document_identification_id: tieneNit ? 31 : 13,
+            type_organization_id: tieneNit ? 1 : 2,
+            municipality_id: 149,
+            type_regime_id: 2,
+            type_liability_id: 117,
+            type_currency_id: 35,
+          },
+          items: [{
+            code_reference: `POSMASTER-${company.subscription_plan}`,
+            name: `Suscripción POSmaster Plan ${company.subscription_plan} - ${periodoLabel}`,
+            quantity: 1,
+            discount_rate: '0.00',
+            price: (precio / 1.19).toFixed(6),
+            tax_rate: '19.00',
+            unit_measure_id: 70,
+            standard_code_id: 1,
+            is_excluded: 0,
+            taxes: [{ tax_rate_code: '19.00' }],
+          }],
+          withholding_taxes: [],
+        };
+
+        // 4. Enviar a Factus
+        const factRes = await fetch(`${base}/v1/bills/validate`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${access_token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const factData = await factRes.json();
+
+        if (!factRes.ok || factData.status === 'error') {
+          const errMsg = factData.message || factData.errors?.join(', ') || `Error ${factRes.status}`;
+          toast.error(`Error Factus: ${errMsg}`); return;
+        }
+
+        const bill = factData.data?.bill || factData.bill || factData.data || {};
+        const cufe = bill.cufe || bill.uuid || '';
+        const pdf_url = bill.public_url || bill.pdf_url || '';
+        const numero = bill.number || bill.bill_number || '';
+
+        setResultados(prev => ({ ...prev, [company.id]: { cufe, pdf_url, numero } }));
+        toast.success(`✅ Factura ${numero} emitida para ${company.name}`);
+
+        // 5. Registrar en audit_logs
+        await supabase.from('audit_logs').insert({
+          company_id: company.id,
+          action: 'FACTURA_MENSUALIDAD',
+          table_name: 'billing',
+          new_data: { cufe, pdf_url, numero, periodo: periodoLabel, plan: company.subscription_plan, valor: precio },
+        }).catch(() => {});
+
+      } catch (err: any) {
+        toast.error('Error de conexión: ' + err.message);
+      } finally {
+        setFacturando(null);
+      }
+    };
+
+    const facturarTodos = async () => {
+      const pendientes = clientesActivos.filter(c => pagados.has(c.id) && !resultados[c.id]);
+      if (pendientes.length === 0) { toast.error('Marca clientes como pagados primero'); return; }
+      for (const c of pendientes) await facturar(c);
+    };
+
+    const cargarHistorial = React.useCallback(async () => {
+      setLoadingHistorial(true);
+      const { data } = await supabase.from('audit_logs')
+        .select('*').eq('action', 'FACTURA_MENSUALIDAD')
+        .order('created_at', { ascending: false }).limit(50);
+      setHistorial(data || []);
+      setLoadingHistorial(false);
+    }, []);
+
+    React.useEffect(() => { if (subPanel === 'historial') cargarHistorial(); }, [subPanel, cargarHistorial]);
+
+    const borrarHistorial = async (id: string) => {
+      if (!window.confirm('¿Borrar este registro del historial?')) return;
+      await supabase.from('audit_logs').delete().eq('id', id);
+      cargarHistorial();
+      toast.success('Registro eliminado');
+    };
+
+    const generarCotizacion = (cot: typeof cotizaciones[0]) => {
+      const base = PLAN_PRICES[cot.company.subscription_plan] || 62000;
+      const total = cot.meses * base;
+      const descAmt = cot.descTipo === 'pct' ? Math.round(total * cot.descValor / 100) : cot.descValor;
+      const totalFinal = Math.max(total - descAmt, 0);
+      const iva = Math.round(totalFinal / 1.19 * 0.19);
+      const subtotal = totalFinal - iva;
+      const hoy = new Date().toLocaleDateString('es-CO');
+      const vence = new Date(Date.now() + 15 * 86400000).toLocaleDateString('es-CO');
+      const texto = `*COTIZACIÓN POSMASTER*\n━━━━━━━━━━━━━━━━━━━\n📋 *Cliente:* ${cot.company.name}\n📅 *Fecha:* ${hoy}\n⏰ *Válida hasta:* ${vence}\n━━━━━━━━━━━━━━━━━━━\n📦 *Plan:* ${cot.company.subscription_plan}\n🗓 *Meses:* ${cot.meses}\n💵 *Valor mensual:* ${fmt(base)}\n${descAmt > 0 ? `🏷 *Descuento:* -${fmt(descAmt)}\n` : ''}━━━━━━━━━━━━━━━━━━━\n💰 *Subtotal:* ${fmt(subtotal)}\n🧾 *IVA 19%:* ${fmt(iva)}\n✅ *TOTAL:* ${fmt(totalFinal)}\n━━━━━━━━━━━━━━━━━━━\n${cot.nota ? `📝 ${cot.nota}\n━━━━━━━━━━━━━━━━━━━\n` : ''}🌐 posmaster.org`;
+      return { texto, totalFinal };
+    };
+
+    const enviarCotWA = (cot: typeof cotizaciones[0]) => {
+      const { texto } = generarCotizacion(cot);
+      const phone = cot.company.phone?.replace(/\D/g,'') || WHATSAPP;
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(texto)}`, '_blank');
+    };
+
+    const enviarCotEmail = (cot: typeof cotizaciones[0]) => {
+      const { texto, totalFinal } = generarCotizacion(cot);
+      const subject = encodeURIComponent(`Cotización POSmaster - Plan ${cot.company.subscription_plan}`);
+      const body = encodeURIComponent(texto.replace(/\*/g, ''));
+      window.open(`mailto:${cot.company.email}?subject=${subject}&body=${body}`, '_blank');
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          {[
+            { label: 'Clientes activos', value: clientesActivos.length, color: '#3b82f6' },
+            { label: 'Marcados pagados', value: pagados.size, color: '#10b981' },
+            { label: 'Facturados hoy', value: Object.keys(resultados).length, color: '#8b5cf6' },
+            { label: 'Total a facturar', value: fmt(clientesActivos.filter(c => pagados.has(c.id)).reduce((s, c) => s + calcPrecio(c), 0)), color: '#f59e0b', isText: true },
+          ].map(({ label, value, color, isText }) => (
+            <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' as const }}>{label}</p>
+              <p style={{ margin: '6px 0 0', fontSize: isText ? 16 : 28, fontWeight: 800, color }}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Sub-navegación */}
+        <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 10, width: 'fit-content' }}>
+          {([['cobros','💳 Cobros'],['cotizaciones','📋 Cotizaciones'],['historial','🧾 Historial']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setSubPanel(k)}
+              style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                background: subPanel === k ? '#fff' : 'transparent',
+                color: subPanel === k ? '#0f172a' : '#64748b',
+                boxShadow: subPanel === k ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}>{label}</button>
+          ))}
+        </div>
+
+        {/* Config Factus — siempre visible */}
+        <div>
+          <button onClick={() => setShowConfig(!showConfig)} style={{ ...btn('gray'), fontSize: 12 }}>
+            ⚙️ {showConfig ? 'Ocultar' : 'Configurar'} credenciales Factus · Ambiente: {facturaConfig.factus_env}
+          </button>
+          {showConfig && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, marginTop: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {[
+                  { k: 'factus_client_id', label: 'Client ID' },
+                  { k: 'factus_client_secret', label: 'Client Secret' },
+                  { k: 'factus_username', label: 'Email Factus' },
+                  { k: 'factus_password', label: 'Contraseña Factus' },
+                  { k: 'mi_nit', label: 'Tu Cédula / NIT' },
+                ].map(({ k, label }) => (
+                  <div key={k}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>{label}</label>
+                    <input type={k.includes('secret') || k.includes('password') ? 'password' : 'text'}
+                      value={(facturaConfig as any)[k]}
+                      onChange={e => setFacturaConfig(p => ({ ...p, [k]: e.target.value }))}
+                      style={input()} placeholder={label} />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Ambiente</label>
+                  <select value={facturaConfig.factus_env} onChange={e => setFacturaConfig(p => ({ ...p, factus_env: e.target.value }))} style={input()}>
+                    <option value="sandbox">Sandbox (pruebas)</option>
+                    <option value="production">Producción (real)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── SUBPANEL: COBROS ──────────────────────────────────────────── */}
+        {subPanel === 'cobros' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={facturarTodos} style={{ ...btn('purple'), padding: '10px 20px', fontSize: 13 }}>
+                <Send size={14} /> Facturar todos los marcados ({pagados.size})
+              </button>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>Periodo: <strong style={{ color: '#0f172a' }}>{periodoLabel}</strong></span>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>{['Cliente','Plan','Meses','Descuento','Valor final','¿Pagó?','Factura','Acción'].map(h => <th key={h} style={hdr}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {clientesActivos.length === 0 ? (
+                    <tr><td colSpan={8} style={{ ...col, textAlign: 'center', padding: 40, color: '#94a3b8' }}>No hay clientes activos</td></tr>
+                  ) : clientesActivos.map(c => {
+                    const d = descuentos[c.id] || { tipo: 'pct', valor: 0, meses: 1 };
+                    const precioFinal = calcPrecio(c, d.meses);
+                    const precioBase = (PLAN_PRICES[c.subscription_plan] || 0) * d.meses;
+                    const marcado = pagados.has(c.id);
+                    const resultado = resultados[c.id];
+                    const estFacturando = facturando === c.id;
+                    return (
+                      <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9', background: marcado ? '#f0fdf4' : '' }}
+                        onMouseEnter={e => { if (!marcado) e.currentTarget.style.background = '#fafafa'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = marcado ? '#f0fdf4' : ''; }}>
+                        <td style={col}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13 }}>{c.name}</p>
+                          <p style={{ margin: '1px 0 0', fontSize: 11, color: '#94a3b8' }}>{c.nit || 'Sin NIT'} · {c.email || '—'}</p>
+                        </td>
+                        <td style={col}>
+                          <span style={{ ...pill('gray'), background: PLAN_COLOR[c.subscription_plan] + '20', color: PLAN_COLOR[c.subscription_plan] }}>{c.subscription_plan}</span>
+                        </td>
+                        {/* Meses */}
+                        <td style={col}>
+                          <input type="number" min={1} max={12} value={d.meses}
+                            onChange={e => setDescuento(c.id, 'meses', parseInt(e.target.value) || 1)}
+                            style={{ ...input(), width: 50, textAlign: 'center', padding: '4px 6px' }} />
+                        </td>
+                        {/* Descuento */}
+                        <td style={col}>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <select value={d.tipo} onChange={e => setDescuento(c.id, 'tipo', e.target.value)}
+                              style={{ ...input(), width: 55, padding: '4px 4px', fontSize: 11 }}>
+                              <option value="pct">%</option>
+                              <option value="val">$</option>
+                            </select>
+                            <input type="number" min={0} value={d.valor}
+                              onChange={e => setDescuento(c.id, 'valor', parseFloat(e.target.value) || 0)}
+                              style={{ ...input(), width: 70, padding: '4px 6px' }}
+                              placeholder={d.tipo === 'pct' ? '0%' : '$0'} />
+                          </div>
+                          {d.valor > 0 && (
+                            <p style={{ margin: '2px 0 0', fontSize: 10, color: '#ef4444' }}>-{fmt(precioBase - precioFinal)}</p>
+                          )}
+                        </td>
+                        {/* Valor final */}
+                        <td style={{ ...col, fontWeight: 800, color: '#0f172a' }}>
+                          {fmt(precioFinal)}
+                          {d.valor > 0 && <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textDecoration: 'line-through' }}>{fmt(precioBase)}</p>}
+                        </td>
+                        {/* Pagó */}
+                        <td style={col}>
+                          <button onClick={() => togglePagado(c.id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                              background: marcado ? '#dcfce7' : '#f1f5f9', color: marcado ? '#16a34a' : '#64748b' }}>
+                            {marcado ? <CheckCircle size={12} /> : <Clock size={12} />}
+                            {marcado ? 'Pagó ✓' : 'Pendiente'}
+                          </button>
+                        </td>
+                        {/* Factura emitida */}
+                        <td style={col}>
+                          {resultado ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>✅ #{resultado.numero}</span>
+                              <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>{fmt(resultado.valor)}</span>
+                              {resultado.pdf_url && (
+                                <a href={resultado.pdf_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#3b82f6', textDecoration: 'none' }}>📄 PDF</a>
+                              )}
+                              <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{resultado.cufe.slice(0,16)}...</span>
+                            </div>
+                          ) : <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>}
+                        </td>
+                        {/* Acciones */}
+                        <td style={col}>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
+                            {marcado && !resultado && (
+                              <button onClick={() => facturar(c)} disabled={!!estFacturando}
+                                style={{ ...btn('purple'), opacity: estFacturando ? 0.6 : 1 }}>
+                                {estFacturando ? '...' : <><Send size={11} /> Facturar</>}
+                              </button>
+                            )}
+                            {resultado?.pdf_url && (
+                              <a href={`https://wa.me/${c.phone?.replace(/\D/g,'') || WHATSAPP}?text=Hola ${c.name} 👋 Le enviamos la factura electrónica de su suscripción POSmaster (${periodoLabel}): ${resultado.pdf_url}`}
+                                target="_blank" rel="noreferrer" style={{ ...btn('green'), textDecoration: 'none' }}>💬</a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── SUBPANEL: COTIZACIONES ────────────────────────────────────── */}
+        {subPanel === 'cotizaciones' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <button onClick={() => setShowCotForm(!showCotForm)} style={{ ...btn('blue'), padding: '10px 20px', fontSize: 13, width: 'fit-content' }}>
+              <Plus size={14} /> Nueva cotización
+            </button>
+
+            {showCotForm && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 12px', fontWeight: 700, fontSize: 13 }}>Nueva cotización</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Cliente</label>
+                    <select value={cotForm.companyId} onChange={e => setCotForm(p => ({ ...p, companyId: e.target.value }))} style={input()}>
+                      <option value="">Seleccionar cliente...</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name} ({c.subscription_plan})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Meses</label>
+                    <input type="number" min={1} max={24} value={cotForm.meses}
+                      onChange={e => setCotForm(p => ({ ...p, meses: parseInt(e.target.value) || 1 }))} style={input()} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Tipo descuento</label>
+                    <select value={cotForm.descTipo} onChange={e => setCotForm(p => ({ ...p, descTipo: e.target.value as 'pct'|'val' }))} style={input()}>
+                      <option value="pct">Porcentaje (%)</option>
+                      <option value="val">Valor fijo ($)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>
+                      {cotForm.descTipo === 'pct' ? 'Descuento (%)' : 'Descuento ($)'}
+                    </label>
+                    <input type="number" min={0} value={cotForm.descValor}
+                      onChange={e => setCotForm(p => ({ ...p, descValor: parseFloat(e.target.value) || 0 }))} style={input()} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Nota adicional (opcional)</label>
+                    <input type="text" value={cotForm.nota} placeholder="Ej: 6 meses por confianza, incluye soporte prioritario"
+                      onChange={e => setCotForm(p => ({ ...p, nota: e.target.value }))} style={input()} />
+                  </div>
+                </div>
+                {cotForm.companyId && (() => {
+                  const cmp = companies.find(c => c.id === cotForm.companyId);
+                  if (!cmp) return null;
+                  const base = PLAN_PRICES[cmp.subscription_plan] || 0;
+                  const total = base * cotForm.meses;
+                  const desc = cotForm.descTipo === 'pct' ? Math.round(total * cotForm.descValor / 100) : cotForm.descValor;
+                  const final = Math.max(total - desc, 0);
+                  return (
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginTop: 10 }}>
+                      <p style={{ margin: 0, fontSize: 12, color: '#1e40af', fontWeight: 700 }}>
+                        Preview: {cmp.name} · {cotForm.meses} mes(es) · {fmt(base)}/mes
+                        {desc > 0 ? ` → -${fmt(desc)} descuento` : ''} = <strong>{fmt(final)}</strong>
+                      </p>
+                    </div>
+                  );
+                })()}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button onClick={() => {
+                    if (!cotForm.companyId) { toast.error('Selecciona un cliente'); return; }
+                    const cmp = companies.find(c => c.id === cotForm.companyId);
+                    if (!cmp) return;
+                    setCotizaciones(prev => [...prev, { id: Date.now().toString(), company: cmp, ...cotForm }]);
+                    setShowCotForm(false);
+                    setCotForm({ companyId: '', meses: 1, descTipo: 'pct', descValor: 0, nota: '' });
+                    toast.success('Cotización creada');
+                  }} style={{ ...btn('blue') }}><CheckCircle size={13} /> Crear cotización</button>
+                  <button onClick={() => setShowCotForm(false)} style={btn('gray')}>Cancelar</button>
+                </div>
+              </div>
+            )}
+
+            {cotizaciones.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                <p style={{ fontSize: 32, margin: '0 0 8px' }}>📋</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>No hay cotizaciones</p>
+                <p style={{ margin: '4px 0 0', fontSize: 13 }}>Crea una para enviarla por WhatsApp o email</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {cotizaciones.map(cot => {
+                  const base = PLAN_PRICES[cot.company.subscription_plan] || 0;
+                  const total = base * cot.meses;
+                  const desc = cot.descTipo === 'pct' ? Math.round(total * cot.descValor / 100) : cot.descValor;
+                  const final = Math.max(total - desc, 0);
+                  return (
+                    <div key={cot.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{cot.company.name}</p>
+                        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+                          Plan {cot.company.subscription_plan} · {cot.meses} mes(es)
+                          {desc > 0 ? ` · Descuento ${cot.descTipo === 'pct' ? cot.descValor + '%' : fmt(desc)}` : ''}
+                          {cot.nota ? ` · ${cot.nota}` : ''}
+                        </p>
+                        <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{fmt(final)}</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => enviarCotWA(cot)} style={{ ...btn('green') }}>💬 WhatsApp</button>
+                        <button onClick={() => enviarCotEmail(cot)} style={{ ...btn('blue') }}>✉️ Email</button>
+                        <button onClick={() => setCotizaciones(prev => prev.filter(x => x.id !== cot.id))} style={btn('red')}><Trash2 size={11} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SUBPANEL: HISTORIAL ───────────────────────────────────────── */}
+        {subPanel === 'historial' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Últimas 50 facturas emitidas desde Cobros</p>
+              <button onClick={cargarHistorial} style={btn('gray')}><RefreshCw size={12} /> Actualizar</button>
+            </div>
+            {loadingHistorial ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Cargando...</div>
+            ) : historial.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                <p style={{ fontSize: 32, margin: '0 0 8px' }}>🧾</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>No hay facturas emitidas aún</p>
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>{['#Factura','Cliente','Plan','Periodo','Valor','CUFE','PDF','Fecha','Borrar'].map(h => <th key={h} style={hdr}>{h}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {historial.map(h => {
+                      const d = h.new_data || {};
+                      const cmp = companies.find(c => c.id === h.company_id);
+                      return (
+                        <tr key={h.id} style={{ borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                          onMouseLeave={e => e.currentTarget.style.background = ''}>
+                          <td style={{ ...col, fontWeight: 700, color: '#7c3aed' }}>#{d.numero || '—'}</td>
+                          <td style={col}>
+                            <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{d.cliente || cmp?.name || '—'}</p>
+                            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>{cmp?.nit || cmp?.email || ''}</p>
+                          </td>
+                          <td style={col}>
+                            <span style={{ ...pill('gray'), background: PLAN_COLOR[d.plan] + '20', color: PLAN_COLOR[d.plan] }}>{d.plan}</span>
+                          </td>
+                          <td style={{ ...col, fontSize: 12 }}>{d.periodo || '—'}</td>
+                          <td style={{ ...col, fontWeight: 700 }}>{d.valor ? fmt(d.valor) : '—'}</td>
+                          <td style={{ ...col, fontSize: 10, fontFamily: 'monospace', color: '#94a3b8', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {d.cufe ? `${d.cufe.slice(0,20)}...` : '—'}
+                          </td>
+                          <td style={col}>
+                            {d.pdf_url ? (
+                              <a href={d.pdf_url} target="_blank" rel="noreferrer" style={{ ...btn('blue'), textDecoration: 'none', fontSize: 11 }}>📄 PDF</a>
+                            ) : '—'}
+                          </td>
+                          <td style={{ ...col, fontSize: 11, color: '#64748b' }}>
+                            {h.created_at ? new Date(h.created_at).toLocaleDateString('es-CO') : '—'}
+                          </td>
+                          <td style={col}>
+                            <button onClick={() => borrarHistorial(h.id)} style={btn('red')} title="Borrar (solo pruebas)">
+                              <Trash2 size={11} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    );
+  };
+
   // ── SETTINGS PANEL ─────────────────────────────────────────────────────────
   const SettingsPanel = () => (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
@@ -712,6 +1312,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         <div style={{ padding: 28 }}>
           {panel === 'overview'  && <OverviewPanel />}
           {panel === 'companies' && <CompaniesPanel />}
+          {panel === 'billing'   && <BillingPanel />}
           {panel === 'contracts' && <ContractsPanel />}
           {panel === 'settings'  && <SettingsPanel />}
         </div>
