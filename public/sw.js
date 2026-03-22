@@ -5,7 +5,7 @@
 // y mostrar una página offline útil si no hay conexión.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'posmaster-v1';
+const CACHE_NAME = 'posmaster-v2';
 const OFFLINE_URL = '/offline.html';
 
 // Assets que se cachean al instalar
@@ -48,12 +48,16 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // No interceptar: llamadas a Supabase, APIs externas, extensiones
+  // No interceptar: llamadas a Supabase, APIs externas, fuentes, extensiones
   if (
     url.hostname.includes('supabase.co') ||
     url.hostname.includes('factus.com.co') ||
     url.hostname.includes('fonts.googleapis.com') ||
+    url.hostname.includes('fonts.gstatic.com') ||
     url.hostname.includes('cdn.tailwindcss.com') ||
+    url.hostname.includes('paypal.com') ||
+    url.hostname.includes('paypalobjects.com') ||
+    url.hostname.includes('bold.co') ||
     url.protocol === 'chrome-extension:' ||
     request.method !== 'GET'
   ) {
