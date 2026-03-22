@@ -176,7 +176,7 @@ const UserMgmtModal: React.FC<{ company: any; onClose: () => void }> = ({ compan
 };
 
 // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
-type Panel = 'overview' | 'companies' | 'contracts' | 'settings' | 'billing';
+type Panel = 'overview' | 'companies' | 'contracts' | 'settings' | 'billing' | 'features';
 
 const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string) => void }> = ({ onExit, onPreview }) => {
   const [panel, setPanel] = useState<Panel>('overview');
@@ -406,6 +406,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     { key: 'overview',   label: 'Dashboard',       icon: <LayoutDashboard size={16} /> },
     { key: 'companies',  label: 'Clientes',         icon: <Building2 size={16} />, badge: companies.length },
     { key: 'billing',    label: 'Cobros',           icon: <Receipt size={16} />,   badge: companies.filter(c => c.subscription_status === 'PAST_DUE' || c.subscription_status === 'PENDING').length || undefined },
+    { key: 'features',   label: 'Features',         icon: <Zap size={16} /> },
     { key: 'contracts',  label: 'Contratos',        icon: <FileText size={16} />,  badge: signed },
     { key: 'settings',   label: 'Configuración',    icon: <DollarSign size={16} /> },
   ];
@@ -588,6 +589,291 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     </div>
   );
 
+  // ── FEATURES PANEL ─────────────────────────────────────────────────────────
+  const FeaturesPanel = () => {
+    const LOGO_URL = 'https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/logo.png';
+    const FIRMA_URL = 'https://wdaabpbpxbbfhurvjvwj.supabase.co/storage/v1/object/public/company-logos/firma_diego.png';
+    const CONTACTO = { email: 'info@posmaster.org', tel: '3204884943', web: 'posmaster.org' };
+
+    const cats = [...new Set(FEATURE_DEFS.map(f => f.cat))];
+    const [selectedFeature, setSelectedFeature] = React.useState<string | null>(null);
+    const [generandoImg, setGenerandoImg] = React.useState(false);
+    const [saving, setSaving] = React.useState(false);
+    const [modoEdicion, setModoEdicion] = React.useState(false);
+
+    // Estado editable de planes por feature — inicializa desde FEATURE_DEFS
+    // y luego sobreescribe con lo que haya en platform_settings
+    const [planMatrix, setPlanMatrix] = React.useState<Record<string, string[]>>(() => {
+      const m: Record<string, string[]> = {};
+      FEATURE_DEFS.forEach(f => {
+        // Intentar leer de pricingData si ya estaba guardado
+        const saved = (pricingData as any)[`feature_plans_${f.id}`];
+        m[f.id] = saved ? saved.split(',') : [...f.defaultPlans];
+      });
+      return m;
+    });
+
+    const togglePlan = (featureId: string, plan: string) => {
+      setPlanMatrix(prev => {
+        const current = prev[featureId] || [];
+        const next = current.includes(plan)
+          ? current.filter(p => p !== plan)
+          : [...current, plan];
+        return { ...prev, [featureId]: next };
+      });
+    };
+
+    const guardarCambios = async () => {
+      setSaving(true);
+      for (const [featureId, plans] of Object.entries(planMatrix)) {
+        await supabase.from('platform_settings').upsert(
+          { key: `feature_plans_${featureId}`, value: plans.join(','), category: 'features' },
+          { onConflict: 'key' }
+        );
+      }
+      // Actualizar pricingData local para reflejar cambios
+      const updates: Record<string,string> = {};
+      Object.entries(planMatrix).forEach(([id, plans]) => {
+        updates[`feature_plans_${id}`] = plans.join(',');
+      });
+      setPricingData((p: any) => ({ ...p, ...updates }));
+      setSaving(false);
+      setModoEdicion(false);
+      toast.success('✅ Configuración de features guardada');
+    };
+
+    const resetearDefaults = () => {
+      if (!window.confirm('¿Restaurar configuración original de todas las features?')) return;
+      const m: Record<string, string[]> = {};
+      FEATURE_DEFS.forEach(f => { m[f.id] = [...f.defaultPlans]; });
+      setPlanMatrix(m);
+    };
+
+
+    // Cuántos clientes tienen cada feature activa
+    const featureStats = FEATURE_DEFS.map(fd => ({
+      ...fd,
+      activePlans: planMatrix[fd.id] || fd.defaultPlans,
+      activos: companies.filter(c => c.feature_flags?.[fd.id] === true).length,
+      total: companies.filter(c => c.subscription_plan !== 'TRIAL').length,
+    }));
+
+    // Generar imagen de cotización de feature para compartir
+    const generarImagenFeature = (feat: typeof FEATURE_DEFS[0]) => {
+      setGenerandoImg(true);
+      const html = `
+        <html><head><meta charset="UTF-8">
+        <style>
+          body { margin:0; font-family:'Segoe UI',sans-serif; background:#0f172a; }
+          .card { width:800px; padding:48px; background:linear-gradient(135deg,#1e293b,#0f172a); color:#fff; }
+          .logo { height:48px; margin-bottom:32px; }
+          .badge { display:inline-block; background:#3b82f6; color:#fff; padding:6px 16px; border-radius:20px; font-size:12px; font-weight:700; margin-bottom:16px; text-transform:uppercase; letter-spacing:1px; }
+          .title { font-size:36px; font-weight:800; margin:0 0 16px; line-height:1.2; }
+          .desc { font-size:16px; color:#94a3b8; margin:0 0 32px; line-height:1.6; }
+          .plans { display:flex; gap:12px; margin-bottom:32px; }
+          .plan { padding:8px 16px; border-radius:8px; font-size:13px; font-weight:700; }
+          .footer { display:flex; align-items:center; justify-content:space-between; border-top:1px solid #334155; padding-top:24px; }
+          .contact { color:#64748b; font-size:13px; }
+          .firma { height:40px; opacity:0.8; }
+        </style></head>
+        <body><div class="card">
+          <img src="${LOGO_URL}" class="logo" crossorigin="anonymous"/>
+          <div class="badge">${feat.cat}</div>
+          <h1 class="title">${feat.label}</h1>
+          <p class="desc">Disponible en los planes:</p>
+          <div class="plans">
+            ${['BASIC','PRO','ENTERPRISE'].map(p => `
+              <div class="plan" style="background:${(planMatrix[feat.id] || feat.defaultPlans).includes(p) ? '#16a34a20;color:#4ade80;border:1px solid #16a34a' : '#ef444420;color:#f87171;border:1px solid #ef4444'}">
+                ${(planMatrix[feat.id] || feat.defaultPlans).includes(p) ? '✅' : '❌'} ${p}
+              </div>`).join('')}
+          </div>
+          <div class="footer">
+            <div class="contact">${CONTACTO.email} · ${CONTACTO.tel} · ${CONTACTO.web}</div>
+            <img src="${FIRMA_URL}" class="firma" crossorigin="anonymous"/>
+          </div>
+        </div></body></html>`;
+      const w = window.open('', '_blank', 'width=900,height=600');
+      if (w) { w.document.write(html); w.document.close(); setTimeout(() => { w.print(); setGenerandoImg(false); }, 800); }
+      else setGenerandoImg(false);
+    };
+
+    const generarCotizacionFeature = (feat: typeof FEATURE_DEFS[0], modo: 'wa' | 'img' = 'wa') => {
+      if (modo === 'img') {
+        const catColor: Record<string,string> = { Ventas:'#3b82f6', Inventario:'#10b981', Finanzas:'#f59e0b', Módulos:'#8b5cf6', Marketing:'#ef4444' };
+        const color = catColor[feat.cat] || '#3b82f6';
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+            *{box-sizing:border-box;margin:0;padding:0;}
+            body{font-family:'Inter',sans-serif;background:#f1f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
+            .card{width:600px;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:24px;overflow:hidden;box-shadow:0 25px 50px rgba(0,0,0,0.3);}
+            .header{padding:36px 36px 0;display:flex;align-items:center;justify-content:space-between;}
+            .logo{height:40px;object-fit:contain;}
+            .badge{background:${color};color:#fff;padding:6px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+            .body{padding:28px 36px 36px;}
+            .title{font-size:30px;font-weight:900;color:#fff;margin-bottom:10px;line-height:1.2;}
+            .subtitle{font-size:14px;color:#94a3b8;margin-bottom:24px;line-height:1.5;}
+            .plans{display:flex;gap:8px;margin-bottom:28px;}
+            .plan-on{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.3);}
+            .plan-off{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.2);}
+            .divider{height:1px;background:rgba(255,255,255,0.08);margin-bottom:20px;}
+            .footer{display:flex;align-items:center;justify-content:space-between;}
+            .contact{color:#64748b;font-size:12px;line-height:1.9;}
+            .contact strong{color:#94a3b8;}
+            .firma{height:40px;opacity:0.7;object-fit:contain;}
+            @media print{body{background:#fff;padding:0;}.card{box-shadow:none;border-radius:0;width:100%;}}
+          </style></head>
+          <body><div class="card">
+            <div class="header">
+              <img src="${LOGO_URL}" class="logo" crossorigin="anonymous"/>
+              <span class="badge">${feat.cat}</span>
+            </div>
+            <div class="body">
+              <h1 class="title">${feat.label}</h1>
+              <p class="subtitle">Funcionalidad disponible en POSmaster para potenciar la gestión de tu negocio colombiano.</p>
+              <div class="plans">
+                ${'BASIC,PRO,ENTERPRISE'.split(',').map(p => `<div class="${(planMatrix[feat.id] || feat.defaultPlans).includes(p) ? 'plan-on' : 'plan-off'}">${feat.defaultPlans.includes(p) ? '✓' : '✗'} ${p}</div>`).join('')}
+              </div>
+              <div class="divider"></div>
+              <div class="footer">
+                <div class="contact">
+                  <strong>POSmaster</strong><br/>
+                  📧 ${CONTACTO.email}<br/>
+                  📱 ${CONTACTO.tel} &nbsp;|&nbsp; 🌐 ${CONTACTO.web}
+                </div>
+                <img src="${FIRMA_URL}" class="firma" crossorigin="anonymous"/>
+              </div>
+            </div>
+          </div></body></html>`;
+        const w = window.open('', '_blank', 'width=700,height=550');
+        if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 800); }
+        return;
+      }
+      const texto = `✨ *${feat.label}* — POSmaster\n━━━━━━━━━━━━━━━━━━━\n📂 Categoría: ${feat.cat}\n✅ Planes: ${(planMatrix[feat.id] || feat.defaultPlans).filter(p => p !== 'TRIAL').join(', ')}\n\n¿Quieres activar esta función?\n📧 ${CONTACTO.email}\n📱 ${CONTACTO.tel}\n🌐 ${CONTACTO.web}`;
+      window.open(`https://wa.me/${CONTACTO.tel}?text=${encodeURIComponent(texto)}`, '_blank');
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 18, color: '#0f172a' }}>Features del sistema</p>
+            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>{FEATURE_DEFS.length} funciones · Configura qué plans incluyen cada feature</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {modoEdicion ? (
+              <>
+                <button onClick={resetearDefaults} style={{ ...btn('gray'), fontSize: 12 }}>↺ Restaurar</button>
+                <button onClick={() => setModoEdicion(false)} style={{ ...btn('gray'), fontSize: 12 }}>Cancelar</button>
+                <button onClick={guardarCambios} disabled={saving}
+                  style={{ ...btn('dark'), fontSize: 12, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Guardando...' : '💾 Guardar cambios'}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setModoEdicion(true)} style={{ ...btn('blue'), fontSize: 12 }}>
+                ✏️ Editar planes por feature
+              </button>
+            )}
+          </div>
+        </div>
+
+        {modoEdicion && (
+          <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 10, padding: '10px 16px', fontSize: 13, color: '#854d0e' }}>
+            💡 Haz click en los planes de cada feature para activar o desactivar. Los cambios afectan los <strong>nuevos clientes</strong> que se creen. Los clientes existentes mantienen su configuración actual.
+          </div>
+        )}
+
+        {/* Stats rápidas */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+          {[
+            { label: 'Total features', value: FEATURE_DEFS.length, color: '#3b82f6' },
+            { label: 'Categorías', value: cats.length, color: '#8b5cf6' },
+            { label: 'Solo Enterprise', value: FEATURE_DEFS.filter(f => f.defaultPlans.length === 1 && f.defaultPlans[0] === 'ENTERPRISE').length, color: '#f59e0b' },
+            { label: 'Disponibles en BASIC', value: FEATURE_DEFS.filter(f => f.defaultPlans.includes('BASIC')).length, color: '#10b981' },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' as const }}>{label}</p>
+              <p style={{ margin: '6px 0 0', fontSize: 28, fontWeight: 800, color }}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Lista por categoría */}
+        {cats.map(cat => (
+          <div key={cat} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Zap size={14} style={{ color: '#8b5cf6' }} />
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#0f172a' }}>{cat}</p>
+              <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>({FEATURE_DEFS.filter(f => f.cat === cat).length} features)</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>{['Feature','TRIAL','BASIC','PRO','ENTERPRISE','Clientes activos','Acciones'].map(h => <th key={h} style={hdr}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {featureStats.filter(f => f.cat === cat).map(feat => (
+                  <tr key={feat.id} style={{ borderBottom: '1px solid #f1f5f9' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <td style={col}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{feat.label}</p>
+                      <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{feat.id}</p>
+                    </td>
+                    {['TRIAL','BASIC','PRO','ENTERPRISE'].map(plan => (
+                      <td key={plan} style={{ ...col, textAlign: 'center' as const }}>
+                        {modoEdicion ? (
+                          <button
+                            onClick={() => togglePlan(feat.id, plan)}
+                            style={{
+                              width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 16,
+                              background: feat.activePlans.includes(plan) ? '#dcfce7' : '#f1f5f9',
+                              color: feat.activePlans.includes(plan) ? '#16a34a' : '#94a3b8',
+                              transition: 'all 0.15s',
+                            }}
+                            title={feat.activePlans.includes(plan) ? `Quitar de ${plan}` : `Agregar a ${plan}`}>
+                            {feat.activePlans.includes(plan) ? '✓' : '−'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 16 }}>{feat.activePlans.includes(plan) ? '✅' : '—'}</span>
+                        )}
+                      </td>
+                    ))}
+                    <td style={col}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', background: '#3b82f6', borderRadius: 3, width: feat.total > 0 ? `${(feat.activos / feat.total) * 100}%` : '0%' }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' as const }}>{feat.activos}/{feat.total}</span>
+                      </div>
+                    </td>
+                    <td style={col}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => generarImagenFeature(feat)} disabled={generandoImg}
+                          style={{ ...btn('purple'), fontSize: 11 }} title="Generar imagen para compartir">
+                          🖼️ Imagen
+                        </button>
+                        <button onClick={() => generarCotizacionFeature(feat, 'img')}
+                          style={{ ...btn('blue'), fontSize: 11 }} title="Generar imagen de cotización">
+                          📄 Cot.
+                        </button>
+                        <button onClick={() => generarCotizacionFeature(feat, 'wa')}
+                          style={{ ...btn('green'), fontSize: 11 }} title="Compartir por WhatsApp">
+                          💬 WA
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   // ── BILLING PANEL ──────────────────────────────────────────────────────────
   const BillingPanel = () => {
     const PLAN_PRICES: Record<string, number> = {
@@ -633,7 +919,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       id: string; company: any; meses: number; descTipo: 'pct'|'val'; descValor: number; nota: string;
     }>>([]);
     const [showCotForm, setShowCotForm] = React.useState(false);
-    const [cotForm, setCotForm] = React.useState({ companyId: '', meses: 1, descTipo: 'pct' as 'pct'|'val', descValor: 0, nota: '' });
+    const [cotForm, setCotForm] = React.useState({ companyId: '', plan: '' as string, meses: 1, descTipo: 'pct' as 'pct'|'val', descValor: 0, nota: '' });
 
     const clientesActivos = companies.filter(c => c.subscription_plan !== 'TRIAL');
     const fmt = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
@@ -809,7 +1095,8 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     };
 
     const generarCotizacion = (cot: typeof cotizaciones[0]) => {
-      const base = PLAN_PRICES[cot.company.subscription_plan] || 62000;
+      const planCot = (cot as any).plan || cot.company.subscription_plan;
+      const base = PLAN_PRICES[planCot] || 62000;
       const total = cot.meses * base;
       const descAmt = cot.descTipo === 'pct' ? Math.round(total * cot.descValor / 100) : cot.descValor;
       const totalFinal = Math.max(total - descAmt, 0);
@@ -817,7 +1104,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       const subtotal = totalFinal - iva;
       const hoy = new Date().toLocaleDateString('es-CO');
       const vence = new Date(Date.now() + 15 * 86400000).toLocaleDateString('es-CO');
-      const texto = `*COTIZACIÓN POSMASTER*\n━━━━━━━━━━━━━━━━━━━\n📋 *Cliente:* ${cot.company.name}\n📅 *Fecha:* ${hoy}\n⏰ *Válida hasta:* ${vence}\n━━━━━━━━━━━━━━━━━━━\n📦 *Plan:* ${cot.company.subscription_plan}\n🗓 *Meses:* ${cot.meses}\n💵 *Valor mensual:* ${fmt(base)}\n${descAmt > 0 ? `🏷 *Descuento:* -${fmt(descAmt)}\n` : ''}━━━━━━━━━━━━━━━━━━━\n💰 *Subtotal:* ${fmt(subtotal)}\n🧾 *IVA 19%:* ${fmt(iva)}\n✅ *TOTAL:* ${fmt(totalFinal)}\n━━━━━━━━━━━━━━━━━━━\n${cot.nota ? `📝 ${cot.nota}\n━━━━━━━━━━━━━━━━━━━\n` : ''}🌐 posmaster.org`;
+      const texto = `*COTIZACIÓN POSMASTER*\n━━━━━━━━━━━━━━━━━━━\n📋 *Cliente:* ${cot.company.name}\n📅 *Fecha:* ${hoy}\n⏰ *Válida hasta:* ${vence}\n━━━━━━━━━━━━━━━━━━━\n📦 *Plan:* ${planCot}\n🗓 *Meses:* ${cot.meses}\n💵 *Valor mensual:* ${fmt(base)}\n${descAmt > 0 ? `🏷 *Descuento:* -${fmt(descAmt)}\n` : ''}━━━━━━━━━━━━━━━━━━━\n💰 *Subtotal:* ${fmt(subtotal)}\n🧾 *IVA 19%:* ${fmt(iva)}\n✅ *TOTAL:* ${fmt(totalFinal)}\n━━━━━━━━━━━━━━━━━━━\n${cot.nota ? `📝 ${cot.nota}\n━━━━━━━━━━━━━━━━━━━\n` : ''}🌐 posmaster.org`;
       return { texto, totalFinal };
     };
 
@@ -1021,9 +1308,20 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Cliente</label>
-                    <select value={cotForm.companyId} onChange={e => setCotForm(p => ({ ...p, companyId: e.target.value }))} style={input()}>
+                    <select value={cotForm.companyId} onChange={e => {
+                      const cmp = companies.find(c => c.id === e.target.value);
+                      setCotForm(p => ({ ...p, companyId: e.target.value, plan: cmp?.subscription_plan || 'BASIC' }));
+                    }} style={input()}>
                       <option value="">Seleccionar cliente...</option>
-                      {companies.map(c => <option key={c.id} value={c.id}>{c.name} ({c.subscription_plan})</option>)}
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Plan a cotizar</label>
+                    <select value={cotForm.plan || 'BASIC'} onChange={e => setCotForm(p => ({ ...p, plan: e.target.value }))} style={input()}>
+                      {['BASIC','PRO','ENTERPRISE'].map(pl => (
+                        <option key={pl} value={pl}>{pl} — {fmt(PLAN_PRICES[pl] || 0)}/mes</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -1054,14 +1352,15 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                 {cotForm.companyId && (() => {
                   const cmp = companies.find(c => c.id === cotForm.companyId);
                   if (!cmp) return null;
-                  const base = PLAN_PRICES[cmp.subscription_plan] || 0;
+                  const planCot = cotForm.plan || cmp.subscription_plan;
+                  const base = PLAN_PRICES[planCot] || 0;
                   const total = base * cotForm.meses;
                   const desc = cotForm.descTipo === 'pct' ? Math.round(total * cotForm.descValor / 100) : cotForm.descValor;
                   const final = Math.max(total - desc, 0);
                   return (
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginTop: 10 }}>
                       <p style={{ margin: 0, fontSize: 12, color: '#1e40af', fontWeight: 700 }}>
-                        Preview: {cmp.name} · {cotForm.meses} mes(es) · {fmt(base)}/mes
+                        Preview: {cmp.name} · Plan {planCot} · {cotForm.meses} mes(es) · {fmt(base)}/mes
                         {desc > 0 ? ` → -${fmt(desc)} descuento` : ''} = <strong>{fmt(final)}</strong>
                       </p>
                     </div>
@@ -1072,9 +1371,10 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                     if (!cotForm.companyId) { toast.error('Selecciona un cliente'); return; }
                     const cmp = companies.find(c => c.id === cotForm.companyId);
                     if (!cmp) return;
-                    setCotizaciones(prev => [...prev, { id: Date.now().toString(), company: cmp, ...cotForm }]);
+                    const planFinal = cotForm.plan || cmp.subscription_plan;
+                    setCotizaciones(prev => [...prev, { id: Date.now().toString(), company: { ...cmp, subscription_plan: planFinal }, ...cotForm, plan: planFinal }]);
                     setShowCotForm(false);
-                    setCotForm({ companyId: '', meses: 1, descTipo: 'pct', descValor: 0, nota: '' });
+                    setCotForm({ companyId: '', plan: '', meses: 1, descTipo: 'pct', descValor: 0, nota: '' });
                     toast.success('Cotización creada');
                   }} style={{ ...btn('blue') }}><CheckCircle size={13} /> Crear cotización</button>
                   <button onClick={() => setShowCotForm(false)} style={btn('gray')}>Cancelar</button>
@@ -1299,7 +1599,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '0 28px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10 }}>
           <div>
             <h2 style={{ margin: 0, fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
-              {panel === 'overview' ? 'Dashboard' : panel === 'companies' ? `Clientes (${filtered.length})` : panel === 'contracts' ? `Contratos (${contracts.length})` : 'Configuración de plataforma'}
+              {panel === 'overview' ? 'Dashboard' : panel === 'companies' ? `Clientes (${filtered.length})` : panel === 'contracts' ? `Contratos (${contracts.length})` : panel === 'billing' ? 'Cobros y Facturación' : panel === 'features' ? 'Features del sistema' : 'Configuración de plataforma'}
             </h2>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1314,6 +1614,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           {panel === 'companies' && <CompaniesPanel />}
           {panel === 'billing'   && <BillingPanel />}
           {panel === 'contracts' && <ContractsPanel />}
+          {panel === 'features'  && <FeaturesPanel />}
           {panel === 'settings'  && <SettingsPanel />}
         </div>
       </main>
