@@ -32,7 +32,10 @@
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'; worker-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.paypal.com https://www.paypalobjects.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.factus.com.co https://api-sandbox.factus.com.co https://checkout.bold.co https://wa.me https://api.wa.me; frame-src https://www.paypal.com https://checkout.bold.co; frame-ancestors 'none';"
-        }
+        },
+        { "key": "Cross-Origin-Embedder-Policy", "value": "unsafe-none" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" }
       ]
     }
   ]
