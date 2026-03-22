@@ -79,24 +79,30 @@ const BotonFacturaDian: React.FC<Props> = ({
 
   async function handleEmitir() {
     const label = tipo === 'POS' ? 'documento POS' : 'factura electrónica';
-    const confirm = window.confirm(
+    const confirmar = window.confirm(
       `¿Enviar ${label} ${invoiceNumber ? `#${invoiceNumber}` : ''} a la DIAN?\n\n` +
       `Esta acción genera un documento legal. Una vez enviado no puede modificarse.`
     );
-    if (!confirm) return;
+    if (!confirmar) return;
 
     setLoading(true);
-    const res = await emitirFacturaElectronica(invoiceId, tipo);
-    setLoading(false);
+    try {
+      const res = await emitirFacturaElectronica(invoiceId, tipo);
 
-    if (res.success && res.cufe) {
-      setResultado({ cufe: res.cufe, pdf_url: res.pdf_url });
-      toast.success(`✅ ${res.message || 'Factura enviada a DIAN'}`);
-      if (res.pdf_url) window.open(res.pdf_url, '_blank');
-      onSuccess?.(res.cufe, res.pdf_url || '');
-    } else {
-      toast.error(`Error DIAN: ${res.error}`);
-      console.error('[BotonFacturaDian]', res.detail);
+      if (res.success && res.cufe) {
+        setResultado({ cufe: res.cufe, pdf_url: res.pdf_url });
+        toast.success(`✅ ${res.message || 'Factura enviada a DIAN'}`);
+        if (res.pdf_url) window.open(res.pdf_url, '_blank');
+        onSuccess?.(res.cufe, res.pdf_url || '');
+      } else {
+        toast.error(`Error DIAN: ${res.error || 'Error desconocido'}`);
+        console.error('[BotonFacturaDian]', res.detail);
+      }
+    } catch (err: any) {
+      toast.error('Error de conexión. Verifica tu internet e intenta de nuevo.');
+      console.error('[BotonFacturaDian] Error de red:', err);
+    } finally {
+      setLoading(false);
     }
   }
 
