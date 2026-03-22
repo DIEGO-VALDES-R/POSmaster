@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>POSmaster - Sistema POS Inteligente</title>
-
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#4F46E5" />
@@ -15,39 +14,19 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
-
     <!-- SEO / Open Graph -->
     <meta name="description" content="Sistema POS inteligente para negocios colombianos. Ventas, inventario, facturación electrónica DIAN." />
     <meta name="application-name" content="POSmaster" />
-
-    <!-- Google Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <!-- Tailwind via CDN (temporal, luego podemos migrarlo a PostCSS si quieres producción seria) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              primary: '#0f172a',
-              secondary: '#3b82f6',
-              accent: '#f59e0b',
-              success: '#10b981',
-              danger: '#ef4444',
-            }
-          }
-        }
-      }
-    </script>
-
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Tailwind compilado por Vite — NO usar CDN en producción -->
     <style>
       body {
         font-family: 'Inter', sans-serif;
         background-color: #f1f5f9;
       }
-
       /* Custom Scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
@@ -55,13 +34,10 @@
       ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
   </head>
-
   <body>
     <div id="root"></div>
-
-    <!-- IMPORTANTE: Entry point de Vite -->
+    <!-- Entry point de Vite -->
     <script type="module" src="/index.tsx"></script>
-
     <!-- Registrar Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
