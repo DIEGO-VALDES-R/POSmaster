@@ -145,6 +145,12 @@ export interface Product {
   price_per_unit?: number;  // precio por kg o lb
   stock_min_weight?: number; // alerta cuando stock (en g) baja de este valor
   plu_code?: string;         // código corto para POS ej: "F1", "P23"
+  // ── Campos de descuento por producto ──
+  discount_type?: 'pct' | 'value' | null;
+  discount_pct?: number;
+  discount_value?: number;
+  discount_expires_at?: string | null;
+  discount_label?: string | null;
 }
 
 export interface Customer {

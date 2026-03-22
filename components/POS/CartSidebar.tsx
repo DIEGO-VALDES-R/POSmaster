@@ -104,12 +104,22 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
                   </p>
                 )}
                 <span className="text-xs text-slate-500">
-                  {formatMoney(item.price)} x {item.quantity}
+                  {(item.discount || 0) > 0 ? (
+                    <>
+                      <span className="line-through text-slate-400">{formatMoney(item.price)}</span>
+                      {' '}
+                      <span className="text-emerald-600 font-semibold">{formatMoney(item.price - (item.discount || 0))}</span>
+                      {' '}x {item.quantity}
+                      {' '}<span className="text-orange-500">🏷️</span>
+                    </>
+                  ) : (
+                    <>{formatMoney(item.price)} x {item.quantity}</>
+                  )}
                 </span>
               </div>
               <div className="flex flex-col items-end gap-2">
                 <span className="font-bold text-sm">
-                  {formatMoney(item.price * item.quantity)}
+                  {formatMoney((item.price - (item.discount || 0)) * item.quantity)}
                 </span>
                 <div className="flex items-center gap-1">
                   <button

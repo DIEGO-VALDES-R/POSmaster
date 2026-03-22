@@ -8,6 +8,23 @@ interface UseCartOptions {
   defaultTaxRate: number;
 }
 
+// ── Calcula el descuento automático de un producto ────────────────────────────
+function calcularDescuentoProducto(product: Product): number {
+  const hoy = new Date();
+  const expires = product.discount_expires_at ? new Date(product.discount_expires_at) : null;
+
+  // Si tiene fecha de vencimiento y ya venció, no aplica
+  if (expires && expires < hoy) return 0;
+
+  if (product.discount_type === 'pct' && (product.discount_pct ?? 0) > 0) {
+    return Math.round(product.price * ((product.discount_pct ?? 0) / 100));
+  }
+  if (product.discount_type === 'value' && (product.discount_value ?? 0) > 0) {
+    return Math.min(product.discount_value ?? 0, product.price);
+  }
+  return 0;
+}
+
 export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [variantPending, setVariantPending] = useState<Product | null>(null);
@@ -46,6 +63,9 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
       ? `${product.id}__${variantOverride.id}`
       : product.id;
 
+    // ── Calcular descuento automático del producto ──────────────
+    const descuentoAuto = calcularDescuentoProducto(effectiveProduct);
+
     if (effectiveProduct.type === ProductType.SERIALIZED) {
       const serial = window.prompt(`Ingrese IMEI/Serial para ${effectiveProduct.name}:`);
       if (!serial) return;
@@ -67,7 +87,7 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
           serial_number: serial,
           price: effectiveProduct.price,
           tax_rate: defaultTaxRate,
-          discount: 0,
+          discount: descuentoAuto,
           _checkId: checkId,
         } as any,
       ]);
@@ -98,13 +118,22 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
             quantity: 1,
             price: effectiveProduct.price,
             tax_rate: defaultTaxRate,
-            discount: 0,
+            discount: descuentoAuto,
             _checkId: checkId,
           } as any,
         ]);
       }
     }
-    toast.success('Agregado');
+
+    // Notificar si se aplicó descuento automático
+    if (descuentoAuto > 0) {
+      const label = effectiveProduct.discount_label
+        ? ` · ${effectiveProduct.discount_label}`
+        : '';
+      toast.success(`Agregado con descuento${label} ✓`, { icon: '🏷️' });
+    } else {
+      toast.success('Agregado');
+    }
   };
 
   const updateQuantity = (index: number, delta: number) => {
@@ -119,62 +148,55 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
       item.quantity >= item.product.stock_quantity &&
       item.product.type !== ProductType.SERVICE
     ) {
-      toast.error('Stock maximo alcanzado');
+      toast.error('Stock insuficiente');
       return;
     }
-    item.quantity += delta;
-    if (item.quantity <= 0) newCart.splice(index, 1);
+    const newQty = item.quantity + delta;
+    if (newQty <= 0) {
+      newCart.splice(index, 1);
+    } else {
+      newCart[index] = { ...item, quantity: newQty };
+    }
     setCart(newCart);
   };
 
+  const updateDiscount = (index: number, discount: number) => {
+    setCart(cart.map((item, i) => (i === index ? { ...item, discount } : item)));
+  };
+
+  const updatePrice = (index: number, price: number) => {
+    setCart(cart.map((item, i) => (i === index ? { ...item, price } : item)));
+  };
+
   const removeFromCart = (index: number) => {
-    const c = [...cart];
-    c.splice(index, 1);
-    setCart(c);
+    setCart(cart.filter((_, i) => i !== index));
   };
 
   const clearCart = () => setCart([]);
 
-  // Virtual item adders (restaurante, farmacia, specialty, etc.)
-  const addVirtualItem = (
-    idPrefix: string,
-    id: string,
-    name: string,
-    price: number,
-    stockQuantity: number = 999
-  ) => {
-    if (sessionStatus !== 'OPEN') {
-      toast.error('Debe abrir la caja primero');
-      return;
+  const totals = useMemo(() => {
+    let subtotal = 0;
+    let taxAmount = 0;
+    let discountTotal = 0;
+
+    for (const item of cart) {
+      const lineBase     = item.price * item.quantity;
+      const lineDiscount = (item.discount || 0) * item.quantity;
+      const lineNet      = lineBase - lineDiscount;
+      const lineTax      = lineNet * (item.tax_rate / 100);
+
+      subtotal      += lineNet;
+      taxAmount     += lineTax;
+      discountTotal += lineDiscount;
     }
-    const vp: any = {
-      id: `${idPrefix}-${id}`,
-      name,
-      price,
-      type: 'SERVICE',
-      sku: `${idPrefix.toUpperCase()}-${id.slice(0, 6)}`,
-      stock_quantity: stockQuantity,
-      tax_rate: 0,
+
+    return {
+      subtotal:      Math.round(subtotal),
+      taxAmount:     Math.round(taxAmount),
+      discountTotal: Math.round(discountTotal),
+      total:         Math.round(subtotal + taxAmount),
     };
-    const existing = cart.find((c) => c.product.id === vp.id);
-    if (existing) {
-      if (stockQuantity !== 999 && existing.quantity >= stockQuantity) {
-        toast.error('Stock insuficiente');
-        return;
-      }
-      setCart(
-        cart.map((c) =>
-          c.product.id === vp.id ? { ...c, quantity: c.quantity + 1 } : c
-        )
-      );
-    } else {
-      setCart([
-        ...cart,
-        { product: vp, quantity: 1, price, tax_rate: 0, discount: 0 },
-      ]);
-    }
-    toast.success(`${name} agregado`);
-  };
+  }, [cart]);
 
   return {
     cart,
@@ -183,8 +205,10 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
     setVariantPending,
     addToCart,
     updateQuantity,
+    updateDiscount,
+    updatePrice,
     removeFromCart,
     clearCart,
-    addVirtualItem,
+    totals,
   };
 }

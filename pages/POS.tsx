@@ -106,7 +106,11 @@ const POS: React.FC = () => {
   // ── Hooks de lógica ───────────────────────────────────────────────────────
   const { cart, setCart, variantPending, setVariantPending, addToCart, updateQuantity, removeFromCart, clearCart, addVirtualItem } = useCart({ sessionStatus: session?.status, defaultTaxRate });
 
-  const subtotalBrutoPreview = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
+  const subtotalBrutoPreview = useMemo(() => {
+    const bruto = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+    const prodDesc = cart.reduce((s, i) => s + (i.discount || 0) * i.quantity, 0);
+    return bruto - prodDesc;
+  }, [cart]);
 
   const { discountMode, setDiscountMode, globalDiscount, globalDiscountVal, clampedDiscount, handleDiscountPct, handleDiscountVal, resetDiscount } = usePOSDiscount(subtotalBrutoPreview);
 
@@ -249,13 +253,21 @@ const POS: React.FC = () => {
 
   // ── Totales ───────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
-    const subtotalBruto  = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-    const discountAmount = subtotalBruto * (clampedDiscount / 100);
-    const subtotal       = subtotalBruto - discountAmount;
-    const tax            = applyIva ? subtotal * (defaultTaxRate / 100) : 0;
-    const total          = subtotal + tax;
-    const totalPaid      = payments.reduce((acc, p) => acc + p.amount, 0);
-    const remaining      = total - totalPaid;
+    // Subtotal bruto sin ningún descuento (para mostrar tachado)
+    const subtotalBruto      = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    // Descuentos por producto (item.discount viene de useCart con calcularDescuentoProducto)
+    const productDiscounts   = cart.reduce((acc, item) => acc + (item.discount || 0) * item.quantity, 0);
+    // Subtotal después de descuentos por producto
+    const subtotalPostProd   = subtotalBruto - productDiscounts;
+    // Descuento global (porcentaje aplicado sobre el subtotal ya con descuentos de producto)
+    const globalDiscountAmt  = subtotalPostProd * (clampedDiscount / 100);
+    // Total de descuentos combinados
+    const discountAmount     = productDiscounts + globalDiscountAmt;
+    const subtotal           = subtotalBruto - discountAmount;
+    const tax                = applyIva ? subtotal * (defaultTaxRate / 100) : 0;
+    const total              = subtotal + tax;
+    const totalPaid          = payments.reduce((acc, p) => acc + p.amount, 0);
+    const remaining          = total - totalPaid;
     return { subtotalBruto, discountAmount, subtotal, tax, total, totalPaid, remaining };
   }, [cart, payments, applyIva, defaultTaxRate, clampedDiscount]);
 
