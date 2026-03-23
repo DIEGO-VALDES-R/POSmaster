@@ -174,6 +174,44 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
 
   const clearCart = () => setCart([]);
 
+  const addVirtualItem = (
+    idPrefix: string,
+    id: string,
+    name: string,
+    price: number,
+    stockQuantity: number = 999
+  ) => {
+    if (sessionStatus !== 'OPEN') {
+      toast.error('Debe abrir la caja primero');
+      return;
+    }
+    const vp: any = {
+      id: `${idPrefix}-${id}`,
+      name,
+      price,
+      type: 'SERVICE',
+      sku: `${idPrefix.toUpperCase()}-${id.slice(0, 6)}`,
+      stock_quantity: stockQuantity,
+      tax_rate: 0,
+      discount_type: null,
+      discount_pct: 0,
+      discount_value: 0,
+    };
+    const existing = cart.find((c) => c.product.id === vp.id);
+    if (existing) {
+      if (stockQuantity !== 999 && existing.quantity >= stockQuantity) {
+        toast.error('Stock insuficiente');
+        return;
+      }
+      setCart(cart.map((c) =>
+        c.product.id === vp.id ? { ...c, quantity: c.quantity + 1 } : c
+      ));
+    } else {
+      setCart([...cart, { product: vp, quantity: 1, price, tax_rate: 0, discount: 0 }]);
+    }
+    toast.success(`${name} agregado`);
+  };
+
   const totals = useMemo(() => {
     let subtotal = 0;
     let taxAmount = 0;
@@ -209,6 +247,7 @@ export function useCart({ sessionStatus, defaultTaxRate }: UseCartOptions) {
     updatePrice,
     removeFromCart,
     clearCart,
+    addVirtualItem,
     totals,
   };
 }

@@ -7,7 +7,7 @@ import {
   Landmark, FileText, Globe, Receipt, ShieldCheck, Users, Utensils, ChefHat,
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ChevronLeft, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
-  RefreshCw, TrendingDown, Cpu, X,
+  RefreshCw, TrendingDown, Cpu, X, Droplets, Shirt, ShoppingBag,
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -21,6 +21,7 @@ const BUSINESS_ICONS: Record<string, string> = {
   general: '🏪', tienda_tecnologia: '📱', restaurante: '🍽️',
   ropa: '👗', zapateria: '👟', ferreteria: '🔧', farmacia: '💊',
   supermercado: '🛒', salon: '💇', odontologia: '🦷', veterinaria: '🐾', optometria: '👁️', otro: '📦',
+  lavadero: '🚿',
 };
 const BUSINESS_LABELS: Record<string, string> = {
   general: 'Tienda General', tienda_tecnologia: 'Tecnología / Celulares',
@@ -29,6 +30,7 @@ const BUSINESS_LABELS: Record<string, string> = {
   farmacia: 'Farmacia / Droguería', supermercado: 'Supermercado / Abarrotes',
   salon: 'Salón de Belleza / Spa', odontologia: 'Consultorio Odontológico',
   veterinaria: 'Clínica Veterinaria', optometria: 'Consultorio Optométrico', otro: 'Negocio',
+  lavadero: 'Lavadero de Autos',
 };
 
 const MODULE_PATHS: Record<string, string> = {
@@ -59,6 +61,8 @@ const MODULE_PATHS: Record<string, string> = {
   warehouse:   '/warehouse',
   gimnasio:    '/gimnasio',
   panaderia:   '/panaderia',
+  lavadero:    '/lavadero',
+  ropa:        '/ropa',
   supplies:    '/supplies',
   team:        '/team',
   nomina:      '/nomina',
@@ -104,6 +108,7 @@ function getNavItems(
     type==='farmacia'  ? 'Insumos' :
     type==='veterinaria' ? 'Insumos Vet' :
     type==='odontologia' ? 'Insumos Dental' :
+    type==='lavadero' ? 'Insumos Lavadero' :
     'Inventario';
 
   const moduleLabel =
@@ -116,6 +121,9 @@ function getNavItems(
     type==='farmacia'    ? 'Farmacia' :
     type==='optometria'  ? 'Optometría' :
     type==='zapateria'   ? 'Zapatería' :
+    type==='lavadero'    ? 'Lavadero' :
+    type==='ropa'        ? 'Ropa' :
+    type==='ferreteria'  ? 'Ferretería' :
     'Servicio Técnico';
 
   const ventasItems: NavItem[] = [];
@@ -161,6 +169,13 @@ function getNavItems(
     if (p('can_sell'))  moduloItems.push({ label: 'Gimnasio',  path: MODULE_PATHS.gimnasio,  icon: Dumbbell });
   } else if (type === 'panaderia') {
     if (p('can_sell'))  moduloItems.push({ label: 'Panadería', path: MODULE_PATHS.panaderia, icon: Package });
+  } else if (type === 'lavadero') {
+    if (p('can_sell'))  moduloItems.push({ label: 'Lavadero', path: MODULE_PATHS.lavadero, icon: Droplets });
+  } else if (type === 'ropa') {
+    if (p('can_sell'))  moduloItems.push({ label: 'Ropa y Calzado', path: MODULE_PATHS.ropa, icon: Shirt });
+    if (p('can_sell'))  moduloItems.push({ label: 'Inventario', path: MODULE_PATHS.inventory, icon: Package });
+  } else if (type === 'ferreteria') {
+    if (p('can_sell'))  moduloItems.push({ label: 'Inventario', path: MODULE_PATHS.inventory, icon: Package });
   } else if (type === 'general' || type === 'tienda_tecnologia' || type === 'otro') {
     if (p('can_view_repairs'))                       moduloItems.push({ label: 'Servicio Técnico', path: MODULE_PATHS.repairs,  icon: Wrench });
   }
@@ -230,6 +245,7 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
     if (t === 'gym' || t === 'fitness') return 'gimnasio';
     if (t === 'bakery') return 'panaderia';
     if (t === 'salón') return 'salon';
+    if (t === 'car_wash' || t === 'carwash') return 'lavadero';
     return t;
   };
   const rawTypes: string[] = Array.isArray(cfg.business_types) && cfg.business_types.length > 0

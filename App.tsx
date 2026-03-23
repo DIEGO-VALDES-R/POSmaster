@@ -36,6 +36,7 @@ const PortalPropietario  = lazy(() => import('./pages/PortalPropietario'));
 const BranchKiosk        = lazy(() => import('./BranchKiosk'));
 const Apartados          = lazy(() => import('./pages/Apartados'));
 const Lavadero           = lazy(() => import('./pages/Lavadero'));
+const Ropa               = lazy(() => import('./pages/Ropa'));
 const LavaderoEmpleados  = lazy(() => import('./LavaderoEmpleados'));
 const LavaderoSalaEspera = lazy(() => import('./LavaderoSalaEspera'));
 const Customers          = lazy(() => import('./pages/Customers'));
@@ -420,6 +421,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/kiosk"         element={<BranchKiosk />} />
       <Route path="/apartados"     element={<Apartados />} />
       <Route path="/lavadero"      element={<Lavadero />} />
+      <Route path="/ropa"          element={<Ropa />} />
       <Route path="/warehouse"     element={<WarehouseDisplay />} />
       <Route path="/gimnasio"      element={<Gimnasio />} />
       <Route path="/b2b"           element={<B2BMarketplace />} />
