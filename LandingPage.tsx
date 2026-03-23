@@ -876,6 +876,23 @@ export const RegisterPage: React.FC<{ onBack: () => void; onSuccess: () => void 
     businessType: 'general'
   });
 
+  // Precios propios del RegisterPage (no depende de LandingPage)
+  const [planPrices, setPlanPrices] = useState<Record<string, string>>({
+    basic_price: '$65.000', pro_price: '$120.000', enterprise_price: '$249.900',
+    basic_desc: 'Para negocios pequeños', pro_desc: 'Para negocios con varias sucursales',
+    enterprise_desc: 'Empresas con facturación electrónica y API',
+  });
+
+  useEffect(() => {
+    supabase.from('platform_settings').select('key, value')
+      .in('key', ['basic_price','pro_price','enterprise_price','basic_desc','pro_desc','enterprise_desc'])
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        (data || []).forEach((row: any) => { if (row.value) map[row.key] = row.value; });
+        if (Object.keys(map).length > 0) setPlanPrices(prev => ({ ...prev, ...map }));
+      }).catch(() => {});
+  }, []);
+
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(prev => ({ ...prev, [k]: e.target.value }));
 
