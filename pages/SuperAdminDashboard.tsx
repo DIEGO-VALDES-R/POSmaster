@@ -213,8 +213,28 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
   const [savingPricing, setSavingPricing] = useState(false);
 
   // New company form
+  const BUSINESS_TYPES = [
+    { value: 'general',           label: '🏪 Tienda General' },
+    { value: 'tienda_tecnologia', label: '📱 Tecnología / Celulares' },
+    { value: 'restaurante',       label: '🍽️ Restaurante / Cafetería' },
+    { value: 'salon',             label: '💇 Salón de Belleza / Spa' },
+    { value: 'farmacia',          label: '💊 Farmacia / Droguería' },
+    { value: 'veterinaria',       label: '🐾 Clínica Veterinaria' },
+    { value: 'odontologia',       label: '🦷 Consultorio Odontológico' },
+    { value: 'optometria',        label: '👁️ Consultorio Optométrico' },
+    { value: 'zapateria',         label: '👟 Zapatería / Marroquinería' },
+    { value: 'supermercado',      label: '🛒 Supermercado / Abarrotes' },
+    { value: 'gimnasio',          label: '🏋️ Gimnasio / Fitness' },
+    { value: 'panaderia',         label: '🥖 Panadería / Repostería' },
+    { value: 'ferreteria',        label: '🔧 Ferretería / Construcción' },
+    { value: 'ropa',              label: '👗 Ropa / Calzado' },
+    { value: 'lavadero',          label: '🚗 Lavadero de Autos' },
+    { value: 'otro',              label: '📦 Otro negocio' },
+  ];
+
   const [newCo, setNewCo] = useState({
     name: '', nit: '', email: '', phone: '', plan: 'BASIC',
+    business_type: 'general',
     adminEmail: '', adminPassword: '',
     subscription_start_date: new Date().toISOString().split('T')[0],
     subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
@@ -303,7 +323,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         name: newCo.name, nit: newCo.nit, email: newCo.email, phone: newCo.phone,
         subscription_plan: newCo.plan, subscription_status: 'ACTIVE',
         subscription_start_date: newCo.subscription_start_date, subscription_end_date: newCo.subscription_end_date,
-        config: { tax_rate: 19, currency_symbol: '$', invoice_prefix: 'POS' },
+        config: { tax_rate: 19, currency_symbol: '$', invoice_prefix: 'POS', business_type: newCo.business_type, business_types: [newCo.business_type] },
       }).select().single();
       if (ce) throw ce;
       if (auth.user) {
@@ -313,20 +333,28 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       }
       toast.success(`✅ "${newCo.name}" creado`);
       setShowCreate(false);
-      setNewCo({ name: '', nit: '', email: '', phone: '', plan: 'BASIC', adminEmail: '', adminPassword: '', subscription_start_date: new Date().toISOString().split('T')[0], subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0] });
+      setNewCo({ name: '', nit: '', email: '', phone: '', plan: 'BASIC', business_type: 'general', adminEmail: '', adminPassword: '', subscription_start_date: new Date().toISOString().split('T')[0], subscription_end_date: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0] });
       load();
     } catch (e: any) { toast.error(e.message); } finally { setCreating(false); }
   };
 
   const openEdit = (c: any) => {
     setSelectedCompany(c);
-    setEditForm({ name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '', plan: c.subscription_plan, subscription_status: c.subscription_status, subscription_start_date: c.subscription_start_date || '', subscription_end_date: c.subscription_end_date || '', feature_flags: c.feature_flags && Object.keys(c.feature_flags).length > 0 ? c.feature_flags : getDefaultFlags(c.subscription_plan || 'BASIC'), show_in_landing: c.show_in_landing || false });
+    setEditForm({ name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '', plan: c.subscription_plan, subscription_status: c.subscription_status, subscription_start_date: c.subscription_start_date || '', subscription_end_date: c.subscription_end_date || '', feature_flags: c.feature_flags && Object.keys(c.feature_flags).length > 0 ? c.feature_flags : getDefaultFlags(c.subscription_plan || 'BASIC'), show_in_landing: c.show_in_landing || false, business_type: c.config?.business_type || c.config?.business_types?.[0] || 'general' });
     setShowEdit(true);
   };
 
   const handleEdit = async () => {
     if (!selectedCompany) return;
-    const { error } = await supabase.from('companies').update({ name: editForm.name, nit: editForm.nit, email: editForm.email, phone: editForm.phone, subscription_plan: editForm.plan, subscription_status: editForm.subscription_status, subscription_start_date: editForm.subscription_start_date || null, subscription_end_date: editForm.subscription_end_date || null, feature_flags: editForm.feature_flags, show_in_landing: editForm.show_in_landing }).eq('id', selectedCompany.id);
+    const currentConfig = selectedCompany.config || {};
+    const { error } = await supabase.from('companies').update({
+      name: editForm.name, nit: editForm.nit, email: editForm.email, phone: editForm.phone,
+      subscription_plan: editForm.plan, subscription_status: editForm.subscription_status,
+      subscription_start_date: editForm.subscription_start_date || null,
+      subscription_end_date: editForm.subscription_end_date || null,
+      feature_flags: editForm.feature_flags, show_in_landing: editForm.show_in_landing,
+      config: { ...currentConfig, business_type: editForm.business_type, business_types: [editForm.business_type] },
+    }).eq('id', selectedCompany.id);
     if (error) { toast.error(error.message); return; }
     toast.success('✅ Actualizado'); setShowEdit(false); load();
   };
@@ -505,23 +533,26 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr>{['Negocio','Plan','Estado','Vence','Acciones'].map(h => <th key={h} style={hdr}>{h}</th>)}</tr>
+            <tr>{['Negocio','Tipo','Plan','Estado','Vence','Acciones'].map(h => <th key={h} style={hdr}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} style={{ ...col, textAlign: 'center', padding: 40, color: '#94a3b8' }}>Cargando...</td></tr>
+              <tr><td colSpan={6} style={{ ...col, textAlign: 'center', padding: 40, color: '#94a3b8' }}>Cargando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} style={{ ...col, textAlign: 'center', padding: 40, color: '#94a3b8' }}>Sin resultados</td></tr>
+              <tr><td colSpan={6} style={{ ...col, textAlign: 'center', padding: 40, color: '#94a3b8' }}>Sin resultados</td></tr>
             ) : filtered.map(c => {
               const st = STATUS_CFG[c.subscription_status] || STATUS_CFG['INACTIVE'];
               const d  = getDaysLeft(c.subscription_end_date);
               const dColor = d === null ? '#94a3b8' : d < 0 ? '#dc2626' : d <= 7 ? '#ea580c' : d <= 30 ? '#b45309' : '#64748b';
+              const btType = c.config?.business_type || c.config?.business_types?.[0] || 'general';
+              const btLabel = BUSINESS_TYPES.find(bt => bt.value === btType)?.label || '🏪 General';
               return (
                 <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background='#fafafa')} onMouseLeave={e => (e.currentTarget.style.background='')}>
                   <td style={col}>
                     <p style={{ margin: 0, fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{c.name}</p>
                     <p style={{ margin: '1px 0 0', fontSize: 11, color: '#94a3b8' }}>{c.nit || '—'} · {c.email || '—'}</p>
                   </td>
+                  <td style={{ ...col, fontSize: 12 }}>{btLabel}</td>
                   <td style={col}><span style={{ ...pill('gray'), background: PLAN_COLOR[c.subscription_plan] + '20', color: PLAN_COLOR[c.subscription_plan] }}>{c.subscription_plan}</span></td>
                   <td style={col}><span style={{ ...pill('gray'), background: st.bg, color: st.text }}>{st.icon}{st.label}</span></td>
                   <td style={{ ...col, color: dColor, fontWeight: d !== null && d <= 7 ? 700 : 400, fontSize: 12 }}>
@@ -1637,6 +1668,11 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                 {['TRIAL','BASIC','PRO','ENTERPRISE'].map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
+            <div><label style={labelSt}>Tipo de negocio</label>
+              <select value={newCo.business_type} onChange={f('business_type')} style={input()}>
+                {BUSINESS_TYPES.map(bt => <option key={bt.value} value={bt.value}>{bt.label}</option>)}
+              </select>
+            </div>
             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
               <p style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', margin: '0 0 10px', textTransform: 'uppercase' as const }}>Credenciales Admin</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1676,6 +1712,11 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                   {['ACTIVE','INACTIVE','PENDING','PAST_DUE'].map(s => <option key={s} value={s}>{STATUS_CFG[s]?.label || s}</option>)}
                 </select>
               </div>
+            </div>
+            <div><label style={labelSt}>Tipo de negocio</label>
+              <select value={(editForm as any).business_type || 'general'} onChange={fe('business_type')} style={input()}>
+                {BUSINESS_TYPES.map(bt => <option key={bt.value} value={bt.value}>{bt.label}</option>)}
+              </select>
             </div>
 
             {/* Show in landing toggle */}
