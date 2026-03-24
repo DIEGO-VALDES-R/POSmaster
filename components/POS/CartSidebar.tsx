@@ -6,6 +6,9 @@ import {
   Plus,
   CreditCard,
   Tag,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 import { CartItem } from '../types';
 
@@ -32,6 +35,7 @@ interface CartSidebarProps {
   onRemoveItem: (index: number) => void;
   onOpenPayment: () => void;
   formatMoney: (n: number) => string;
+  onUpdatePrice?: (index: number, newPrice: number) => void; // ✅ NUEVO
 }
 
 const CartSidebar: React.FC<CartSidebarProps> = ({
@@ -51,8 +55,10 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
   onRemoveItem,
   onOpenPayment,
   formatMoney,
+  onUpdatePrice,
 }) => {
   const [editingQty, setEditingQty] = useState<{ idx: number; val: string } | null>(null);
+  const [editingPrice, setEditingPrice] = useState<{ idx: number; val: string } | null>(null);
 
   const handleQtyBlur = (idx: number, currentQty: number) => {
     if (!editingQty || editingQty.idx !== idx) return;
@@ -62,6 +68,24 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
       onUpdateQuantity(idx, delta);
     }
     setEditingQty(null);
+  };
+
+  // ✅ NUEVO: Manejar cambio de precio
+  const handlePriceBlur = (idx: number, currentPrice: number) => {
+    if (!editingPrice || editingPrice.idx !== idx) return;
+    const parsed = parseFloat(editingPrice.val);
+    if (!isNaN(parsed) && parsed >= 0 && parsed !== currentPrice && onUpdatePrice) {
+      onUpdatePrice(idx, parsed);
+    }
+    setEditingPrice(null);
+  };
+
+  const handlePriceKeyDown = (e: React.KeyboardEvent, idx: number, currentPrice: number) => {
+    if (e.key === 'Enter') {
+      handlePriceBlur(idx, currentPrice);
+    } else if (e.key === 'Escape') {
+      setEditingPrice(null);
+    }
   };
 
   return (
@@ -84,77 +108,128 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
             <p>El carrito esta vacio</p>
           </div>
         ) : (
-          cart.map((item, idx) => (
-            <div
-              key={idx}
-              className="flex gap-2 p-2 rounded-lg border border-slate-100 bg-slate-50"
-            >
-              <div className="flex-1">
-                <h4 className="text-sm font-medium text-slate-800">
-                  {item.product.name}
-                </h4>
-                {(item.product as any)._variant_name && (
-                  <p className="text-xs text-indigo-500 font-semibold">
-                    {(item.product as any)._variant_name}
-                  </p>
-                )}
-                {item.serial_number && (
-                  <p className="text-xs text-slate-500 font-mono bg-yellow-50 px-1 rounded inline-block">
-                    SN: {item.serial_number}
-                  </p>
-                )}
-                <span className="text-xs text-slate-500">
-                  {(item.discount || 0) > 0 ? (
-                    <>
-                      <span className="line-through text-slate-400">{formatMoney(item.price)}</span>
-                      {' '}
-                      <span className="text-emerald-600 font-semibold">{formatMoney(item.price - (item.discount || 0))}</span>
-                      {' '}x {item.quantity}
-                      {' '}<span className="text-orange-500">🏷️</span>
-                    </>
-                  ) : (
-                    <>{formatMoney(item.price)} x {item.quantity}</>
+          cart.map((item, idx) => {
+            const itemPrice = item.price - (item.discount || 0);
+            const isEditingThisPrice = editingPrice?.idx === idx;
+            
+            return (
+              <div
+                key={idx}
+                className="flex gap-2 p-2 rounded-lg border border-slate-100 bg-slate-50"
+              >
+                <div className="flex-1">
+                  <h4 className="text-sm font-medium text-slate-800">
+                    {item.product.name}
+                  </h4>
+                  {(item.product as any)._variant_name && (
+                    <p className="text-xs text-indigo-500 font-semibold">
+                      {(item.product as any)._variant_name}
+                    </p>
                   )}
-                </span>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <span className="font-bold text-sm">
-                  {formatMoney((item.price - (item.discount || 0)) * item.quantity)}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => onUpdateQuantity(idx, -1)}
-                    className="p-1 hover:bg-slate-200 rounded"
-                  >
-                    <Minus size={14} />
-                  </button>
-                  {/* Cantidad editable directamente */}
-                  <input
-                    type="number"
-                    min={1}
-                    value={editingQty?.idx === idx ? editingQty.val : item.quantity}
-                    onFocus={() => setEditingQty({ idx, val: String(item.quantity) })}
-                    onChange={e => setEditingQty({ idx, val: e.target.value })}
-                    onBlur={() => handleQtyBlur(idx, item.quantity)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleQtyBlur(idx, item.quantity); }}
-                    className="w-10 text-center text-sm font-bold border border-slate-300 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 py-0.5"
-                  />
-                  <button
-                    onClick={() => onUpdateQuantity(idx, 1)}
-                    className="p-1 hover:bg-slate-200 rounded"
-                  >
-                    <Plus size={14} />
-                  </button>
-                  <button
-                    onClick={() => onRemoveItem(idx)}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {item.serial_number && (
+                    <p className="text-xs text-slate-500 font-mono bg-yellow-50 px-1 rounded inline-block">
+                      SN: {item.serial_number}
+                    </p>
+                  )}
+                  
+                  {/* ✅ NUEVO: Precio editable */}
+                  <div className="flex items-center gap-1 mt-1">
+                    {isEditingThisPrice ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-slate-400">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editingPrice.val}
+                          onChange={(e) => setEditingPrice({ idx, val: e.target.value })}
+                          onBlur={() => handlePriceBlur(idx, item.price)}
+                          onKeyDown={(e) => handlePriceKeyDown(e, idx, item.price)}
+                          autoFocus
+                          className="w-20 text-xs px-1.5 py-0.5 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        <button
+                          onClick={() => handlePriceBlur(idx, item.price)}
+                          className="p-0.5 text-green-600 hover:bg-green-50 rounded"
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          onClick={() => setEditingPrice(null)}
+                          className="p-0.5 text-red-500 hover:bg-red-50 rounded"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        {(item.discount || 0) > 0 ? (
+                          <>
+                            <span className="line-through text-slate-400">{formatMoney(item.price)}</span>
+                            {' '}
+                            <span className="text-emerald-600 font-semibold">{formatMoney(itemPrice)}</span>
+                            {' '}x {item.quantity}
+                            {' '}<span className="text-orange-500">🏷️</span>
+                          </>
+                        ) : (
+                          <>
+                            {formatMoney(item.price)}
+                            {' '}x {item.quantity}
+                          </>
+                        )}
+                        {onUpdatePrice && (
+                          <button
+                            onClick={() => setEditingPrice({ idx, val: String(item.price) })}
+                            className="p-0.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded ml-1"
+                            title="Editar precio"
+                          >
+                            <Pencil size={10} />
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="flex flex-col items-end gap-2">
+                  <span className="font-bold text-sm">
+                    {formatMoney(itemPrice * item.quantity)}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onUpdateQuantity(idx, -1)}
+                      className="p-1 hover:bg-slate-200 rounded"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    {/* Cantidad editable directamente */}
+                    <input
+                      type="number"
+                      min={1}
+                      value={editingQty?.idx === idx ? editingQty.val : item.quantity}
+                      onFocus={() => setEditingQty({ idx, val: String(item.quantity) })}
+                      onChange={e => setEditingQty({ idx, val: e.target.value })}
+                      onBlur={() => handleQtyBlur(idx, item.quantity)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleQtyBlur(idx, item.quantity); }}
+                      className="w-10 text-center text-sm font-bold border border-slate-300 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 py-0.5"
+                    />
+                    <button
+                      onClick={() => onUpdateQuantity(idx, 1)}
+                      className="p-1 hover:bg-slate-200 rounded"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <button
+                      onClick={() => onRemoveItem(idx)}
+                      className="p-1 text-red-500 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -222,8 +297,7 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
                     : 'bg-white text-slate-500 hover:bg-slate-100'
                 }`}
               >
-                $
-              </button>
+                $               </button>
             </div>
           </div>
           <div className="flex items-center gap-2 px-3 pb-2">
@@ -256,8 +330,7 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
                   clampedDiscount > 0 ? 'text-orange-600' : 'text-slate-400'
                 }`}
               >
-                $
-              </span>
+                $               </span>
               <input
                 type="number"
                 min="0"

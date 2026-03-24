@@ -101,12 +101,26 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
   const items         = normalizeItems(sale);
 
   const subtotalBruto  = items.reduce((acc, i) => acc + i.price * i.quantity, 0);
-  const discountPercent = sale.discountPercent ?? 0;
-  const discountAmount  = sale.discountAmount ?? (subtotalBruto * discountPercent / 100);
-  const subtotal        = sale.subtotal   != null ? sale.subtotal   : subtotalBruto - discountAmount;
+  
+  // ✅ FIX: Calcular el descuento de los productos (item.discount)
+  const productDiscounts = items.reduce((acc, i) => acc + (i.discount || 0) * i.quantity, 0);
+  
+  // El discountAmount que viene del POS ya incluye descuentos de productos + global
+  const discountAmount  = sale.discountAmount ?? 0;
+  
+  // ✅ FIX: Calcular el porcentaje efectivo del descuento sobre el subtotal bruto
+  const effectiveDiscountPercent = subtotalBruto > 0 
+    ? Math.round((discountAmount / subtotalBruto) * 100) 
+    : (sale.discountPercent ?? 0);
+  
+  // Si discountAmount es 0, usar el descuento global
+  const finalDiscountPercent = discountAmount > 0 ? effectiveDiscountPercent : (sale.discountPercent ?? 0);
+  const finalDiscountAmount  = discountAmount > 0 ? discountAmount : (subtotalBruto * (sale.discountPercent ?? 0) / 100);
+  
+  const subtotal        = sale.subtotal   != null ? sale.subtotal   : subtotalBruto - finalDiscountAmount;
   const taxAmount       = sale.tax_amount != null ? sale.tax_amount : 0;
   const showIva         = taxAmount > 0;
-  const showDiscount    = discountPercent > 0 || discountAmount > 0;
+  const showDiscount    = finalDiscountPercent > 0 || finalDiscountAmount > 0;
   const companyName     = company?.name ?? 'POSmaster';
 
   const captureFullElement = async (el: HTMLDivElement) => {
@@ -161,7 +175,7 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
       const ph = customerPhone?.replace(/\D/g, '');
       const fp = ph && ph.length === 10 ? `57${ph}` : ph;
       let msg = `Hola ${customerName} 👋\n\nTe enviamos tu factura *${sale.invoice_number}* de *${companyName}*.\n\n💰 Total: *${formatMoney(sale.total_amount)}*`;
-      if (showDiscount) msg += `\n🏷️ Descuento: *${discountPercent}%* (- ${formatMoney(discountAmount)})`;
+      if (showDiscount) msg += `\n🏷️ Descuento: *${finalDiscountPercent}%* (- ${formatMoney(finalDiscountAmount)})`;
       if (url) msg += `\n\n📄 Tu factura:\n${url}`;
       msg += `\n\n¡Gracias por tu compra! 🙏`;
       window.open(fp ? `https://wa.me/${fp}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
@@ -289,38 +303,62 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
             <tbody>
               {items.length === 0
                 ? <tr><td colSpan={3} className="text-center text-slate-400 py-4">Sin items</td></tr>
-                : items.map((item, idx) => (
-                  <tr key={idx} className="border-b border-slate-100">
-                    <td className="py-2 align-top">{item.quantity}</td>
-                    <td className="py-2 align-top">
-                      <div className="font-medium">{item.product_name}</div>
+                : items.map((item, idx) => {
+                    // ✅ Calcular descuento del item
+                    const itemDiscount = (item.discount || 0) * item.quantity;
+                    const itemTotal = item.price * item.quantity;
+                    const itemFinal = itemTotal - itemDiscount;
+                    
+                    return (
+                      <tr key={idx} className="border-b border-slate-100">
+                        <td className="py-2 align-top">{item.quantity}</td>
+                        <td className="py-2 align-top">
+                          <div className="font-medium">{item.product_name}</div>
 
-                      {/* SKU */}
-                      {item.sku && (
-                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                          SKU: <span className="font-bold text-slate-700">{item.sku}</span>
-                        </div>
-                      )}
+                          {/* SKU */}
+                          {item.sku && (
+                            <div className="text-[10px] text-slate-500 font-mono leading-tight">
+                              SKU: <span className="font-bold text-slate-700">{item.sku}</span>
+                            </div>
+                          )}
 
-                      {/* Código de barras (solo si difiere del SKU) */}
-                      {item.barcode && item.barcode !== item.sku && (
-                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
-                          Cód: <span className="font-bold text-slate-700">{item.barcode}</span>
-                        </div>
-                      )}
+                          {/* Código de barras (solo si difiere del SKU) */}
+                          {item.barcode && item.barcode !== item.sku && (
+                            <div className="text-[10px] text-slate-500 font-mono leading-tight">
+                              Cód: <span className="font-bold text-slate-700">{item.barcode}</span>
+                            </div>
+                          )}
 
-                      {/* IMEI / Serial */}
-                      {item.serial_number && (
-                        <div className="text-[10px] text-amber-700 font-mono leading-tight">
-                          IMEI: {item.serial_number}
-                        </div>
-                      )}
+                          {/* IMEI / Serial */}
+                          {item.serial_number && (
+                            <div className="text-[10px] text-amber-700 font-mono leading-tight">
+                              IMEI: {item.serial_number}
+                            </div>
+                          )}
 
-                      <div className="text-[10px] text-slate-400">{formatMoney(item.price)} c/u</div>
-                    </td>
-                    <td className="py-2 text-right align-top">{formatMoney(item.price * item.quantity)}</td>
-                  </tr>
-                ))
+                          {/* Precio unitario */}
+                          <div className="text-[10px] text-slate-400">{formatMoney(item.price)} c/u</div>
+                          
+                          {/* ✅ Mostrar descuento del item si aplica */}
+                          {itemDiscount > 0 && (
+                            <div className="text-[10px] text-orange-600 font-bold">
+                              🏷️ Desc: -{formatMoney(itemDiscount)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 text-right align-top">
+                          {itemDiscount > 0 ? (
+                            <div>
+                              <div className="line-through text-slate-400 text-[10px]">{formatMoney(itemTotal)}</div>
+                              <div className="font-bold text-slate-800">{formatMoney(itemFinal)}</div>
+                            </div>
+                          ) : (
+                            <span>{formatMoney(itemTotal)}</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                })
               }
             </tbody>
           </table>
@@ -330,7 +368,7 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
             <div className="flex justify-between"><span>Subtotal:</span><span>{formatMoney(subtotalBruto)}</span></div>
             {showDiscount && <>
               <div className="flex justify-between font-bold text-slate-700">
-                <span>Descuento ({discountPercent}%):</span><span>- {formatMoney(discountAmount)}</span>
+                <span>Descuento ({finalDiscountPercent}%):</span><span>- {formatMoney(finalDiscountAmount)}</span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>Subtotal c/desc.:</span><span>{formatMoney(subtotal)}</span>
@@ -346,7 +384,7 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
             {showDiscount && (
               <div className="mt-2 bg-orange-50 border border-orange-200 rounded px-2 py-1.5 text-center">
                 <span className="text-[11px] font-bold text-orange-700">
-                  🏷️ AHORRO: {formatMoney(discountAmount)} ({discountPercent}% de descuento)
+                  🏷️ AHORRO: {formatMoney(finalDiscountAmount)} ({finalDiscountPercent}% de descuento)
                 </span>
               </div>
             )}

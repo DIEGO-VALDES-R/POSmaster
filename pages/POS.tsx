@@ -104,7 +104,7 @@ const POS: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
 
   // ── Hooks de lógica ───────────────────────────────────────────────────────
-  const { cart, setCart, variantPending, setVariantPending, addToCart, updateQuantity, removeFromCart, clearCart, addVirtualItem } = useCart({ sessionStatus: session?.status, defaultTaxRate });
+  const { cart, setCart, variantPending, setVariantPending, addToCart, updateQuantity, updatePrice, removeFromCart, clearCart, addVirtualItem } = useCart({ sessionStatus: session?.status, defaultTaxRate });
 
   const subtotalBrutoPreview = useMemo(() => {
     const bruto = cart.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -470,13 +470,24 @@ const handleFinalizeSale = async () => {
 
       {/* Carrito */}
       <CartSidebar
-        cart={cart} totals={totals} applyIva={applyIva} defaultTaxRate={defaultTaxRate}
-        discountMode={discountMode} setDiscountMode={setDiscountMode}
-        globalDiscount={globalDiscount} globalDiscountVal={globalDiscountVal}
-        clampedDiscount={clampedDiscount} handleDiscountPct={handleDiscountPct} handleDiscountVal={handleDiscountVal}
-        onToggleIva={() => setApplyIva((v) => !v)} onUpdateQuantity={updateQuantity}
-        onRemoveItem={removeFromCart} onOpenPayment={() => setIsPaymentModalOpen(true)} formatMoney={formatMoney}
-      />
+  cart={cart} 
+  totals={totals} 
+  applyIva={applyIva} 
+  defaultTaxRate={defaultTaxRate}
+  discountMode={discountMode} 
+  setDiscountMode={setDiscountMode}
+  globalDiscount={globalDiscount} 
+  globalDiscountVal={globalDiscountVal}
+  clampedDiscount={clampedDiscount} 
+  handleDiscountPct={handleDiscountPct} 
+  handleDiscountVal={handleDiscountVal}
+  onToggleIva={() => setApplyIva((v) => !v)} 
+  onUpdateQuantity={updateQuantity}
+  onUpdatePrice={updatePrice} // ✅ Agregar esta línea
+  onRemoveItem={removeFromCart} 
+  onOpenPayment={() => setIsPaymentModalOpen(true)} 
+  formatMoney={formatMoney}
+/>
 
       {/* Modal de pago */}
       {isPaymentModalOpen && (
