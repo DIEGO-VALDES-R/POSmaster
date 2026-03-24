@@ -101,16 +101,21 @@ const Settings: React.FC = () => {
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
   const { currency, setCurrency, exchangeRates, setExchangeRate, loadingRates } = useCurrency();
   const [vesRate, setVesRate] = useState<string>(
-    String(((safeCompany.config as any)?.exchange_rate_ves) || '0.097')
-  );
-  const [usdRate, setUsdRate] = useState<string>(
-    String(((safeCompany.config as any)?.exchange_rate_usd) || '0.00024')
-  );
+  String(((safeCompany.config as any)?.exchange_rate_ves) || '0.097')
+);
+const [usdRate, setUsdRate] = useState<string>(
+  String(((safeCompany.config as any)?.exchange_rate_usd) || '0.00024')
+);
+// ✅ AGREGAR ESTO:
+const [eurRate, setEurRate] = useState<string>(
+  String(((safeCompany.config as any)?.exchange_rate_eur) || '0.00022')
+);
   const handleSaveRates = async () => {
-    await setExchangeRate('VES', parseFloat(vesRate) || 0.097);
-    await setExchangeRate('USD', parseFloat(usdRate) || 0.00024);
-    toast.success('✅ Tasas de cambio actualizadas');
-  };
+  await setExchangeRate('VES', parseFloat(vesRate) || 0.097);
+  await setExchangeRate('USD', parseFloat(usdRate) || 0.00024);
+  await setExchangeRate('EUR', parseFloat(eurRate) || 0.00022);  // ✅ Cambiar usdRate por eurRate
+  toast.success('✅ Tasas de cambio actualizadas');
+};
 
   // ── Hardware: cajón registradora ──────────────────────────────────────────
   type DrawerProtocol = 'escpos-usb' | 'escpos-network' | 'windows-print';
@@ -195,7 +200,8 @@ const Settings: React.FC = () => {
     setBusinessTypes(parseBusinessTypes(cfg));
     setInvoiceTerms(cfg.invoice_terms || '');
   if (cfg.exchange_rate_ves) setVesRate(String(cfg.exchange_rate_ves));
-  if (cfg.exchange_rate_usd) setUsdRate(String(cfg.exchange_rate_usd));
+if (cfg.exchange_rate_usd) setUsdRate(String(cfg.exchange_rate_usd));
+if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGREGAR
 }, [company]);
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
@@ -530,45 +536,49 @@ const Settings: React.FC = () => {
                     ))}
                   </div>
                   {/* Tasas personalizables */}
-                  <div className="bg-white rounded-xl p-4 border border-blue-100 space-y-3">
-                    <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Tasas de cambio (base: 1 COP)</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          🇻🇪 1 COP = ? Bs. (Bolívar venezolano)
-                        </label>
-                        <div className="flex gap-2">
-                          <input type="number" step="0.001" min="0" value={vesRate}
-                            onChange={e => setVesRate(e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                            placeholder="0.097" />
-                        </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Ej: si 1 USD = 36 Bs. y 1 USD = 4200 COP → tasa = 36/4200 ≈ 0.00857
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">
-                          🇺🇸 1 COP = ? USD (Dólar americano)
-                        </label>
-                        <div className="flex gap-2">
-                          <input type="number" step="0.00001" min="0" value={usdRate}
-                            onChange={e => setUsdRate(e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                            placeholder="0.00024" />
-                        </div>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Ej: si 1 USD = 4200 COP → tasa = 1/4200 ≈ 0.000238
-                        </p>
-                      </div>
-                    </div>
-                    <button type="button" onClick={handleSaveRates} disabled={loadingRates}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                      <RefreshCw size={14} className={loadingRates ? 'animate-spin' : ''} />
-                      {loadingRates ? 'Guardando...' : 'Actualizar tasas'}
-                    </button>
-                  </div>
+<div className="bg-white rounded-xl p-4 border border-blue-100 space-y-3">
+  <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Tasas de cambio (base: 1 COP)</p>
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    {/* VES - Bolívar */}
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        🇻🇪 1 COP = ? Bs.
+      </label>
+      <input type="number" step="0.001" min="0" value={vesRate}
+        onChange={e => setVesRate(e.target.value)}
+        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <p className="text-xs text-slate-400 mt-1">Bolívar venezolano</p>
+    </div>
+    {/* USD - Dólar */}
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        🇺🇸 1 COP = ? USD
+      </label>
+      <input type="number" step="0.00001" min="0" value={usdRate}
+        onChange={e => setUsdRate(e.target.value)}
+        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <p className="text-xs text-slate-400 mt-1">Dólar americano</p>
+    </div>
+    {/* EUR - Euro */}
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        🇪🇺 1 COP = ? EUR
+      </label>
+      <input type="number" step="0.00001" min="0" value={eurRate}
+        onChange={e => setEurRate(e.target.value)}
+        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <p className="text-xs text-slate-400 mt-1">Euro</p>
+    </div>
+  </div>
+    <button type="button" onClick={handleSaveRates} disabled={loadingRates}
+    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+    <RefreshCw size={14} className={loadingRates ? 'animate-spin' : ''} />
+    {loadingRates ? 'Guardando...' : 'Actualizar tasas'}
+  </button>
+</div>
                 </div>
+
+                {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
 
                 {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
                 <div className="md:col-span-2 border border-amber-200 bg-amber-50 rounded-xl p-4">

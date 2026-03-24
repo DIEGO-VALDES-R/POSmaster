@@ -10,13 +10,14 @@ export interface CurrencyInfo {
   name: string;
   locale: string;
   decimals: number;
+  flag: string;
 }
 
 export const CURRENCY_INFO: Record<CurrencyCode, CurrencyInfo> = {
-  COP: { code: 'COP', symbol: '$',  name: 'Peso colombiano',    locale: 'es-CO', decimals: 0 },
-  USD: { code: 'USD', symbol: 'US$',name: 'Dólar americano',    locale: 'en-US', decimals: 2 },
-  EUR: { code: 'EUR', symbol: '€',  name: 'Euro',               locale: 'es-ES', decimals: 2 },
-  VES: { code: 'VES', symbol: 'Bs.',name: 'Bolívar venezolano', locale: 'es-VE', decimals: 2 },
+  COP: { code: 'COP', symbol: '$',   name: 'Peso colombiano',     locale: 'es-CO', decimals: 0, flag: '🇨🇴' },
+  USD: { code: 'USD', symbol: 'US$', name: 'Dólar americano',     locale: 'en-US', decimals: 2, flag: '🇺🇸' },
+  EUR: { code: 'EUR', symbol: '€',   name: 'Euro',                locale: 'es-ES', decimals: 2, flag: '🇪🇺' },
+  VES: { code: 'VES', symbol: 'Bs.', name: 'Bolívar venezolano',  locale: 'es-VE', decimals: 2, flag: '🇻🇪' },
 };
 
 interface CurrencyContextType {
