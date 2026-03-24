@@ -69,7 +69,6 @@ const MODULE_PATHS: Record<string, string> = {
   reports:     '/reports',
   apartados:   '/apartados',
   b2b:         '/b2b',
-  integraciones: '/configuracion/integraciones',
 };
 
 interface NavItem { label: string; path: string; icon: React.ElementType; }
@@ -182,11 +181,10 @@ function getNavItems(
   }
 
   const adminItems: NavItem[] = [];
-adminItems.push({ label: 'Reportes', path: MODULE_PATHS.reports, icon: BarChart2 });
-adminItems.push({ label: 'Marketplace B2B', path: MODULE_PATHS.b2b, icon: Building2 });
-if (isPro && p('can_manage_team'))   adminItems.push({ label: 'Equipo',  path: MODULE_PATHS.team,   icon: Users });
-if (isAdmin && hasFeature('nomina')) adminItems.push({ label: 'Nómina',  path: MODULE_PATHS.nomina, icon: Users2 });
-if (isAdmin) adminItems.push({ label: 'Integraciones', path: MODULE_PATHS.integraciones, icon: Globe }); // ← AGREGAR
+  adminItems.push({ label: 'Reportes', path: MODULE_PATHS.reports, icon: BarChart2 });
+  adminItems.push({ label: 'Marketplace B2B', path: MODULE_PATHS.b2b, icon: Building2 });
+  if (isPro && p('can_manage_team'))   adminItems.push({ label: 'Equipo',  path: MODULE_PATHS.team,   icon: Users });
+  if (isAdmin && hasFeature('nomina')) adminItems.push({ label: 'Nómina',  path: MODULE_PATHS.nomina, icon: Users2 });
 
   const result: NavEntry[] = [
     { label: 'Dashboard', path: MODULE_PATHS.dashboard, icon: LayoutDashboard },
@@ -641,9 +639,10 @@ const Layout: React.FC<LayoutProps> = ({ children, onAdminPanel }) => {
               <select value={currency} onChange={e => setCurrency(e.target.value as CurrencyCode)}
                 className="bg-transparent text-xs font-medium focus:outline-none cursor-pointer"
                 style={{ color: fontColor }}>
-                <option value="COP" className="text-slate-900">COP</option>
-                <option value="USD" className="text-slate-900">USD</option>
-                <option value="EUR" className="text-slate-900">EUR</option>
+                <option value="COP" className="text-slate-900">COP (Pesos)</option>
+                <option value="USD" className="text-slate-900">USD (Dólares)</option>
+                <option value="EUR" className="text-slate-900">EUR (Euros)</option>
+                <option value="VES" className="text-slate-900">VES (Bolívares)</option>
               </select>
             </div>
 
