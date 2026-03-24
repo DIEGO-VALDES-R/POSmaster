@@ -122,6 +122,11 @@ const POS: React.FC = () => {
   const [showInvoice, setShowInvoice] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CAMBIO: Estado para almacenar el returnUrl y redirigir después del pago
+  // ═══════════════════════════════════════════════════════════════════════════
+  const [returnUrl, setReturnUrl] = useState<string | null>(null);
+
   // ── Datos menú / farmacia / especialidad ──────────────────────────────────
   const [menuItems, setMenuItems]   = useState<any[]>([]);
   const [beverages, setBeverages]   = useState<any[]>([]);
@@ -175,6 +180,15 @@ const POS: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const shoeId = params.get('shoe'); const salonId = params.get('salon'); const vetId = params.get('vet');
     const sourceId = shoeId || salonId || vetId;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CAMBIO: Leer returnUrl de los parámetros de la URL
+    // ═══════════════════════════════════════════════════════════════════════════
+    const returnUrlParam = params.get('returnUrl');
+    if (returnUrlParam) {
+      setReturnUrl(decodeURIComponent(returnUrlParam));
+    }
+
     if (!sourceId) return;
     const isShoe = !!shoeId; const isSalon_ = !!salonId;
     setShoeRepairId(sourceId);
@@ -355,7 +369,15 @@ const POS: React.FC = () => {
       clearCart(); resetPayments(); resetDiscount();
       setCustomerName(''); setCustomerDoc(''); setCustomerEmail(''); setCustomerPhone('');
       setIsPaymentModalOpen(false);
-      navigate('/pos', { replace: true });
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // CAMBIO: Redirigir a returnUrl si existe, para cerrar el ciclo de cobro
+      // ═══════════════════════════════════════════════════════════════════════════
+      if (returnUrl) {
+        navigate(returnUrl);
+      } else {
+        navigate('/pos', { replace: true });
+      }
     } catch (err: any) {
       toast.error('Error al facturar: ' + (err?.message || 'Error desconocido'));
     }
@@ -453,7 +475,7 @@ const POS: React.FC = () => {
         onRemoveItem={removeFromCart} onOpenPayment={() => setIsPaymentModalOpen(true)} formatMoney={formatMoney}
       />
 
-      {/* Modal de pago — CORREGIDO: company?.id en lugar de companyId */}
+      {/* Modal de pago */}
       {isPaymentModalOpen && (
         <PaymentModal
           totals={totals} applyIva={applyIva} defaultTaxRate={defaultTaxRate} clampedDiscount={clampedDiscount}

@@ -54,6 +54,8 @@ const Panaderia          = lazy(() => import('./pages/Panaderia'));
 const B2BMarketplace     = lazy(() => import('./pages/B2BMarketplace'));
 const GymClientPortal    = lazy(() => import('./GymClientPortal'));
 const GymClassesDisplay  = lazy(() => import('./GymClassesDisplay'));
+// ── NUEVA: Configuración de Integraciones (WhatsApp + Email por empresa) ──────
+const ConfiguracionIntegraciones = lazy(() => import('./pages/ConfiguracionIntegraciones'));
 
 const WHATSAPP_NUMBER  = import.meta.env.VITE_WHATSAPP_NUMBER  || '573204884943';
 const BOLD_PAYMENT_URL = import.meta.env.VITE_BOLD_PAYMENT_URL || 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
@@ -389,43 +391,45 @@ const PageLoader: React.FC = () => (
 const AppRoutes: React.FC = () => (
   <Suspense fallback={<PageLoader />}>
     <Routes>
-      <Route path="/"              element={<Dashboard />} />
-      <Route path="/pos"           element={<POS />} />
-      <Route path="/inventory"     element={<Inventory />} />
-      <Route path="/repairs"       element={<Repairs />} />
-      <Route path="/cash-control"  element={<CashControl />} />
-      <Route path="/receivables"   element={<AccountsReceivable />} />
-      <Route path="/payables"      element={<AccountsPayable />} />
-      <Route path="/invoices"      element={<InvoiceHistory />} />
-      <Route path="/settings"      element={<Settings />} />
-      <Route path="/hardware"      element={<Hardware />} />
-      <Route path="/branches"      element={<Branches />} />
-      <Route path="/team"          element={<Team />} />
-      <Route path="/tables"        element={<Tables />} />
-      <Route path="/kitchen"       element={<KitchenDisplay />} />
-      <Route path="/salon"         element={<BeautySalon />} />
-      <Route path="/shoe-repair"   element={<ShoeRepair />} />
-      <Route path="/dentistry"     element={<Odontologia />} />
-      <Route path="/veterinaria"   element={<Veterinaria />} />
-      <Route path="/supplies"      element={<Supplies />} />
-      <Route path="/farmacia"      element={<Farmacia />} />
-      <Route path="/customers"     element={<Customers />} />
-      <Route path="/quotes"        element={<Quotes />} />
-      <Route path="/nomina"        element={<Nomina />} />
-      <Route path="/purchases"     element={<PurchaseOrders />} />
-      <Route path="/credit-notes"  element={<CreditNotes />} />
-      <Route path="/reports"       element={<Reports />} />
-      <Route path="/expenses"      element={<Expenses />} />
-      <Route path="/optometria"    element={<Optometria />} />
-      <Route path="/portal"        element={<PortalPropietario />} />
-      <Route path="/kiosk"         element={<BranchKiosk />} />
-      <Route path="/apartados"     element={<Apartados />} />
-      <Route path="/lavadero"      element={<Lavadero />} />
-      <Route path="/ropa"          element={<Ropa />} />
-      <Route path="/warehouse"     element={<WarehouseDisplay />} />
-      <Route path="/gimnasio"      element={<Gimnasio />} />
-      <Route path="/b2b"           element={<B2BMarketplace />} />
-      <Route path="/panaderia"     element={<Panaderia />} />
+      <Route path="/"                          element={<Dashboard />} />
+      <Route path="/pos"                       element={<POS />} />
+      <Route path="/inventory"                 element={<Inventory />} />
+      <Route path="/repairs"                   element={<Repairs />} />
+      <Route path="/cash-control"              element={<CashControl />} />
+      <Route path="/receivables"               element={<AccountsReceivable />} />
+      <Route path="/payables"                  element={<AccountsPayable />} />
+      <Route path="/invoices"                  element={<InvoiceHistory />} />
+      <Route path="/settings"                  element={<Settings />} />
+      <Route path="/hardware"                  element={<Hardware />} />
+      <Route path="/branches"                  element={<Branches />} />
+      <Route path="/team"                      element={<Team />} />
+      <Route path="/tables"                    element={<Tables />} />
+      <Route path="/kitchen"                   element={<KitchenDisplay />} />
+      <Route path="/salon"                     element={<BeautySalon />} />
+      <Route path="/shoe-repair"               element={<ShoeRepair />} />
+      <Route path="/dentistry"                 element={<Odontologia />} />
+      <Route path="/veterinaria"               element={<Veterinaria />} />
+      <Route path="/supplies"                  element={<Supplies />} />
+      <Route path="/farmacia"                  element={<Farmacia />} />
+      <Route path="/customers"                 element={<Customers />} />
+      <Route path="/quotes"                    element={<Quotes />} />
+      <Route path="/nomina"                    element={<Nomina />} />
+      <Route path="/purchases"                 element={<PurchaseOrders />} />
+      <Route path="/credit-notes"              element={<CreditNotes />} />
+      <Route path="/reports"                   element={<Reports />} />
+      <Route path="/expenses"                  element={<Expenses />} />
+      <Route path="/optometria"                element={<Optometria />} />
+      <Route path="/portal"                    element={<PortalPropietario />} />
+      <Route path="/kiosk"                     element={<BranchKiosk />} />
+      <Route path="/apartados"                 element={<Apartados />} />
+      <Route path="/lavadero"                  element={<Lavadero />} />
+      <Route path="/ropa"                      element={<Ropa />} />
+      <Route path="/warehouse"                 element={<WarehouseDisplay />} />
+      <Route path="/gimnasio"                  element={<Gimnasio />} />
+      <Route path="/b2b"                       element={<B2BMarketplace />} />
+      <Route path="/panaderia"                 element={<Panaderia />} />
+      {/* ── NUEVA ruta: Configuración de Integraciones ── */}
+      <Route path="/configuracion/integraciones" element={<ConfiguracionIntegraciones />} />
     </Routes>
   </Suspense>
 );
@@ -545,10 +549,10 @@ const App: React.FC = () => {
       <PWAInstallPrompt />
       <Router>
         <Routes>
-          <Route path="/catalogo/:companyId"        element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
-          <Route path="/gimnasio-kiosk/:companyId"  element={<Suspense fallback={<PageLoader />}><GymKiosk /></Suspense>} />
-          <Route path="/gym-portal/:token"          element={<Suspense fallback={<PageLoader />}><GymClientPortal /></Suspense>} />
-          <Route path="/gym-classes/:companyId"     element={<Suspense fallback={<PageLoader />}><GymClassesDisplay /></Suspense>} />
+          <Route path="/catalogo/:companyId"         element={<Suspense fallback={<PageLoader />}><PublicCatalog /></Suspense>} />
+          <Route path="/gimnasio-kiosk/:companyId"   element={<Suspense fallback={<PageLoader />}><GymKiosk /></Suspense>} />
+          <Route path="/gym-portal/:token"           element={<Suspense fallback={<PageLoader />}><GymClientPortal /></Suspense>} />
+          <Route path="/gym-classes/:companyId"      element={<Suspense fallback={<PageLoader />}><GymClassesDisplay /></Suspense>} />
           <Route path="/lavadero-display/:companyId" element={<Suspense fallback={<PageLoader />}><LavaderoEmpleados /></Suspense>} />
           <Route path="/lavadero-espera/:companyId"  element={<Suspense fallback={<PageLoader />}><LavaderoSalaEspera /></Suspense>} />
           <Route path="/*" element={
