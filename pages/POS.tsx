@@ -351,37 +351,40 @@ const POS: React.FC = () => {
     }
   };
 
-  // ── Finalizar venta ───────────────────────────────────────────────────────
-  const handleFinalizeSale = async () => {
-    if (!isPartialMode && totals.remaining > 100) { toast.error('Debe cubrir el total de la venta o activar modo Abono Parcial'); return; }
-    if (isPartialMode && totals.totalPaid <= 0) { toast.error('Ingresa al menos un monto de abono'); return; }
-    try {
-      const sale = await processSale({
-        customer: customerName || 'Consumidor Final', customerDoc, customerEmail, customerPhone,
-        items: cart, total: totals.total, subtotal: totals.subtotal, taxAmount: totals.tax,
-        applyIva, discountPercent: clampedDiscount, discountAmount: totals.discountAmount,
-        amountPaid: totals.totalPaid, shoeRepairId: shoeRepairId || undefined,
-        business_type: businessTypes[0] || 'general',
-      });
-      setLastSale({ ...sale, _cartItems: cart, discountPercent: clampedDiscount, discountAmount: totals.discountAmount } as any);
-      setShowInvoice(true);
-      if (payments.some((p) => p.method === PaymentMethod.CASH)) autoOpenDrawer();
-      clearCart(); resetPayments(); resetDiscount();
-      setCustomerName(''); setCustomerDoc(''); setCustomerEmail(''); setCustomerPhone('');
-      setIsPaymentModalOpen(false);
+ // ── Finalizar venta ───────────────────────────────────────────────────────
+const handleFinalizeSale = async () => {
+  if (!isPartialMode && totals.remaining > 100) { toast.error('Debe cubrir el total de la venta o activar modo Abono Parcial'); return; }
+  if (isPartialMode && totals.totalPaid <= 0) { toast.error('Ingresa al menos un monto de abono'); return; }
+  
+  try {
+    const sale = await processSale({
+      customer: customerName || 'Consumidor Final', customerDoc, customerEmail, customerPhone,
+      items: cart, total: totals.total, subtotal: totals.subtotal, taxAmount: totals.tax,
+      applyIva, discountPercent: clampedDiscount, discountAmount: totals.discountAmount,
+      amountPaid: totals.totalPaid, shoeRepairId: shoeRepairId || undefined,
+      business_type: businessTypes[0] || 'general',
+    });
+    
+    setLastSale({ ...sale, _cartItems: cart, discountPercent: clampedDiscount, discountAmount: totals.discountAmount } as any);
+    setShowInvoice(true);
+    if (payments.some((p) => p.method === PaymentMethod.CASH)) autoOpenDrawer();
+    clearCart(); resetPayments(); resetDiscount();
+    setCustomerName(''); setCustomerDoc(''); setCustomerEmail(''); setCustomerPhone('');
+    setIsPaymentModalOpen(false);
 
-      // ═══════════════════════════════════════════════════════════════════════════
-      // CAMBIO: Redirigir a returnUrl si existe, para cerrar el ciclo de cobro
-      // ═══════════════════════════════════════════════════════════════════════════
-      if (returnUrl) {
-        navigate(returnUrl);
-      } else {
-        navigate('/pos', { replace: true });
-      }
-    } catch (err: any) {
-      toast.error('Error al facturar: ' + (err?.message || 'Error desconocido'));
+    // ═══════════ CAMBIO: Pasar el invoice_id real ═══════════
+    if (returnUrl) {
+      const invoiceId = sale.id;
+      const separator = returnUrl.includes('?') ? '&' : '?';
+      const finalUrl = `${returnUrl}${separator}invoice_id=${invoiceId}`;
+      navigate(finalUrl);
+    } else {
+      navigate('/pos', { replace: true });
     }
-  };
+  } catch (err: any) {
+    toast.error('Error al facturar: ' + (err?.message || 'Error desconocido'));
+  }
+};
 
   // ── Caja cerrada ──────────────────────────────────────────────────────────
   if (session?.status !== 'OPEN') {

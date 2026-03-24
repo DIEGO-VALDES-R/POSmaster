@@ -10,6 +10,7 @@ import AcceptInvitation from './AcceptInvitation';
 import { Toaster } from 'react-hot-toast';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 
+
 // ── CODE SPLITTING ────────────────────────────────────────────────────────────
 const Dashboard          = lazy(() => import('./pages/Dashboard'));
 const POS                = lazy(() => import('./pages/POS'));

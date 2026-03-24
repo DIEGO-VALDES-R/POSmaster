@@ -7,6 +7,7 @@ import {
   CreditCard, Banknote, Smartphone, AlertCircle,
   Check, Zap, TrendingUp, Lock, Package, Percent,
   FileText, ChevronDown, Filter, Eye,
+  Grid, List, CalendarDays, Move,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -17,6 +18,7 @@ import toast from 'react-hot-toast';
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 type ServiceStatus = 'WAITING' | 'ASSIGNED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 type Tab = 'dashboard' | 'catalogo' | 'equipo' | 'historial';
+type CalendarView = 'day' | 'week' | 'month';
 
 interface SalonService {
   id: string; company_id: string; name: string; category: string;
@@ -65,7 +67,6 @@ const fmtTime = (iso: string) =>
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
 
-// FIX ZONA HORARIA: Comparar fechas como string YYYY-MM-DD para evitar desfase UTC
 const toLocalDateStr = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -87,6 +88,51 @@ const AVATAR_COLORS = ['#6366f1','#ec4899','#14b8a6','#f59e0b','#8b5cf6','#10b98
 const avatarColor = (name: string) => AVATAR_COLORS[(name.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am – 9pm
+
+// Helpers para vista semanal/mensual
+const getWeekDays = (date: Date): Date[] => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lunes como primer día
+  const monday = new Date(d.setDate(diff));
+  return Array.from({ length: 7 }, (_, i) => {
+    const next = new Date(monday);
+    next.setDate(monday.getDate() + i);
+    return next;
+  });
+};
+
+const getMonthDays = (date: Date): Date[] => {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const days: Date[] = [];
+  
+  // Días del mes anterior para completar la primera semana
+  const startPadding = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+  for (let i = startPadding; i > 0; i--) {
+    days.push(new Date(year, month, 1 - i));
+  }
+  
+  // Días del mes actual
+  for (let i = 1; i <= lastDay.getDate(); i++) {
+    days.push(new Date(year, month, i));
+  }
+  
+  // Días del mes siguiente para completar la última semana
+  const endPadding = 7 - (days.length % 7);
+  for (let i = 1; i <= endPadding && days.length % 7 !== 0; i++) {
+    days.push(new Date(year, month + 1, i));
+  }
+  
+  return days;
+};
+
+const isSameDay = (d1: Date, d2: Date): boolean =>
+  d1.getFullYear() === d2.getFullYear() &&
+  d1.getMonth() === d2.getMonth() &&
+  d1.getDate() === d2.getDate();
 
 // ── SKELETON COMPONENT ────────────────────────────────────────────────────────
 const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
@@ -136,7 +182,7 @@ const SuccessCheck: React.FC<{ show: boolean }> = ({ show }) => {
 const BeautySalon: React.FC = () => {
   const { company } = useDatabase();
   const navigate    = useNavigate();
-  const location    = useLocation();          // ✅ FIX: detectar regreso del POS
+  const location    = useLocation();
   const companyId   = company?.id;
   const brandColor  = (company?.config as any)?.primary_color || '#6366f1';
 
@@ -147,9 +193,13 @@ const BeautySalon: React.FC = () => {
   const [loading, setLoading]       = useState(true);
   const [activeTab, setActiveTab]   = useState<Tab>('dashboard');
   const [agendaDate, setAgendaDate] = useState(new Date());
+  const [calendarView, setCalendarView] = useState<CalendarView>('day');
   const [sendingReminder, setSendingReminder] = useState<string|null>(null);
   const [importModal, setImportModal] = useState<ModuleType|null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // ═══════════ FIX 4: Panel flotante ═══════════
+  const [showActivePanel, setShowActivePanel] = useState(true);
 
   // Paginación historial
   const [histPage, setHistPage]   = useState(0);
@@ -161,6 +211,7 @@ const BeautySalon: React.FC = () => {
   const [showStylistModal, setShowStylistModal] = useState(false);
   const [showBlockModal, setShowBlockModal]     = useState(false);
   const [showCommissions, setShowCommissions]   = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [editingService, setEditingService]     = useState<SalonService|null>(null);
   const [editingStylist, setEditingStylist]     = useState<Stylist|null>(null);
   const [detailOrder, setDetailOrder]           = useState<ServiceOrder|null>(null);
@@ -174,6 +225,7 @@ const BeautySalon: React.FC = () => {
   const [serviceForm, setServiceForm] = useState({ name:'', category:'cabello', price:'', duration_minutes:'30' });
   const [stylistForm, setStylistForm] = useState({ name:'', specialty:'', commission_pct:'10' });
   const [blockForm, setBlockForm]     = useState({ stylist_id:'', start_at:'', end_at:'', reason:'Almuerzo' });
+  const [rescheduleForm, setRescheduleForm] = useState({ scheduled_at: '' });
   const [saving, setSaving]           = useState(false);
   const [searchQ, setSearchQ]         = useState('');
   const [histFilter, setHistFilter]   = useState<ServiceStatus|''>('');
@@ -184,31 +236,43 @@ const BeautySalon: React.FC = () => {
   // ── LOAD ──────────────────────────────────────────────────────────────────
   const loadOrders = useCallback(async () => {
     if (!companyId) return;
-    const { data } = await supabase
-      .from('salon_orders')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('scheduled_at', { ascending: true, nullsFirst: false });
-    setOrders((data || []) as ServiceOrder[]);
+    try {
+      const { data, error } = await supabase
+        .from('salon_orders')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('scheduled_at', { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      setOrders((data || []) as ServiceOrder[]);
+    } catch (err) {
+      console.error('Error loading orders:', err);
+    }
   }, [companyId]);
 
   const loadServices = useCallback(async () => {
     if (!companyId) return;
-    const { data } = await supabase
-      .from('salon_services').select('*')
-      .eq('company_id', companyId).eq('is_active', true).order('category, name');
-    setServices((data || []) as SalonService[]);
+    try {
+      const { data } = await supabase
+        .from('salon_services').select('*')
+        .eq('company_id', companyId).eq('is_active', true).order('category, name');
+      setServices((data || []) as SalonService[]);
+    } catch (err) {
+      console.error('Error loading services:', err);
+    }
   }, [companyId]);
 
   const loadStylists = useCallback(async () => {
     if (!companyId) return;
-    const { data } = await supabase
-      .from('salon_stylists').select('*')
-      .eq('company_id', companyId).eq('is_active', true).order('name');
-    setStylists((data || []) as Stylist[]);
+    try {
+      const { data } = await supabase
+        .from('salon_stylists').select('*')
+        .eq('company_id', companyId).eq('is_active', true).order('name');
+      setStylists((data || []) as Stylist[]);
+    } catch (err) {
+      console.error('Error loading stylists:', err);
+    }
   }, [companyId]);
 
-  // ✅ FIX: loadBlocked ahora es robusto — si la tabla no existe aún, no rompe la app
   const loadBlocked = useCallback(async () => {
     if (!companyId) return;
     try {
@@ -230,59 +294,83 @@ const BeautySalon: React.FC = () => {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // ✅ FIX COBRO DESDE POS: Al regresar del POS con ?salon=<orderId>&paid=1,
-  //    marcamos la orden con invoice_id ficticio para que desaparezca del panel
-  //    "Listas para cobrar" y mostramos feedback al usuario.
-  useEffect(() => {
-    if (!companyId) return;
-    const params = new URLSearchParams(location.search);
-    const salonOrderId = params.get('salon');
-    const paid         = params.get('paid');          // El POS debe agregar &paid=1 al volver
-    const invoiceId    = params.get('invoice_id');    // O bien el invoice_id real si el POS lo provee
+  // ═══════════ FIX: Manejo correcto del retorno del POS ═══════════
+useEffect(() => {
+  if (!companyId) return;
+  const params = new URLSearchParams(location.search);
+  const salonOrderId = params.get('salon');
+  const paid         = params.get('paid');
+  const invoiceId    = params.get('invoice_id');
 
-    if (!salonOrderId) return;
+  if (!salonOrderId) return;
 
-    // Limpiar URL sin recargar
-    const clean = location.pathname;
-    window.history.replaceState({}, '', clean);
+  // Limpiar URL sin recargar
+  window.history.replaceState({}, '', location.pathname);
 
-    if (paid === '1' || invoiceId) {
-      // Marcar la orden como cobrada en Supabase
-      const updatePayload: Record<string, any> = {
-        invoice_id: invoiceId || `POS-${Date.now()}`,  // id real o placeholder
-      };
-      supabase
-        .from('salon_orders')
-        .update(updatePayload)
-        .eq('id', salonOrderId)
-        .then(({ error }) => {
-          if (error) {
-            console.error('Error marcando salon_order cobrada:', error);
-          } else {
-            toast.success('Cobro registrado ✅');
-            setQuickSaleOrder(null);
-            loadOrders();
-          }
-        });
+  if (paid === '1' && invoiceId) {
+    // Validar que invoiceId sea un UUID válido
+    const isValidUUID = (str: string) => {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      return uuidRegex.test(str);
+    };
+
+    if (!isValidUUID(invoiceId)) {
+      console.error('invoice_id no es un UUID válido:', invoiceId);
+      toast.error('Error: ID de factura inválido');
+      return;
     }
-  }, [location.search, companyId, loadOrders]);
 
-  // ✅ REALTIME: Suscripción nativa de Supabase
+    // Actualizar con el invoice_id real (que existe en la tabla invoices)
+    supabase
+      .from('salon_orders')
+      .update({ invoice_id: invoiceId })
+      .eq('id', salonOrderId)
+      .eq('company_id', companyId)
+      .then(({ error }) => {
+        if (error) {
+          console.error('Error marcando salon_order cobrada:', error);
+          toast.error('Error al confirmar el cobro: ' + error.message);
+        } else {
+          toast.success('✅ Cobro registrado correctamente');
+          setQuickSaleOrder(null);
+          loadOrders();
+        }
+      });
+  }
+}, [location.search, companyId, loadOrders]);
+
+  // ✅ REALTIME con manejo de errores mejorado
   useEffect(() => {
     if (!companyId) return;
-    const channel = supabase
-      .channel(`salon_orders_${companyId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'salon_orders',
-        filter: `company_id=eq.${companyId}`,
-      }, () => {
-        loadOrders();
-      })
-      .subscribe();
-    realtimeRef.current = channel;
-    return () => { supabase.removeChannel(channel); };
+    
+    let channel: any = null;
+    
+    try {
+      channel = supabase
+        .channel(`salon_orders_${companyId}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'salon_orders',
+          filter: `company_id=eq.${companyId}`,
+        }, () => {
+          loadOrders();
+        })
+        .subscribe();
+      realtimeRef.current = channel;
+    } catch (err) {
+      console.error('Realtime error:', err);
+    }
+    
+    return () => { 
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignorar errores al limpiar
+        }
+      }
+    };
   }, [companyId, loadOrders]);
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
@@ -292,6 +380,12 @@ const BeautySalon: React.FC = () => {
   const activeOrders = useMemo(() =>
     orders.filter(o => !['DONE','CANCELLED'].includes(o.status)),
     [orders]
+  );
+
+  // ═══════════ FIX 4: Computed para citas en proceso ═══════════
+  const activeInProgress = useMemo(() =>
+    activeOrders.filter(o => o.status === 'IN_PROGRESS'),
+    [activeOrders]
   );
 
   const todayDone = useMemo(() =>
@@ -322,6 +416,30 @@ const BeautySalon: React.FC = () => {
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime()),
     [orders, agendaDayStr]
   );
+
+  // ✅ Órdenes para vista semanal
+  const weekDays = useMemo(() => getWeekDays(agendaDate), [agendaDate]);
+  const weekOrders = useMemo(() => {
+    const startStr = toLocalDateStr(weekDays[0]);
+    const endStr = toLocalDateStr(weekDays[6]);
+    return orders.filter(o =>
+      o.scheduled_at &&
+      getDatePart(o.scheduled_at) >= startStr &&
+      getDatePart(o.scheduled_at) <= endStr
+    );
+  }, [orders, weekDays]);
+
+  // ✅ Órdenes para vista mensual
+  const monthDays = useMemo(() => getMonthDays(agendaDate), [agendaDate]);
+  const monthOrders = useMemo(() => {
+    const startStr = toLocalDateStr(monthDays[0]);
+    const endStr = toLocalDateStr(monthDays[monthDays.length - 1]);
+    return orders.filter(o =>
+      o.scheduled_at &&
+      getDatePart(o.scheduled_at) >= startStr &&
+      getDatePart(o.scheduled_at) <= endStr
+    );
+  }, [orders, monthDays]);
 
   const upcomingToday = useMemo(() =>
     orders
@@ -356,7 +474,7 @@ const BeautySalon: React.FC = () => {
     [filteredHistory, histPage]
   );
 
-  // ✅ FIX "Listas para cobrar": solo mostrar DONE sin invoice_id
+  // ✅ FIX: Solo mostrar DONE sin invoice_id
   const pendingPayment = useMemo(() =>
     todayDone.filter(o => !o.invoice_id),
     [todayDone]
@@ -408,36 +526,47 @@ const BeautySalon: React.FC = () => {
   };
 
   // ── ACTIONS ───────────────────────────────────────────────────────────────
+  // ═══════════ FIX 3: Agregar loadOrders con delay ═══════════
   const handleCreateOrder = async () => {
     if (!companyId) return;
     if (!validateOrderForm()) return;
     setSaving(true);
     const svc = services.find(s => s.id === orderForm.service_id);
     const stl = stylists.find(s => s.id === orderForm.stylist_id);
-    const { error } = await supabase.from('salon_orders').insert({
-      company_id: companyId, client_name: orderForm.client_name.trim(),
-      client_phone: orderForm.client_phone || null,
-      client_email: orderForm.client_email || null,
-      service_id: orderForm.service_id, service_name: svc?.name || '',
-      service_price: svc?.price || 0,
-      stylist_id: orderForm.stylist_id || null,
-      stylist_name: stl?.name || null,
-      status: orderForm.stylist_id ? 'ASSIGNED' : 'WAITING',
-      notes: orderForm.notes,
-      scheduled_at: orderForm.scheduled_at || null,
-    });
-    if (error) { toast.error(error.message); setSaving(false); return; }
+    
+    try {
+      const { error } = await supabase.from('salon_orders').insert({
+        company_id: companyId, client_name: orderForm.client_name.trim(),
+        client_phone: orderForm.client_phone || null,
+        client_email: orderForm.client_email || null,
+        service_id: orderForm.service_id, service_name: svc?.name || '',
+        service_price: svc?.price || 0,
+        stylist_id: orderForm.stylist_id || null,
+        stylist_name: stl?.name || null,
+        status: orderForm.stylist_id ? 'ASSIGNED' : 'WAITING',
+        notes: orderForm.notes,
+        scheduled_at: orderForm.scheduled_at || null,
+      });
+      
+      if (error) throw error;
 
-    triggerSuccess();
-    toast.success('Cita registrada ✅');
-    setShowNewOrder(false);
-    setOrderForm(defaultOrderForm);
-    setOrderErrors({});
-    setSaving(false);
-
-    await loadOrders();
-    if (orderForm.scheduled_at) {
-      setAgendaDate(new Date(orderForm.scheduled_at));
+      triggerSuccess();
+      toast.success('Cita registrada ✅');
+      setShowNewOrder(false);
+      setOrderForm(defaultOrderForm);
+      setOrderErrors({});
+      
+      await loadOrders();
+      // FIX 3: Re-fetch por si realtime tarda
+      setTimeout(() => loadOrders(), 1500);
+      
+      if (orderForm.scheduled_at) {
+        setAgendaDate(new Date(orderForm.scheduled_at));
+      }
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al crear la cita');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -445,42 +574,118 @@ const BeautySalon: React.FC = () => {
     const extra: Record<string,any> = {};
     if (status === 'IN_PROGRESS') extra.started_at  = new Date().toISOString();
     if (status === 'DONE')        extra.finished_at = new Date().toISOString();
-    const { error } = await supabase.from('salon_orders').update({ status, ...extra }).eq('id', id);
-    if (error) { toast.error(error.message); return; }
-    if (status === 'DONE') triggerSuccess();
-    await loadOrders();
-    if (detailOrder?.id === id) setDetailOrder(prev => prev ? { ...prev, status, ...extra } : null);
+    
+    try {
+      const { error } = await supabase.from('salon_orders').update({ status, ...extra }).eq('id', id);
+      if (error) throw error;
+      
+      if (status === 'DONE') triggerSuccess();
+      await loadOrders();
+      if (detailOrder?.id === id) setDetailOrder(prev => prev ? { ...prev, status, ...extra } : null);
+      
+      toast.success(`Estado actualizado a ${STATUS_CONFIG[status].label}`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al actualizar');
+    }
+  };
+
+  // ✅ NUEVO: Reprogramar cita
+  const handleReschedule = async () => {
+    if (!detailOrder || !rescheduleForm.scheduled_at) {
+      toast.error('Selecciona una fecha y hora');
+      return;
+    }
+    
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('salon_orders')
+        .update({ scheduled_at: rescheduleForm.scheduled_at })
+        .eq('id', detailOrder.id);
+      
+      if (error) throw error;
+      
+      toast.success('Cita reprogramada ✅');
+      setShowRescheduleModal(false);
+      setDetailOrder(prev => prev ? { ...prev, scheduled_at: rescheduleForm.scheduled_at } : null);
+      setAgendaDate(new Date(rescheduleForm.scheduled_at));
+      await loadOrders();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al reprogramar');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const assignStylist = async (orderId: string, stylistId: string) => {
     const stl = stylists.find(s => s.id === stylistId);
-    const { error } = await supabase.from('salon_orders').update({
-      stylist_id: stylistId, stylist_name: stl?.name || '', status: 'ASSIGNED',
-    }).eq('id', orderId);
-    if (error) { toast.error(error.message); return; }
-    toast.success(`Asignado a ${stl?.name}`);
-    await loadOrders();
+    try {
+      const { error } = await supabase.from('salon_orders').update({
+        stylist_id: stylistId, stylist_name: stl?.name || '', status: 'ASSIGNED',
+      }).eq('id', orderId);
+      
+      if (error) throw error;
+      
+      toast.success(`Asignado a ${stl?.name}`);
+      await loadOrders();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al asignar');
+    }
   };
 
+  // ✅ FIX: Enviar recordatorio - WhatsApp directo
   const sendReminder = async (order: ServiceOrder, channel: 'whatsapp'|'email') => {
-    if (channel === 'whatsapp' && !order.client_phone) { toast.error('Sin teléfono registrado'); return; }
-    if (channel === 'email'    && !order.client_email) { toast.error('Sin email registrado'); return; }
-    if (!order.scheduled_at) { toast.error('Sin fecha programada'); return; }
+    if (channel === 'whatsapp' && !order.client_phone) { 
+      toast.error('Sin teléfono registrado'); 
+      return; 
+    }
+    if (channel === 'email' && !order.client_email) { 
+      toast.error('Sin email registrado'); 
+      return; 
+    }
+    if (!order.scheduled_at) { 
+      toast.error('Sin fecha programada'); 
+      return; 
+    }
+    
     setSendingReminder(order.id + channel);
+    
     try {
-      const { error } = await supabase.functions.invoke('salon-reminder', {
-        body: {
-          company_id: companyId, order_id: order.id, channel,
-          client_name: order.client_name, client_phone: order.client_phone,
-          client_email: order.client_email, service_name: order.service_name,
-          stylist_name: order.stylist_name, scheduled_at: order.scheduled_at,
-          company_name: company?.name,
-        },
-      });
-      if (error) throw new Error(error.message);
-      toast.success(`Recordatorio enviado por ${channel === 'whatsapp' ? 'WhatsApp' : 'Email'} ✅`);
-    } catch (err: any) { toast.error('Error: ' + err.message); }
-    finally { setSendingReminder(null); }
+      if (channel === 'whatsapp') {
+        // ✅ WhatsApp directo sin Edge Function
+        const dateStr = new Date(order.scheduled_at).toLocaleDateString('es-CO', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        const message = `Hola ${order.client_name}! 👋\n\nTe recordamos tu cita en *${company?.name || 'nuestro salón'}*:\n\n📅 ${dateStr}\n💇 ${order.service_name}\n${order.stylist_name ? `✂️ Con: ${order.stylist_name}` : ''}\n\n¡Te esperamos! 💅`;
+        
+        const phone = order.client_phone?.replace(/\D/g, '');
+        const whatsappUrl = `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`;
+        window.open(whatsappUrl, '_blank');
+        toast.success('Abriendo WhatsApp...');
+      } else {
+        // Email via Edge Function
+        const { error } = await supabase.functions.invoke('salon-reminder', {
+          body: {
+            company_id: companyId, order_id: order.id, channel,
+            client_name: order.client_name, client_phone: order.client_phone,
+            client_email: order.client_email, service_name: order.service_name,
+            stylist_name: order.stylist_name, scheduled_at: order.scheduled_at,
+            company_name: company?.name,
+          },
+        });
+        if (error) throw new Error(error.message);
+        toast.success('Recordatorio enviado por Email ✅');
+      }
+    } catch (err: any) {
+      toast.error('Error: ' + err.message);
+    } finally {
+      setSendingReminder(null);
+    }
   };
 
   const handleSaveService = async () => {
@@ -492,20 +697,31 @@ const BeautySalon: React.FC = () => {
       duration_minutes: parseInt(serviceForm.duration_minutes) || 30,
       is_active: true,
     };
-    const { error } = editingService
-      ? await supabase.from('salon_services').update(payload).eq('id', editingService.id)
-      : await supabase.from('salon_services').insert(payload);
-    if (error) { toast.error(error.message); setSaving(false); return; }
-    toast.success(editingService ? 'Servicio actualizado' : 'Servicio creado');
-    setShowServiceModal(false); setEditingService(null);
-    setServiceForm({ name:'', category:'cabello', price:'', duration_minutes:'30' });
-    setSaving(false); loadServices();
+    
+    try {
+      const { error } = editingService
+        ? await supabase.from('salon_services').update(payload).eq('id', editingService.id)
+        : await supabase.from('salon_services').insert(payload);
+      
+      if (error) throw error;
+      
+      toast.success(editingService ? 'Servicio actualizado' : 'Servicio creado');
+      setShowServiceModal(false);
+      setEditingService(null);
+      setServiceForm({ name:'', category:'cabello', price:'', duration_minutes:'30' });
+      loadServices();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteService = async (id: string) => {
     if (!confirm('¿Eliminar este servicio?')) return;
     await supabase.from('salon_services').update({ is_active: false }).eq('id', id);
-    toast.success('Servicio eliminado'); loadServices();
+    toast.success('Servicio eliminado');
+    loadServices();
   };
 
   const handleSaveStylist = async () => {
@@ -518,20 +734,31 @@ const BeautySalon: React.FC = () => {
       commission_pct: parseFloat(stylistForm.commission_pct) || 10,
       is_active: true,
     };
-    const { error } = editingStylist
-      ? await supabase.from('salon_stylists').update(payload).eq('id', editingStylist.id)
-      : await supabase.from('salon_stylists').insert(payload);
-    if (error) { toast.error(error.message); setSaving(false); return; }
-    toast.success(editingStylist ? 'Estilista actualizado' : 'Estilista creado');
-    setShowStylistModal(false); setEditingStylist(null);
-    setStylistForm({ name:'', specialty:'', commission_pct:'10' });
-    setSaving(false); loadStylists();
+    
+    try {
+      const { error } = editingStylist
+        ? await supabase.from('salon_stylists').update(payload).eq('id', editingStylist.id)
+        : await supabase.from('salon_stylists').insert(payload);
+      
+      if (error) throw error;
+      
+      toast.success(editingStylist ? 'Estilista actualizado' : 'Estilista creado');
+      setShowStylistModal(false);
+      setEditingStylist(null);
+      setStylistForm({ name:'', specialty:'', commission_pct:'10' });
+      loadStylists();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteStylist = async (id: string) => {
     if (!confirm('¿Eliminar este estilista?')) return;
     await supabase.from('salon_stylists').update({ is_active: false }).eq('id', id);
-    toast.success('Estilista eliminado'); loadStylists();
+    toast.success('Estilista eliminado');
+    loadStylists();
   };
 
   const handleSaveBlock = async () => {
@@ -542,23 +769,30 @@ const BeautySalon: React.FC = () => {
       toast.error('La hora de fin debe ser después del inicio'); return;
     }
     setSaving(true);
-    const { error } = await supabase.from('salon_blocked_slots').insert({
-      company_id: companyId,
-      stylist_id: blockForm.stylist_id,
-      start_at: blockForm.start_at,
-      end_at: blockForm.end_at,
-      reason: blockForm.reason,
-    });
-    if (error) { toast.error(error.message); setSaving(false); return; }
-    toast.success('Bloqueo registrado');
-    setShowBlockModal(false);
-    setBlockForm({ stylist_id:'', start_at:'', end_at:'', reason:'Almuerzo' });
-    setSaving(false); loadBlocked();
+    
+    try {
+      const { error } = await supabase.from('salon_blocked_slots').insert({
+        company_id: companyId,
+        stylist_id: blockForm.stylist_id,
+        start_at: blockForm.start_at,
+        end_at: blockForm.end_at,
+        reason: blockForm.reason,
+      });
+      
+      if (error) throw error;
+      
+      toast.success('Bloqueo registrado');
+      setShowBlockModal(false);
+      setBlockForm({ stylist_id:'', start_at:'', end_at:'', reason:'Almuerzo' });
+      loadBlocked();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al bloquear');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // ✅ FIX COBRO: navegar al POS con &paid=1 en la URL de retorno
-  //    El POS debe redirigir a /salon?salon=<id>&paid=1 al completar el pago.
-  //    Si tu POS ya tiene lógica de returnUrl, pásalo como parámetro.
+  // ✅ FIX COBRO: Navegar al POS con returnUrl
   const handleQuickSalePOS = (order: ServiceOrder) => {
     const returnUrl = encodeURIComponent(`/salon?salon=${order.id}&paid=1`);
     const p = new URLSearchParams({
@@ -570,7 +804,7 @@ const BeautySalon: React.FC = () => {
       total:    String(order.service_price),
       abono:    '0',
       servicio: order.service_name,
-      returnUrl,                           // ✅ el POS leerá esto para saber dónde volver
+      returnUrl,
     });
     navigate(`/pos?${p.toString()}`);
   };
@@ -688,16 +922,29 @@ const BeautySalon: React.FC = () => {
 
             {/* ── Calendario ── */}
             <div className="flex-1 bg-white rounded-b-2xl rounded-tr-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden min-w-0">
-              {/* Header fecha */}
+              {/* Header fecha con selector de vista */}
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50 flex-shrink-0">
-                <button onClick={() => { const d = new Date(agendaDate); d.setDate(d.getDate()-1); setAgendaDate(d); }}
+                <button onClick={() => {
+                  if (calendarView === 'day') {
+                    const d = new Date(agendaDate); d.setDate(d.getDate()-1); setAgendaDate(d);
+                  } else if (calendarView === 'week') {
+                    const d = new Date(agendaDate); d.setDate(d.getDate()-7); setAgendaDate(d);
+                  } else {
+                    const d = new Date(agendaDate); d.setMonth(d.getMonth()-1); setAgendaDate(d);
+                  }
+                }}
                   className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500">
                   <ChevronLeft size={16}/>
                 </button>
+                
                 <div className="flex items-center gap-3">
                   <p className="text-sm font-bold text-slate-700 capitalize">
-                    {agendaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
-                    <span className="text-xs text-slate-400 font-normal ml-2">({agendaOrders.length} citas)</span>
+                    {calendarView === 'day' && agendaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    {calendarView === 'week' && `${weekDays[0].toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`}
+                    {calendarView === 'month' && agendaDate.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })}
+                    <span className="text-xs text-slate-400 font-normal ml-2">
+                      ({calendarView === 'day' ? agendaOrders.length : calendarView === 'week' ? weekOrders.length : monthOrders.length} citas)
+                    </span>
                   </p>
                   <button onClick={() => {
                     setBlockForm({ stylist_id: stylists[0]?.id || '', start_at: isoLocal(agendaDate), end_at: isoLocal(agendaDate), reason: 'Almuerzo' });
@@ -707,138 +954,341 @@ const BeautySalon: React.FC = () => {
                     <Lock size={10}/> Bloquear tiempo
                   </button>
                 </div>
+                
                 <div className="flex items-center gap-2">
+                  {/* Selector de vista */}
+                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+                    <button onClick={() => setCalendarView('day')}
+                      className={`p-1.5 rounded-md transition-all ${calendarView === 'day' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <CalendarDays size={14}/>
+                    </button>
+                    <button onClick={() => setCalendarView('week')}
+                      className={`p-1.5 rounded-md transition-all ${calendarView === 'week' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <Grid size={14}/>
+                    </button>
+                    <button onClick={() => setCalendarView('month')}
+                      className={`p-1.5 rounded-md transition-all ${calendarView === 'month' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <List size={14}/>
+                    </button>
+                  </div>
+                  
                   <button onClick={() => setAgendaDate(new Date())}
                     className="text-xs px-3 py-1 rounded-full font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100">
                     Hoy
                   </button>
-                  <button onClick={() => { const d = new Date(agendaDate); d.setDate(d.getDate()+1); setAgendaDate(d); }}
+                  <button onClick={() => {
+                    if (calendarView === 'day') {
+                      const d = new Date(agendaDate); d.setDate(d.getDate()+1); setAgendaDate(d);
+                    } else if (calendarView === 'week') {
+                      const d = new Date(agendaDate); d.setDate(d.getDate()+7); setAgendaDate(d);
+                    } else {
+                      const d = new Date(agendaDate); d.setMonth(d.getMonth()+1); setAgendaDate(d);
+                    }
+                  }}
                     className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500">
                     <ChevronRight size={16}/>
                   </button>
                 </div>
               </div>
 
-              {/* Grid estilistas */}
-              <div className="flex-1 overflow-auto">
-                {stylists.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3 py-16">
-                    <Users size={40} className="opacity-20"/>
-                    <p className="text-sm">Sin estilistas — agrega tu equipo primero</p>
-                    <button onClick={() => setActiveTab('equipo')}
-                      className="text-xs px-4 py-2 rounded-xl text-white font-semibold"
-                      style={{ background: brandColor }}>
-                      + Agregar estilista
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-[600px]">
-                    {/* Columna horas */}
-                    <div className="w-14 flex-shrink-0 border-r border-slate-100">
-                      <div className="h-12 border-b border-slate-100 bg-slate-50"/>
-                      {HOURS.map(h => (
-                        <div key={h} className="h-16 border-b border-slate-50 flex items-start justify-end pr-2 pt-1.5">
-                          <span className="text-[11px] text-slate-400 font-mono leading-none">{String(h).padStart(2,'0')}:00</span>
-                        </div>
-                      ))}
+              {/* ════════════ VISTA DIARIA ════════════ */}
+              {calendarView === 'day' && (
+                <div className="flex-1 overflow-auto">
+                  {stylists.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3 py-16">
+                      <Users size={40} className="opacity-20"/>
+                      <p className="text-sm">Sin estilistas — agrega tu equipo primero</p>
+                      <button onClick={() => setActiveTab('equipo')}
+                        className="text-xs px-4 py-2 rounded-xl text-white font-semibold"
+                        style={{ background: brandColor }}>
+                        + Agregar estilista
+                      </button>
                     </div>
+                  ) : (
+                    <div className="flex h-full min-h-[600px]">
+                      {/* Columna horas */}
+                      <div className="w-14 flex-shrink-0 border-r border-slate-100">
+                        <div className="h-12 border-b border-slate-100 bg-slate-50"/>
+                        {HOURS.map(h => (
+                          <div key={h} className="h-16 border-b border-slate-50 flex items-start justify-end pr-2 pt-1.5">
+                            <span className="text-[11px] text-slate-400 font-mono leading-none">{String(h).padStart(2,'0')}:00</span>
+                          </div>
+                        ))}
+                      </div>
 
-                    {/* Una columna por estilista */}
-                    {stylists.map((stl) => {
-                      const stlOrders  = agendaOrders.filter(o => o.stylist_id === stl.id);
-                      const stlBlocked = blockedSlots.filter(b =>
-                        b.stylist_id === stl.id &&
-                        getDatePart(b.start_at) === agendaDayStr
-                      );
-                      const busy  = activeOrders.some(o => o.stylist_id === stl.id);
-                      const color = avatarColor(stl.name);
-                      return (
-                        <div key={stl.id} className="flex-1 min-w-[130px] border-r border-slate-100 last:border-r-0 flex flex-col">
-                          {/* Header estilista */}
-                          <div className="h-12 border-b border-slate-100 flex items-center justify-center gap-2 px-2 bg-slate-50 sticky top-0 z-10">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                              style={{ background: color }}>
-                              {initials(stl.name)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-slate-700 truncate">{stl.name.split(' ')[0]}</p>
-                              <div className="flex items-center gap-1">
-                                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-purple-500' : 'bg-green-400'}`}/>
-                                <span className="text-[10px] text-slate-400">{busy ? 'Ocupado' : 'Libre'}</span>
+                      {/* ═══════════ FIX 2: Columna "Sin asignar" ═══════════ */}
+                      {(() => {
+                        const unassigned = agendaOrders.filter(o => !o.stylist_id);
+                        if (unassigned.length === 0) return null;
+                        return (
+                          <div className="flex-1 min-w-[130px] border-r border-slate-100 flex flex-col">
+                            {/* Header */}
+                            <div className="h-12 border-b border-slate-100 flex items-center justify-center gap-2 px-2 bg-amber-50 sticky top-0 z-10">
+                              <div className="w-7 h-7 rounded-full flex items-center justify-center bg-amber-300 text-amber-800 text-xs font-bold flex-shrink-0">?</div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-amber-700 truncate">Sin asignar</p>
+                                <span className="text-[10px] text-amber-500">{unassigned.length} pendiente{unassigned.length !== 1 ? 's' : ''}</span>
                               </div>
                             </div>
+                            {/* Grid de horas */}
+                            <div className="relative flex-1">
+                              {HOURS.map(h => (
+                                <div key={h}
+                                  onClick={() => {
+                                    const d = new Date(agendaDate);
+                                    d.setHours(h, 0, 0, 0);
+                                    setOrderForm({ ...defaultOrderForm, scheduled_at: isoLocal(d) });
+                                    setOrderErrors({});
+                                    setShowNewOrder(true);
+                                  }}
+                                  className="h-16 border-b border-slate-50 hover:bg-amber-50/30 cursor-pointer"/>
+                              ))}
+                              {/* Citas posicionadas */}
+                              {unassigned.map(o => {
+                                const sc = STATUS_CONFIG[o.status];
+                                const svc = services.find(s => s.id === o.service_id);
+                                const dt = new Date(o.scheduled_at!);
+                                const topPx = ((dt.getHours() - 7) * 60 + dt.getMinutes()) / 60 * 64;
+                                const heightPx = Math.max((svc?.duration_minutes || 30) / 60 * 64, 44);
+                                return (
+                                  <div key={o.id}
+                                    onClick={e => { e.stopPropagation(); setDetailOrder(o); }}
+                                    className="absolute left-1 right-1 rounded-lg px-2 py-1.5 cursor-pointer hover:opacity-90 shadow-sm overflow-hidden"
+                                    style={{ top: topPx, height: heightPx, background: sc.bg, borderLeft: `3px solid ${sc.dot}` }}>
+                                    <p className="text-[11px] font-bold leading-tight" style={{ color: sc.color }}>{fmtTime(o.scheduled_at!)}</p>
+                                    <p className="text-[11px] font-semibold text-slate-800 truncate">{o.client_name}</p>
+                                    <p className="text-[10px] text-slate-500 truncate">{o.service_name}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
+                        );
+                      })()}
+                      {/* ═══════════ Fin columna sin asignar ═══════════ */}
 
-                          {/* Slots */}
-                          <div className="relative flex-1">
-                            {HOURS.map(h => (
-                              <div key={h}
+                      {/* Una columna por estilista */}
+                      {stylists.map((stl) => {
+                        const stlOrders  = agendaOrders.filter(o => o.stylist_id === stl.id);
+                        const stlBlocked = blockedSlots.filter(b =>
+                          b.stylist_id === stl.id &&
+                          getDatePart(b.start_at) === agendaDayStr
+                        );
+                        const busy  = activeOrders.some(o => o.stylist_id === stl.id);
+                        const color = avatarColor(stl.name);
+                        return (
+                          <div key={stl.id} className="flex-1 min-w-[130px] border-r border-slate-100 last:border-r-0 flex flex-col">
+                            {/* Header estilista */}
+                            <div className="h-12 border-b border-slate-100 flex items-center justify-center gap-2 px-2 bg-slate-50 sticky top-0 z-10">
+                              <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                style={{ background: color }}>
+                                {initials(stl.name)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-700 truncate">{stl.name.split(' ')[0]}</p>
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-purple-500' : 'bg-green-400'}`}/>
+                                  <span className="text-[10px] text-slate-400">{busy ? 'Ocupado' : 'Libre'}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Slots */}
+                            <div className="relative flex-1">
+                              {HOURS.map(h => (
+                                <div key={h}
+                                  onClick={() => {
+                                    const d = new Date(agendaDate);
+                                    d.setHours(h, 0, 0, 0);
+                                    setOrderForm({ ...defaultOrderForm, stylist_id: stl.id, scheduled_at: isoLocal(d) });
+                                    setOrderErrors({});
+                                    setShowNewOrder(true);
+                                  }}
+                                  className="h-16 border-b border-slate-50 hover:bg-indigo-50/30 transition-colors cursor-pointer"/>
+                              ))}
+
+                              {/* Bloques de tiempo bloqueado */}
+                              {stlBlocked.map(b => {
+                                const dtS = new Date(b.start_at);
+                                const dtE = new Date(b.end_at);
+                                const topPx    = ((dtS.getHours() - 7) * 60 + dtS.getMinutes()) / 60 * 64;
+                                const duration = (dtE.getTime() - dtS.getTime()) / 60000;
+                                const heightPx = Math.max(duration / 60 * 64, 20);
+                                return (
+                                  <div key={b.id}
+                                    className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden pointer-events-none"
+                                    style={{
+                                      top: topPx, height: heightPx,
+                                      background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px)',
+                                      borderLeft: '3px solid #94a3b8',
+                                    }}>
+                                    <p className="text-[10px] text-slate-500 font-semibold truncate flex items-center gap-1">
+                                      <Lock size={8}/> {b.reason}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Citas posicionadas */}
+                              {stlOrders.map(o => {
+                                const sc  = STATUS_CONFIG[o.status];
+                                const svc = services.find(s => s.id === o.service_id);
+                                const dt  = new Date(o.scheduled_at!);
+                                const topPx    = ((dt.getHours() - 7) * 60 + dt.getMinutes()) / 60 * 64;
+                                const heightPx = Math.max((svc?.duration_minutes || 30) / 60 * 64, 44);
+                                return (
+                                  <div key={o.id}
+                                    onClick={e => { e.stopPropagation(); setDetailOrder(o); }}
+                                    className="absolute left-1 right-1 rounded-lg px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity shadow-sm overflow-hidden"
+                                    style={{
+                                      top: topPx, height: heightPx,
+                                      background: sc.bg,
+                                      borderLeft: `3px solid ${sc.dot}`,
+                                    }}>
+                                    <div className="flex items-center gap-1">
+                                      <span style={{ color: sc.color }}>{sc.icon}</span>
+                                      <p className="text-[11px] font-bold leading-tight" style={{ color: sc.color }}>
+                                        {fmtTime(o.scheduled_at!)}
+                                      </p>
+                                    </div>
+                                    <p className="text-[11px] font-semibold text-slate-800 truncate leading-tight">{o.client_name}</p>
+                                    <p className="text-[10px] text-slate-500 truncate leading-tight">{o.service_name}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ════════════ VISTA SEMANAL ════════════ */}
+              {calendarView === 'week' && (
+                <div className="flex-1 overflow-auto">
+                  {stylists.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3 py-16">
+                      <Users size={40} className="opacity-20"/>
+                      <p className="text-sm">Sin estilistas — agrega tu equipo primero</p>
+                    </div>
+                  ) : (
+                    <div className="min-w-[800px]">
+                      {/* Header días de la semana */}
+                      <div className="flex border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
+                        <div className="w-24 flex-shrink-0 p-2 border-r border-slate-100"/>
+                        {weekDays.map((day, i) => {
+                          const isToday = isSameDay(day, new Date());
+                          const dayStr = toLocalDateStr(day);
+                          const dayOrders = orders.filter(o => o.scheduled_at && getDatePart(o.scheduled_at) === dayStr);
+                          return (
+                            <div key={i} 
+                              onClick={() => { setAgendaDate(day); setCalendarView('day'); }}
+                              className={`flex-1 p-2 text-center border-r border-slate-100 cursor-pointer hover:bg-indigo-50 transition-colors ${isToday ? 'bg-indigo-50' : ''}`}>
+                              <p className="text-[10px] text-slate-400 uppercase">{day.toLocaleDateString('es-CO', { weekday: 'short' })}</p>
+                              <p className={`text-sm font-bold ${isToday ? 'text-indigo-600' : 'text-slate-700'}`}>{day.getDate()}</p>
+                              <p className="text-[10px] text-slate-400">{dayOrders.length} citas</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Filas por hora */}
+                      {HOURS.map(h => (
+                        <div key={h} className="flex border-b border-slate-100">
+                          <div className="w-24 flex-shrink-0 p-2 border-r border-slate-100 text-[11px] text-slate-400 font-mono">
+                            {String(h).padStart(2,'0')}:00
+                          </div>
+                          {weekDays.map((day, i) => {
+                            const dayStr = toLocalDateStr(day);
+                            const hourOrders = orders.filter(o => {
+                              if (!o.scheduled_at) return false;
+                              const od = new Date(o.scheduled_at);
+                              return getDatePart(o.scheduled_at) === dayStr && od.getHours() === h;
+                            });
+                            const isToday = isSameDay(day, new Date());
+                            return (
+                              <div key={i} 
                                 onClick={() => {
-                                  const d = new Date(agendaDate);
+                                  const d = new Date(day);
                                   d.setHours(h, 0, 0, 0);
-                                  setOrderForm({ ...defaultOrderForm, stylist_id: stl.id, scheduled_at: isoLocal(d) });
+                                  setOrderForm({ ...defaultOrderForm, scheduled_at: isoLocal(d) });
                                   setOrderErrors({});
                                   setShowNewOrder(true);
                                 }}
-                                className="h-16 border-b border-slate-50 hover:bg-indigo-50/30 transition-colors cursor-pointer"/>
-                            ))}
-
-                            {/* Bloques de tiempo bloqueado */}
-                            {stlBlocked.map(b => {
-                              const dtS = new Date(b.start_at);
-                              const dtE = new Date(b.end_at);
-                              const topPx    = ((dtS.getHours() - 7) * 60 + dtS.getMinutes()) / 60 * 64;
-                              const duration = (dtE.getTime() - dtS.getTime()) / 60000;
-                              const heightPx = Math.max(duration / 60 * 64, 20);
-                              return (
-                                <div key={b.id}
-                                  className="absolute left-1 right-1 rounded-lg px-2 py-1 overflow-hidden pointer-events-none"
-                                  style={{
-                                    top: topPx, height: heightPx,
-                                    background: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px)',
-                                    borderLeft: '3px solid #94a3b8',
-                                  }}>
-                                  <p className="text-[10px] text-slate-500 font-semibold truncate flex items-center gap-1">
-                                    <Lock size={8}/> {b.reason}
-                                  </p>
-                                </div>
-                              );
-                            })}
-
-                            {/* Citas posicionadas */}
-                            {stlOrders.map(o => {
-                              const sc  = STATUS_CONFIG[o.status];
-                              const svc = services.find(s => s.id === o.service_id);
-                              const dt  = new Date(o.scheduled_at!);
-                              const topPx    = ((dt.getHours() - 7) * 60 + dt.getMinutes()) / 60 * 64;
-                              const heightPx = Math.max((svc?.duration_minutes || 30) / 60 * 64, 44);
-                              return (
-                                <div key={o.id}
-                                  onClick={e => { e.stopPropagation(); setDetailOrder(o); }}
-                                  className="absolute left-1 right-1 rounded-lg px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity shadow-sm overflow-hidden"
-                                  style={{
-                                    top: topPx, height: heightPx,
-                                    background: sc.bg,
-                                    borderLeft: `3px solid ${sc.dot}`,
-                                  }}>
-                                  <div className="flex items-center gap-1">
-                                    <span style={{ color: sc.color }}>{sc.icon}</span>
-                                    <p className="text-[11px] font-bold leading-tight" style={{ color: sc.color }}>
-                                      {fmtTime(o.scheduled_at!)}
-                                    </p>
+                                className={`flex-1 min-h-[48px] border-r border-slate-100 p-1 cursor-pointer hover:bg-indigo-50/50 transition-colors ${isToday ? 'bg-indigo-50/30' : ''}`}>
+                                {hourOrders.slice(0, 2).map(o => (
+                                  <div key={o.id}
+                                    onClick={e => { e.stopPropagation(); setDetailOrder(o); }}
+                                    className="text-[10px] p-1 rounded mb-0.5 truncate cursor-pointer hover:opacity-80"
+                                    style={{ background: STATUS_CONFIG[o.status].bg, borderLeft: `2px solid ${STATUS_CONFIG[o.status].dot}` }}>
+                                    {fmtTime(o.scheduled_at!)} {o.client_name}
                                   </div>
-                                  <p className="text-[11px] font-semibold text-slate-800 truncate leading-tight">{o.client_name}</p>
-                                  <p className="text-[10px] text-slate-500 truncate leading-tight">{o.service_name}</p>
-                                </div>
-                              );
-                            })}
+                                ))}
+                                {hourOrders.length > 2 && (
+                                  <p className="text-[9px] text-slate-400 text-center">+{hourOrders.length - 2} más</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ════════════ VISTA MENSUAL ════════════ */}
+              {calendarView === 'month' && (
+                <div className="flex-1 overflow-auto p-2">
+                  {/* Header días de la semana */}
+                  <div className="grid grid-cols-7 gap-1 mb-1">
+                    {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
+                      <div key={d} className="text-center text-[10px] font-bold text-slate-400 uppercase py-2">
+                        {d}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Grid de días */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {monthDays.map((day, i) => {
+                      const dayStr = toLocalDateStr(day);
+                      const isToday = isSameDay(day, new Date());
+                      const isCurrentMonth = day.getMonth() === agendaDate.getMonth();
+                      const dayOrders = orders.filter(o => o.scheduled_at && getDatePart(o.scheduled_at) === dayStr);
+                      
+                      return (
+                        <div key={i}
+                          onClick={() => { setAgendaDate(day); setCalendarView('day'); }}
+                          className={`min-h-[80px] p-1.5 rounded-lg cursor-pointer transition-colors border ${
+                            isToday ? 'bg-indigo-50 border-indigo-200' :
+                            isCurrentMonth ? 'bg-white border-slate-100 hover:border-indigo-200' :
+                            'bg-slate-50 border-slate-100 text-slate-400'
+                          }`}>
+                          <p className={`text-xs font-bold mb-1 ${isToday ? 'text-indigo-600' : isCurrentMonth ? 'text-slate-700' : 'text-slate-400'}`}>
+                            {day.getDate()}
+                          </p>
+                          <div className="space-y-0.5 overflow-hidden">
+                            {dayOrders.slice(0, 3).map(o => (
+                              <div key={o.id}
+                                onClick={e => { e.stopPropagation(); setDetailOrder(o); }}
+                                className="text-[9px] p-0.5 rounded truncate cursor-pointer"
+                                style={{ background: STATUS_CONFIG[o.status].bg }}>
+                                {o.client_name}
+                              </div>
+                            ))}
+                            {dayOrders.length > 3 && (
+                              <p className="text-[9px] text-slate-400">+{dayOrders.length - 3}</p>
+                            )}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* ── Panel derecho ── */}
@@ -907,7 +1357,7 @@ const BeautySalon: React.FC = () => {
                 </div>
               )}
 
-              {/* ✅ FIX: Venta rápida / Listas para cobrar — usa pendingPayment (sin invoice_id) */}
+              {/* Venta rápida / Listas para cobrar */}
               {quickSaleOrder ? (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-shrink-0">
                   <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
@@ -971,7 +1421,6 @@ const BeautySalon: React.FC = () => {
                     <p className="text-xs font-bold text-slate-600 uppercase tracking-wide flex items-center gap-1.5">
                       <ShoppingCart size={12} className="text-emerald-500"/> Listas para cobrar
                     </p>
-                    {/* ✅ badge con conteo real de pendientes */}
                     {pendingPayment.length > 0 && (
                       <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
                         {pendingPayment.length}
@@ -1175,7 +1624,6 @@ const BeautySalon: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-700">{fmt(o.service_price)}</td>
-                        {/* ✅ columna Cobrado en historial */}
                         <td className="px-4 py-3">
                           {o.invoice_id
                             ? <span className="text-emerald-600 text-xs font-bold flex items-center gap-1"><Check size={12}/>Sí</span>
@@ -1214,7 +1662,11 @@ const BeautySalon: React.FC = () => {
         )}
       </div>
 
-      {/* ════════════════ MODAL: NUEVA CITA ════════════════ */}
+      {/* ════════════════════════════════════════════════════════════════════════ */}
+      {/* MODALS */}
+      {/* ════════════════════════════════════════════════════════════════════════ */}
+
+      {/* MODAL: NUEVA CITA */}
       {showNewOrder && (
         <Modal title="Nueva Cita" onClose={() => { setShowNewOrder(false); setOrderErrors({}); }} brandColor={brandColor}>
           <div className="space-y-3">
@@ -1303,7 +1755,7 @@ const BeautySalon: React.FC = () => {
         </Modal>
       )}
 
-      {/* ════════════════ MODAL: DETALLE ════════════════ */}
+      {/* MODAL: DETALLE */}
       {detailOrder && (
         <Modal title="Detalle de la Cita" onClose={() => setDetailOrder(null)} brandColor={brandColor}>
           <div className="space-y-4">
@@ -1339,7 +1791,6 @@ const BeautySalon: React.FC = () => {
               ))}
             </div>
 
-            {/* ✅ badge cobrado en el detalle */}
             {detailOrder.invoice_id && (
               <div className="flex items-center gap-2 bg-emerald-50 rounded-xl p-3 border border-emerald-200">
                 <Check size={14} className="text-emerald-600"/>
@@ -1354,6 +1805,7 @@ const BeautySalon: React.FC = () => {
               </div>
             )}
 
+            {/* Recordatorios */}
             {detailOrder.scheduled_at && !['DONE','CANCELLED'].includes(detailOrder.status) && (
               <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
                 <p className="text-xs font-bold text-blue-700 mb-2 flex items-center gap-1.5">
@@ -1364,7 +1816,7 @@ const BeautySalon: React.FC = () => {
                     disabled={!detailOrder.client_phone || sendingReminder === detailOrder.id+'whatsapp'}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-green-500 text-white text-xs font-bold hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed">
                     <MessageCircle size={13}/>
-                    {sendingReminder === detailOrder.id+'whatsapp' ? 'Enviando...' : 'WhatsApp'}
+                    {sendingReminder === detailOrder.id+'whatsapp' ? 'Abriendo...' : 'WhatsApp'}
                   </button>
                   <button onClick={() => sendReminder(detailOrder, 'email')}
                     disabled={!detailOrder.client_email || sendingReminder === detailOrder.id+'email'}
@@ -1379,6 +1831,7 @@ const BeautySalon: React.FC = () => {
               </div>
             )}
 
+            {/* Asignar estilista */}
             {detailOrder.status === 'WAITING' && stylists.length > 0 && (
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Asignar estilista</label>
@@ -1395,7 +1848,19 @@ const BeautySalon: React.FC = () => {
               </div>
             )}
 
+            {/* ACCIONES */}
             <div className="flex flex-wrap gap-2">
+              {/* Reprogramar */}
+              {!['DONE','CANCELLED'].includes(detailOrder.status) && (
+                <button onClick={() => {
+                  setRescheduleForm({ scheduled_at: detailOrder.scheduled_at || isoLocal(new Date()) });
+                  setShowRescheduleModal(true);
+                }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 text-blue-600 text-sm font-bold hover:bg-blue-100 transition-all active:scale-95">
+                  <Move size={14}/> Reprogramar
+                </button>
+              )}
+              
               {detailOrder.status === 'ASSIGNED' && (
                 <button onClick={() => updateOrderStatus(detailOrder.id, 'IN_PROGRESS')}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-bold hover:bg-purple-700 transition-all active:scale-95">
@@ -1408,13 +1873,21 @@ const BeautySalon: React.FC = () => {
                   <Check size={14}/> Finalizar
                 </button>
               )}
+              
+              {/* Cancelar disponible desde cualquier estado excepto DONE/CANCELLED */}
               {!['DONE','CANCELLED'].includes(detailOrder.status) && (
-                <button onClick={() => { updateOrderStatus(detailOrder.id, 'CANCELLED'); setDetailOrder(null); }}
+                <button onClick={() => { 
+                  if (confirm('¿Estás seguro de cancelar esta cita?')) {
+                    updateOrderStatus(detailOrder.id, 'CANCELLED'); 
+                    setDetailOrder(null); 
+                  }
+                }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 transition-all">
                   <XCircle size={14}/> Cancelar
                 </button>
               )}
-              {/* ✅ Cobrar solo aparece si DONE y aún no tiene invoice_id */}
+              
+              {/* Cobrar solo si DONE y sin invoice_id */}
               {detailOrder.status === 'DONE' && !detailOrder.invoice_id && (
                 <button onClick={() => { setDetailOrder(null); setQuickSaleOrder(detailOrder); setActiveTab('dashboard'); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all active:scale-95"
@@ -1427,7 +1900,31 @@ const BeautySalon: React.FC = () => {
         </Modal>
       )}
 
-      {/* ════════════════ MODAL: SERVICIO ════════════════ */}
+      {/* MODAL: REPROGRAMAR */}
+      {showRescheduleModal && detailOrder && (
+        <Modal title="Reprogramar Cita" onClose={() => setShowRescheduleModal(false)} brandColor={brandColor}>
+          <div className="space-y-3">
+            <div className="bg-slate-50 rounded-xl p-3">
+              <p className="text-xs text-slate-500">Cliente:</p>
+              <p className="font-bold text-slate-800">{detailOrder.client_name}</p>
+              <p className="text-xs text-slate-500 mt-1">Servicio: {detailOrder.service_name}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Nueva fecha y hora</label>
+              <input type="datetime-local" value={rescheduleForm.scheduled_at}
+                onChange={e => setRescheduleForm({ scheduled_at: e.target.value })}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-400"/>
+            </div>
+            <button onClick={handleReschedule} disabled={saving}
+              className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 transition-all active:scale-95"
+              style={{ background: brandColor }}>
+              {saving ? 'Guardando...' : '✅ Confirmar nueva fecha'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: SERVICIO */}
       {showServiceModal && (
         <Modal title={editingService ? 'Editar Servicio' : 'Nuevo Servicio'} onClose={() => setShowServiceModal(false)} brandColor={brandColor}>
           <div className="space-y-3">
@@ -1480,7 +1977,7 @@ const BeautySalon: React.FC = () => {
         </Modal>
       )}
 
-      {/* ════════════════ MODAL: ESTILISTA ════════════════ */}
+      {/* MODAL: ESTILISTA */}
       {showStylistModal && (
         <Modal title={editingStylist ? 'Editar Estilista' : 'Nuevo Estilista'} onClose={() => setShowStylistModal(false)} brandColor={brandColor}>
           <div className="space-y-3">
@@ -1517,7 +2014,7 @@ const BeautySalon: React.FC = () => {
         </Modal>
       )}
 
-      {/* ════════════════ MODAL: BLOQUEAR TIEMPO ════════════════ */}
+      {/* MODAL: BLOQUEAR TIEMPO */}
       {showBlockModal && (
         <Modal title="Bloquear Tiempo" onClose={() => setShowBlockModal(false)} brandColor={brandColor}>
           <div className="space-y-3">
@@ -1573,7 +2070,7 @@ const BeautySalon: React.FC = () => {
         </Modal>
       )}
 
-      {/* ════════════════ MODAL: COMISIONES ════════════════ */}
+      {/* MODAL: COMISIONES */}
       {showCommissions && (
         <Modal title="Comisiones del Mes" onClose={() => setShowCommissions(false)} brandColor={brandColor}>
           <div className="space-y-3">
@@ -1624,6 +2121,89 @@ const BeautySalon: React.FC = () => {
           moduleType={importModal} companyId={companyId}
           onSuccess={() => { setImportModal(null); loadServices(); }}/>
       )}
+
+      {/* ═══════════ FIX 4: Panel flotante para citas en proceso ═══════════ */}
+      {activeInProgress.length > 0 && (
+        <>
+          {showActivePanel ? (
+            <div className="fixed bottom-6 right-6 z-40 w-72 bg-white rounded-2xl shadow-2xl border border-purple-200 overflow-hidden"
+              style={{ boxShadow: '0 8px 32px rgba(139,92,246,0.25)' }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-white animate-pulse"/>
+                  <p className="text-xs font-bold text-white">
+                    En proceso ({activeInProgress.length})
+                  </p>
+                </div>
+                <button onClick={() => setShowActivePanel(false)} className="text-white/70 hover:text-white">
+                  <X size={14}/>
+                </button>
+              </div>
+              {/* Citas en proceso */}
+              <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+                {activeInProgress.map(o => (
+                  <div key={o.id} className="p-3">
+                    <div className="flex items-start gap-3 mb-2">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                        style={{ background: avatarColor(o.client_name) }}>
+                        {initials(o.client_name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">{o.client_name}</p>
+                        <p className="text-xs text-slate-500 truncate">{o.service_name}</p>
+                        {o.stylist_name && (
+                          <p className="text-[10px] text-slate-400">✂️ {o.stylist_name}</p>
+                        )}
+                        {o.scheduled_at && (
+                          <p className="text-[10px] text-purple-500 font-semibold">{fmtTime(o.scheduled_at)}</p>
+                        )}
+                      </div>
+                      <span className="text-xs font-bold text-purple-700 flex-shrink-0 bg-purple-50 px-2 py-0.5 rounded-lg">
+                        {fmt(o.service_price)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => updateOrderStatus(o.id, 'DONE')}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 flex items-center justify-center gap-1 transition-all active:scale-95">
+                        <CheckCircle size={11}/> Finalizar
+                      </button>
+                      <button
+                        onClick={() => { setDetailOrder(o); }}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200">
+                        Ver detalle
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Footer — acceso rápido a cobrar */}
+              {pendingPayment.length > 0 && (
+                <div className="px-3 pb-3 pt-1 border-t border-slate-100">
+                  <button
+                    onClick={() => { setActiveTab('dashboard'); setShowActivePanel(false); }}
+                    className="w-full py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200 hover:bg-emerald-100 flex items-center justify-center gap-1.5">
+                    <ShoppingCart size={12}/>
+                    {pendingPayment.length} lista{pendingPayment.length !== 1 ? 's' : ''} para cobrar
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Botón compacto cuando el panel está minimizado */
+            <button
+              onClick={() => setShowActivePanel(true)}
+              className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-purple-600 text-white shadow-xl flex items-center justify-center hover:bg-purple-700 transition-all active:scale-95"
+              style={{ boxShadow: '0 4px 20px rgba(139,92,246,0.4)' }}>
+              <Scissors size={20}/>
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center border-2 border-white">
+                {activeInProgress.length}
+              </span>
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -1646,52 +2226,3 @@ const Modal: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 
 export default BeautySalon;
-
-/*
-══════════════════════════════════════════════════════════════════════
-SQL REQUERIDO EN SUPABASE (ejecutar en orden):
-══════════════════════════════════════════════════════════════════════
-
-1) Crear tabla salon_blocked_slots:
-   CREATE TABLE IF NOT EXISTS salon_blocked_slots (
-     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-     company_id uuid REFERENCES companies(id),
-     stylist_id uuid REFERENCES salon_stylists(id),
-     start_at   timestamptz NOT NULL,
-     end_at     timestamptz NOT NULL,
-     reason     text DEFAULT 'Almuerzo',
-     created_at timestamptz DEFAULT now()
-   );
-
-2) Agregar columna commission_pct a salon_stylists:
-   ALTER TABLE salon_stylists
-   ADD COLUMN IF NOT EXISTS commission_pct numeric DEFAULT 10;
-
-3) RLS para salon_blocked_slots:
-   ALTER TABLE salon_blocked_slots ENABLE ROW LEVEL SECURITY;
-   CREATE POLICY "company_access_blocked_slots"
-     ON salon_blocked_slots FOR ALL
-     USING (company_id = (SELECT company_id FROM profiles WHERE id = auth.uid()));
-
-4) Habilitar Realtime en Supabase Dashboard:
-   Database → Replication → salon_orders → INSERT, UPDATE, DELETE ✓
-
-══════════════════════════════════════════════════════════════════════
-CAMBIO REQUERIDO EN EL POS (para cerrar el ciclo de cobro):
-══════════════════════════════════════════════════════════════════════
-
-En el POS, al finalizar el pago, leer el parámetro returnUrl de la URL
-y redirigir al completar la venta:
-
-  const params = new URLSearchParams(location.search);
-  const returnUrl = params.get('returnUrl');
-
-  // Al completar pago:
-  if (returnUrl) {
-    navigate(decodeURIComponent(returnUrl));
-  }
-
-Esto hace que el POS regrese a /salon?salon=<orderId>&paid=1,
-que BeautySalon detecta y actualiza el invoice_id automáticamente.
-══════════════════════════════════════════════════════════════════════
-*/

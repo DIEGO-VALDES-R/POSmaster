@@ -4,12 +4,13 @@ import {
   Save, Building, Receipt, Shield, X, CreditCard, 
   Upload, Image as ImageIcon, Lock, KeyRound, 
   FileCode, Check, AlertTriangle, Palette, Crown,
-  Eye, EyeOff, ShieldCheck, Printer, Wifi, Monitor, Cpu
+  Eye, EyeOff, ShieldCheck, Printer, Wifi, Monitor, Cpu, DollarSign, RefreshCw
 } from 'lucide-react';
 import { useDatabase } from '../contexts/DatabaseContext';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../supabaseClient';
 import { DianEnvironment, DianSettings } from '../types';
+import { useCurrency, CURRENCY_INFO, CurrencyCode } from '../contexts/CurrencyContext';
 
 const PLANS = [
   { id: 'BASIC', name: 'Plan Basic', price: '$65.000 / mes', features: ['1 sucursal', '1 usuario admin', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Servicio técnico', 'Cartera / CxC', 'Soporte WhatsApp'], color: 'border-slate-200', accentClass: 'bg-slate-600' },
@@ -88,7 +89,7 @@ const Settings: React.FC = () => {
   const allowedMethods = ALLOWED_PAYMENT_METHODS[plan] || ALLOWED_PAYMENT_METHODS['BASIC'];
 
   const [formData, setFormData] = useState(safeCompany);
-  const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS' | 'CATALOGO' | 'HARDWARE'>('GENERAL');
+  const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS' | 'CATALOGO' | 'HARDWARE' | 'INTEGRACIONES'>('GENERAL');
 
   // Abrir tab según parámetro URL (?tab=hardware)
   const location = useLocation();
@@ -98,6 +99,18 @@ const Settings: React.FC = () => {
     if (tab === 'HARDWARE') setActiveTab('HARDWARE');
   }, [location.search]);
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
+  const { currency, setCurrency, exchangeRates, setExchangeRate, loadingRates } = useCurrency();
+  const [vesRate, setVesRate] = useState<string>(
+    String(((safeCompany.config as any)?.exchange_rate_ves) || '0.097')
+  );
+  const [usdRate, setUsdRate] = useState<string>(
+    String(((safeCompany.config as any)?.exchange_rate_usd) || '0.00024')
+  );
+  const handleSaveRates = async () => {
+    await setExchangeRate('VES', parseFloat(vesRate) || 0.097);
+    await setExchangeRate('USD', parseFloat(usdRate) || 0.00024);
+    toast.success('✅ Tasas de cambio actualizadas');
+  };
 
   // ── Hardware: cajón registradora ──────────────────────────────────────────
   type DrawerProtocol = 'escpos-usb' | 'escpos-network' | 'windows-print';
@@ -181,7 +194,9 @@ const Settings: React.FC = () => {
     // Resuelve el bug donde Odontologia (y otros tipos) no aparecian seleccionados
     setBusinessTypes(parseBusinessTypes(cfg));
     setInvoiceTerms(cfg.invoice_terms || '');
-  }, [company]);
+  if (cfg.exchange_rate_ves) setVesRate(String(cfg.exchange_rate_ves));
+  if (cfg.exchange_rate_usd) setUsdRate(String(cfg.exchange_rate_usd));
+}, [company]);
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
     dataphone: { enabled: false, label: 'Datáfono físico',      icon: '📟', acquirer: 'redeban', note: '' },
@@ -429,6 +444,10 @@ const Settings: React.FC = () => {
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'HARDWARE' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
             <Cpu size={15} /> Hardware
           </button>
+<button type="button" onClick={() => setActiveTab('INTEGRACIONES')}
+  className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'INTEGRACIONES' ? 'bg-green-100 text-green-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+  🔗 Integraciones
+</button>
         </div>
       </div>
 
@@ -486,6 +505,69 @@ const Settings: React.FC = () => {
                     <option value={19}>19% - Tarifa General</option>
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1">Se aplica a productos nuevos por defecto</p>
+                </div>
+
+                {/* ── MONEDA Y TASAS DE CAMBIO ─────────────────────────── */}
+                <div className="md:col-span-2 border border-blue-200 bg-blue-50 rounded-xl p-4">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0">
+                      <DollarSign size={18} className="text-blue-700" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-blue-900">Moneda y Tasas de Cambio</p>
+                      <p className="text-xs text-blue-700 mt-0.5">Configura la moneda principal y la tasa de conversión a bolívares</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    {(Object.values(CURRENCY_INFO) as any[]).map((info: any) => (
+                      <button key={info.code} type="button"
+                        onClick={() => setCurrency(info.code as CurrencyCode)}
+                        className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all text-center ${currency === info.code ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'}`}>
+                        <span className="text-xl font-bold">{info.symbol}</span>
+                        <span className="text-xs font-bold">{info.code}</span>
+                        <span className={`text-xs ${currency === info.code ? 'text-blue-100' : 'text-slate-400'}`}>{info.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {/* Tasas personalizables */}
+                  <div className="bg-white rounded-xl p-4 border border-blue-100 space-y-3">
+                    <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Tasas de cambio (base: 1 COP)</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          🇻🇪 1 COP = ? Bs. (Bolívar venezolano)
+                        </label>
+                        <div className="flex gap-2">
+                          <input type="number" step="0.001" min="0" value={vesRate}
+                            onChange={e => setVesRate(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            placeholder="0.097" />
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Ej: si 1 USD = 36 Bs. y 1 USD = 4200 COP → tasa = 36/4200 ≈ 0.00857
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          🇺🇸 1 COP = ? USD (Dólar americano)
+                        </label>
+                        <div className="flex gap-2">
+                          <input type="number" step="0.00001" min="0" value={usdRate}
+                            onChange={e => setUsdRate(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            placeholder="0.00024" />
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Ej: si 1 USD = 4200 COP → tasa = 1/4200 ≈ 0.000238
+                        </p>
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleSaveRates} disabled={loadingRates}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                      <RefreshCw size={14} className={loadingRates ? 'animate-spin' : ''} />
+                      {loadingRates ? 'Guardando...' : 'Actualizar tasas'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
@@ -1540,6 +1622,67 @@ const Settings: React.FC = () => {
       )}
       </form>
 
+{activeTab === 'INTEGRACIONES' && (
+  <div className="md:col-span-3 space-y-6">
+    <div className="bg-white rounded-xl border border-slate-200 p-6">
+      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-2">
+        🔗 Integraciones Externas
+      </h3>
+      <p className="text-sm text-slate-500 mb-6">
+        Conecta WhatsApp Business (Meta) y Email (Resend) para enviar recordatorios
+        automáticos desde el módulo de Salón de Belleza y otros módulos.
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* WhatsApp card */}
+        <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.whatsapp_token ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-2xl">💬</span>
+            <div>
+              <p className="font-bold text-slate-800">WhatsApp Business</p>
+              <p className="text-xs text-slate-500">Meta Cloud API</p>
+            </div>
+            <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.whatsapp_token ? 'bg-green-200 text-green-800' : 'bg-slate-200 text-slate-500'}`}>
+              {(safeCompany.config as any)?.whatsapp_token ? '✓ Activo' : 'Sin configurar'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">Envía recordatorios de citas al WhatsApp de tus clientes sin abrir la app.</p>
+        </div>
+        {/* Email card */}
+        <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.resend_api_key ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-2xl">📧</span>
+            <div>
+              <p className="font-bold text-slate-800">Email — Resend</p>
+              <p className="text-xs text-slate-500">100 emails/día gratis</p>
+            </div>
+            <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.resend_api_key ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-500'}`}>
+              {(safeCompany.config as any)?.resend_api_key ? '✓ Activo' : 'Sin configurar'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">Envía confirmaciones y recordatorios desde tu propio email.</p>
+        </div>
+      </div>
+
+      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+        <span className="text-xl">⚙️</span>
+        <div>
+          <p className="font-bold text-amber-800 text-sm mb-1">Configurar credenciales</p>
+          <p className="text-xs text-amber-700 mb-3">
+            Para agregar o actualizar tokens y API keys, ve a la pantalla de Integraciones.
+            Desde allí también puedes probar la conexión antes de guardar.
+          </p>
+          <a
+            href="#/configuracion/integraciones"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition-colors"
+          >
+            Ir a Configuración de Integraciones →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* MODAL DE SEGURIDAD (PASSWORD ADMIN) */}
       {isSecurityCheckOpen && (
