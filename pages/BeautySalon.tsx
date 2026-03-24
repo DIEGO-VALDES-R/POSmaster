@@ -7,7 +7,7 @@ import {
   CreditCard, Banknote, Smartphone, AlertCircle,
   Check, Zap, TrendingUp, Lock, Package, Percent,
   FileText, ChevronDown, Filter, Eye,
-  Grid, List, CalendarDays, Move,
+  Grid, List, CalendarDays, Move, Settings, Save,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -17,7 +17,7 @@ import toast from 'react-hot-toast';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 type ServiceStatus = 'WAITING' | 'ASSIGNED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
-type Tab = 'dashboard' | 'catalogo' | 'equipo' | 'historial';
+type Tab = 'dashboard' | 'catalogo' | 'equipo' | 'historial' | 'configuracion';
 type CalendarView = 'day' | 'week' | 'month';
 
 interface SalonService {
@@ -61,11 +61,14 @@ const SERVICE_CATEGORIES = [
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
+const normalizeIso = (iso: string) =>
+  /Z|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + '-05:00';
+
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+  new Date(normalizeIso(iso)).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' });
 
 const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
+  new Date(normalizeIso(iso)).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', weekday: 'short', day: 'numeric', month: 'short' });
 
 const toLocalDateStr = (date: Date): string => {
   const y = date.getFullYear();
@@ -180,11 +183,16 @@ const SuccessCheck: React.FC<{ show: boolean }> = ({ show }) => {
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 const BeautySalon: React.FC = () => {
-  const { company } = useDatabase();
+  const { company, updateCompanyConfig } = useDatabase() as any;
   const navigate    = useNavigate();
   const location    = useLocation();
   const companyId   = company?.id;
   const brandColor  = (company?.config as any)?.primary_color || '#6366f1';
+  const defaultGreeting = '¡qué alegría tenerte en nuestra agenda!';
+  const [whatsappGreeting, setWhatsappGreeting] = useState<string>(
+    (company?.config as any)?.whatsapp_greeting || defaultGreeting
+  );
+  const [savingGreeting, setSavingGreeting] = useState(false);
 
   const [orders, setOrders]         = useState<ServiceOrder[]>([]);
   const [services, setServices]     = useState<SalonService[]>([]);
@@ -232,6 +240,12 @@ const BeautySalon: React.FC = () => {
 
   // Realtime ref
   const realtimeRef = useRef<any>(null);
+
+  // Sync greeting when company loads
+  useEffect(() => {
+    const saved = (company?.config as any)?.whatsapp_greeting;
+    if (saved) setWhatsappGreeting(saved);
+  }, [company]);
 
   // ── LOAD ──────────────────────────────────────────────────────────────────
   const loadOrders = useCallback(async () => {
@@ -653,15 +667,39 @@ useEffect(() => {
     try {
       if (channel === 'whatsapp') {
         // ✅ WhatsApp directo sin Edge Function
-        const dateStr = new Date(order.scheduled_at).toLocaleDateString('es-CO', {
+        const apptDate = new Date(normalizeIso(order.scheduled_at));
+        const dateStr = apptDate.toLocaleDateString('es-CO', {
+          timeZone: 'America/Bogota',
           weekday: 'long',
           day: 'numeric',
           month: 'long',
+        });
+        const timeStr = apptDate.toLocaleTimeString('es-CO', {
+          timeZone: 'America/Bogota',
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         });
         
-        const message = `Hola ${order.client_name}! 👋\n\nTe recordamos tu cita en *${company?.name || 'nuestro salón'}*:\n\n📅 ${dateStr}\n💇 ${order.service_name}\n${order.stylist_name ? `✂️ Con: ${order.stylist_name}` : ''}\n\n¡Te esperamos! 💅`;
+        const greeting = whatsappGreeting || defaultGreeting;
+
+        const stylistLine = order.stylist_name
+          ? `\u2728 Tu estilista: *${order.stylist_name}*`
+          : null;
+
+        const message = [
+          `\uD83D\uDC93 Hola *${order.client_name}*, ${greeting}`,
+          ``,
+          `Te recordamos que tienes una cita en *${company?.name || 'nuestro sal\u00f3n'}* y ya estamos listos para recibirte:`,
+          ``,
+          `\uD83D\uDCC5 *${dateStr}* a las *${timeStr}*`,
+          `\uD83D\uDC87 Tu servicio agendado es: *${order.service_name}*`,
+          stylistLine,
+          ``,
+          `Si necesitas cambiar tu cita, agregar m\u00e1s servicios o tienes alguna pregunta, \u00a1escr\u00edbenos con confianza! Estamos aqu\u00ed para ti.`,
+          ``,
+          `\uD83D\uDC85 \u00a1Nos vemos pronto!`,
+          `_El equipo de ${company?.name || 'nuestro sal\u00f3n'}_`,
+        ].filter(line => line !== null).join('\n');
         
         const phone = order.client_phone?.replace(/\D/g, '');
         const whatsappUrl = `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`;
@@ -897,10 +935,11 @@ useEffect(() => {
       {/* ── TABS ── */}
       <div className="flex items-center gap-0.5 px-5 pt-3 flex-shrink-0">
         {([
-          { id: 'dashboard', label: 'Dashboard',  icon: <BarChart2 size={14}/> },
-          { id: 'catalogo',  label: 'Catálogo',   icon: <Tag size={14}/> },
-          { id: 'equipo',    label: 'Equipo',      icon: <Users size={14}/> },
-          { id: 'historial', label: 'Historial',   icon: <Clock size={14}/> },
+          { id: 'dashboard',      label: 'Dashboard',      icon: <BarChart2 size={14}/> },
+          { id: 'catalogo',       label: 'Catálogo',       icon: <Tag size={14}/> },
+          { id: 'equipo',         label: 'Equipo',         icon: <Users size={14}/> },
+          { id: 'historial',      label: 'Historial',      icon: <Clock size={14}/> },
+          { id: 'configuracion',  label: 'Configuración',  icon: <Settings size={14}/> },
         ] as const).map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-t-xl transition-all border-b-2 ${
@@ -1658,6 +1697,108 @@ useEffect(() => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ════════════ CONFIGURACIÓN ════════════ */}
+        {activeTab === 'configuracion' && (
+          <div className="bg-white rounded-b-2xl rounded-tr-2xl border border-slate-200 shadow-sm overflow-auto"
+            style={{ height: 'calc(100vh - 300px)' }}>
+            <div className="max-w-2xl mx-auto p-6 space-y-8">
+
+              {/* Header */}
+              <div>
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <MessageCircle size={18} className="text-indigo-500"/> Mensaje de WhatsApp
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Personaliza el recordatorio que reciben tus clientes. Los datos de la cita se agregan automáticamente.
+                </p>
+              </div>
+
+              {/* Preview card */}
+              <div className="bg-[#e9fbe5] rounded-2xl p-4 border border-[#c3f0b2] shadow-inner">
+                <p className="text-[11px] font-bold text-[#5a8a4a] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Eye size={11}/> Vista previa del mensaje
+                </p>
+                <div className="bg-white rounded-xl p-4 shadow-sm text-sm text-slate-700 leading-relaxed whitespace-pre-line font-['system-ui']">
+                  {[
+                    `\uD83D\uDC93 Hola *Nombre del cliente*, ${whatsappGreeting}`,
+                    ``,
+                    `Te recordamos que tienes una cita en *${company?.name || 'Tu Salón'}* y ya estamos listos para recibirte:`,
+                    ``,
+                    `\uD83D\uDCC5 *martes, 24 de marzo* a las *6:15 p. m.*`,
+                    `\uD83D\uDC87 Tu servicio agendado es: *Tinte completo*`,
+                    `\u2728 Tu estilista: *Clara Luna*`,
+                    ``,
+                    `Si necesitas cambiar tu cita, agregar m\u00e1s servicios o tienes alguna pregunta, \u00a1escr\u00edbenos con confianza! Estamos aqu\u00ed para ti.`,
+                    ``,
+                    `\uD83D\uDC85 \u00a1Nos vemos pronto!`,
+                    `_El equipo de ${company?.name || 'Tu Salón'}_`,
+                  ].join('\n')}
+                </div>
+              </div>
+
+              {/* Greeting field */}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Saludo personalizado <span className="text-slate-400 font-normal">(aparece después del nombre del cliente)</span>
+                </label>
+                <div className="flex items-start gap-2">
+                  <span className="mt-2.5 text-slate-400 text-sm whitespace-nowrap">\uD83D\uDC93 Hola <em>*Nombre*</em>,</span>
+                  <textarea
+                    value={whatsappGreeting}
+                    onChange={e => setWhatsappGreeting(e.target.value)}
+                    rows={2}
+                    maxLength={120}
+                    placeholder="¡qué alegría tenerte en nuestra agenda!"
+                    className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-400 resize-none"
+                  />
+                </div>
+                <p className="text-xs text-slate-400 text-right">{whatsappGreeting.length}/120 caracteres</p>
+
+                {/* Sugerencias */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <p className="text-xs text-slate-500 w-full font-medium">Sugerencias rápidas:</p>
+                  {[
+                    '¡qué alegría tenerte en nuestra agenda!',
+                    '¡ya estamos contando los minutos para verte!',
+                    '¡tu cita está confirmada y nos encanta atenderte!',
+                    '¡te esperamos con mucho cariño!',
+                  ].map(s => (
+                    <button key={s} onClick={() => setWhatsappGreeting(s)}
+                      className="text-xs px-3 py-1.5 rounded-full border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Save button */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={async () => {
+                    setSavingGreeting(true);
+                    const currentConfig = (company?.config as any) || {};
+                    await updateCompanyConfig({
+                      config: { ...currentConfig, whatsapp_greeting: whatsappGreeting.trim() || defaultGreeting }
+                    });
+                    setSavingGreeting(false);
+                  }}
+                  disabled={savingGreeting}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-all disabled:opacity-60"
+                  style={{ background: brandColor }}>
+                  {savingGreeting ? <RefreshCw size={14} className="animate-spin"/> : <Save size={14}/>}
+                  {savingGreeting ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+                <button
+                  onClick={() => setWhatsappGreeting(defaultGreeting)}
+                  className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
+                  Restaurar predeterminado
+                </button>
+              </div>
+
+            </div>
           </div>
         )}
       </div>
