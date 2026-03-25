@@ -1473,11 +1473,34 @@ const Inventory: React.FC = () => {
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
             <button onClick={() => setVariantProduct(p)} title="Variantes" className="text-indigo-500 hover:text-indigo-700"><Tag size={15} /></button>
             {isInactive ? (
-              <button onClick={async () => { await productService.reactivate(p.id!); toast.success('Producto reactivado'); load(); }}
-                className="text-green-600 hover:text-green-800 text-xs font-bold px-2 py-0.5 border border-green-300 rounded">Activar</button>
-            ) : (
-              <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
-            )}
+  <div className="flex gap-1">
+    <button onClick={async () => { await productService.reactivate(p.id!); toast.success('Producto reactivado'); load(); }}
+      className="text-green-600 hover:text-green-800 text-xs font-bold px-2 py-0.5 border border-green-300 rounded">Activar</button>
+    <button onClick={async () => {
+      // Verificar si tiene facturas o movimientos asociados
+      const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+        supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
+        supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
+      ]);
+      const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+      if (hasHistory) {
+        toast.error(`No se puede eliminar: tiene ${invoiceCount ?? 0} factura(s) y ${movCount ?? 0} movimiento(s) de inventario asociados. Este registro es necesario para mantener el historial.`, { duration: 6000 });
+        return;
+      }
+      if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n"${p.name}"\n\nEsta acción NO se puede deshacer. El producto se borrará definitivamente de la base de datos.\n\n¿Estás seguro?`)) return;
+      const { error } = await supabase.from('products').delete().eq('id', p.id!);
+      if (error) { toast.error('Error al eliminar: ' + error.message); return; }
+      toast.success('Producto eliminado permanentemente');
+      load();
+    }}
+      className="text-red-600 hover:text-red-800 text-xs font-bold px-2 py-0.5 border border-red-300 rounded bg-red-50"
+      title="Eliminar permanentemente">
+      🗑️ Borrar
+    </button>
+  </div>
+) : (
+  <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
+)}
           </div>
         </td>
       </tr>
