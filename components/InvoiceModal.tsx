@@ -1,4 +1,4 @@
-﻿import React, { useRef, useState } from 'react';
+﻿import React, { useRef, useState, useEffect } from 'react';
 import {
   X, Printer, QrCode, MessageCircle, Mail,
   CheckCircle, XCircle, Clock, AlertTriangle,
@@ -91,6 +91,10 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
+  useEffect(() => {
+    setPdfUrl(null);
+  }, [sale?.id]);
+
   if (!isOpen || !sale) return null;
 
   const pm           = (sale as any).payment_method || {};
@@ -171,7 +175,7 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
   const handleWhatsApp = async () => {
     setGeneratingPdf(true);
     try {
-      let url = pdfUrl || await generateAndUploadPdf();
+      let url = await generateAndUploadPdf();
       const ph = customerPhone?.replace(/\D/g, '');
       const fp = ph && ph.length === 10 ? `57${ph}` : ph;
       let msg = `Hola ${customerName} 👋\n\nTe enviamos tu factura *${sale.invoice_number}* de *${companyName}*.\n\n💰 Total: *${formatMoney(sale.total_amount)}*`;
@@ -185,7 +189,7 @@ const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, sale, comp
   const handleEmail = async () => {
     setGeneratingPdf(true);
     try {
-      let url = pdfUrl || await generateAndUploadPdf();
+      let url = await generateAndUploadPdf();
       const target = customerEmail || prompt('Ingrese el correo del cliente:');
       if (!target) return;
       const subj = encodeURIComponent(`Factura ${sale.invoice_number} - ${companyName}`);
