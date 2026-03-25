@@ -446,30 +446,41 @@ const BeautySalon: React.FC = () => {
   );
 
   const todayDone = useMemo(() =>
-    orders.filter(o => {
-      if (o.status !== 'DONE') return false;
-      if (!o.finished_at) return false;
-      const finishedDate = normalizeIso(o.finished_at);
-      if (!finishedDate) return false;
-      return toLocalDateStr(finishedDate) === todayStr;
-    }),
-    [orders, todayStr]
-  );
+  orders.filter(o => {
+    if (o.status !== 'DONE') return false;
+    if (!o.finished_at) return false;
+    const finishedDate = normalizeIso(o.finished_at);
+    if (!finishedDate) return false;
+    return toLocalDateStr(finishedDate) === todayStr;
+  }),
+  [orders, todayStr]
+);
 
   const todayRevenue = useMemo(() =>
     todayDone.reduce((s, o) => s + o.service_price, 0),
     [todayDone]
   );
 
-  const todayOrders = useMemo(() =>
-    orders.filter(o => {
-      if (!o.scheduled_at) return false;
-      const appointmentDate = normalizeIso(o.scheduled_at);
-      if (!appointmentDate) return false;
-      return toLocalDateStr(appointmentDate) === todayStr;
-    }),
-    [orders, todayStr]
-  );
+  // Reemplazar la definición de todayOrders con esta versión más robusta:
+const todayOrders = useMemo(() => {
+  const today = toLocalDateStr(new Date());
+  return orders.filter(o => {
+    // Solo contar citas que tienen fecha agendada
+    if (!o.scheduled_at) return false;
+    
+    // Normalizar la fecha de la cita
+    const appointmentDate = normalizeIso(o.scheduled_at);
+    if (!appointmentDate) return false;
+    
+    // Comparar solo la fecha (sin hora)
+    const appointmentDateStr = toLocalDateStr(appointmentDate);
+    
+    // Para debug (puedes comentar después)
+    console.log(`Cita: ${o.client_name}, Agendada: ${appointmentDateStr}, Hoy: ${today}, Coincide: ${appointmentDateStr === today}`);
+    
+    return appointmentDateStr === today;
+  });
+}, [orders]);
 
   const waiting = useMemo(() =>
     activeOrders.filter(o => o.status === 'WAITING'),
@@ -981,11 +992,11 @@ const BeautySalon: React.FC = () => {
         </div>
       </div>
 
-      {/* ── KPI ROW ── */}
+            {/* ── KPI ROW ── */}
       <div className="grid grid-cols-4 gap-3 px-5 pt-4 flex-shrink-0">
         {[
           { label: 'Ingresos hoy',    value: fmt(todayRevenue),  icon: <DollarSign size={18}/>,  color: '#10b981', bg: '#ecfdf5' },
-          { label: 'Citas hoy',       value: todayOrders.length, icon: <Calendar size={18}/>,    color: '#6366f1', bg: '#eef2ff' },
+          { label: 'Citas hoy',       value: upcomingToday.length, icon: <Calendar size={18}/>,    color: '#6366f1', bg: '#eef2ff' },
           { label: 'Finalizadas',     value: todayDone.length,   icon: <CheckCircle size={18}/>, color: '#0ea5e9', bg: '#f0f9ff' },
           { label: 'En espera',       value: waiting.length,     icon: <Clock size={18}/>,       color: '#f59e0b', bg: '#fffbeb' },
         ].map((k, i) => (
