@@ -1800,9 +1800,10 @@ const Veterinaria: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>{['Tipo','Zona','Mascota','Propietario','Fecha','Tipo Registro','Convenio','Entidad'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase">{h}</th>
-                ))}</thead>
+                // ✅ DESPUÉS
+<tr>{['Tipo','Zona','Mascota','Propietario','Fecha','Tipo Registro','Convenio','Entidad'].map(h => (
+  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase">{h}</th>
+))}</tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {allRecords.filter(r => r.tipo !== 'PARTICULAR').length === 0
                   ? <tr><td colSpan={8} className="text-center py-8 text-slate-400">Sin registros de convenios aún</td></tr>
