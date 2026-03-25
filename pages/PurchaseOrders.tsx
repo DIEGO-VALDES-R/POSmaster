@@ -733,13 +733,80 @@ const PurchaseOrders: React.FC = () => {
   return (
     <div className="space-y-5 p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+<div className="flex items-center justify-between">
+  <div>
+    <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
+    <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
+  </div>
+
+  {/* ── BOTÓN EXPORTAR PDF — NUEVO ── */}
+  <button
+    onClick={() => {
+      const now = new Date().toLocaleString('es-CO');
+      const totalGeneral = filtered.reduce((s, o) => s + o.total_amount, 0);
+      const rows = filtered.map(o => {
+        const cfg = STATUS_CFG[o.status];
+        return `<tr>
+          <td>${o.order_number}</td>
+          <td>${o.supplier_name}${o.supplier_nit ? `<br><span style="color:#94a3b8;font-size:10px">NIT: ${o.supplier_nit}</span>` : ''}</td>
+          <td>${new Date(o.created_at).toLocaleDateString('es-CO')}</td>
+          <td>${o.expected_date ? new Date(o.expected_date + 'T12:00:00').toLocaleDateString('es-CO') : '—'}</td>
+          <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:${o.status==='RECEIVED'?'#d1fae5':o.status==='SENT'?'#dbeafe':o.status==='PARTIAL'?'#fef3c7':o.status==='CANCELLED'?'#fee2e2':'#f1f5f9'};color:${o.status==='RECEIVED'?'#065f46':o.status==='SENT'?'#1e40af':o.status==='PARTIAL'?'#92400e':o.status==='CANCELLED'?'#991b1b':'#475569'}">${cfg.label}</span></td>
+          <td style="text-align:right;font-weight:700">$${o.total_amount.toLocaleString('es-CO')}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Órdenes de Compra</title>
+      <style>
+        body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}
+        h1{font-size:18px;margin:0}
+        table{width:100%;border-collapse:collapse;margin-top:8px}
+        th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:7px 10px;text-align:left;border-bottom:2px solid #e2e8f0}
+        td{padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+        tr:hover td{background:#f8fafc}
+        .total-row td{font-weight:800;font-size:13px;border-top:2px solid #0f172a;background:#f8fafc}
+        @page{size:A4 landscape;margin:12mm}
+        @media print{button{display:none}}
+      </style></head><body>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
+          <h1>${company?.name || 'POSmaster'}</h1>
+          <p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p>
         </div>
-        <button
-          onClick={() => { window.location.hash = '/warehouse'; }}
+        <div style="text-align:right">
+          <p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">ÓRDENES DE COMPRA</p>
+          <p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${filtered.length} órdenes</p>
+          ${statusFilter !== 'ALL' ? `<p style="font-size:11px;color:#f59e0b;margin:0">Filtro: ${STATUS_CFG[statusFilter as keyof typeof STATUS_CFG]?.label || statusFilter}</p>` : ''}
+        </div>
+      </div>
+
+      <table>
+        <thead><tr>
+          <th>Número</th><th>Proveedor</th><th>Fecha</th><th>Entrega Esp.</th><th style="text-align:center">Estado</th><th style="text-align:right">Total</th>
+        </tr></thead>
+        <tbody>
+          ${rows}
+          <tr class="total-row">
+            <td colspan="5" style="text-align:right">TOTAL GENERAL (${filtered.length} órdenes)</td>
+            <td style="text-align:right;color:#1e40af">$${totalGeneral.toLocaleString('es-CO')}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p>
+      </body></html>`;
+
+      const w = window.open('', '_blank', 'width=1200,height=800');
+      if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+    }}
+    className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-sm"
+  >
+    📄 Exportar PDF
+  </button>
+
+  <button
+    onClick={() => { window.location.hash = '/warehouse'; }}
+   
           className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-sm"
           title="Ir al Display de Bodega">
           📦 Display Bodega
