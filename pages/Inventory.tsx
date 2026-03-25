@@ -10,6 +10,7 @@ import DescuentosModal from '../components/DescuentosModal';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+
 const EMPTY_PRODUCT = {
   company_id: '', name: '', sku: '', category: '', brand: '',
   description: '', price: 0, cost: 0, tax_rate: 19,
@@ -40,13 +41,12 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
   const [stats, setStats] = useState({ ok: 0, errors: 0 });
-  // Opciones de reimportación
-  const [updateStock, setUpdateStock] = useState(false);         // reemplazar stock
-  const [addToStock, setAddToStock]   = useState(false);         // sumar al stock existente
-  const [updatePrices, setUpdatePrices] = useState(true);        // actualizar precio/costo
-  const [updateSupplier, setUpdateSupplier] = useState(true);    // actualizar proveedor
-  const [newLotOnDiffSupplier, setNewLotOnDiffSupplier] = useState(false); // lote separado si proveedor diferente
-  const [registerAsCompra, setRegisterAsCompra] = useState(true);              // registrar en kardex como compra
+  const [updateStock, setUpdateStock] = useState(false);
+  const [addToStock, setAddToStock]   = useState(false);
+  const [updatePrices, setUpdatePrices] = useState(true);
+  const [updateSupplier, setUpdateSupplier] = useState(true);
+  const [newLotOnDiffSupplier, setNewLotOnDiffSupplier] = useState(false);
+  const [registerAsCompra, setRegisterAsCompra] = useState(true);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -83,7 +83,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
       });
 
       const parsed: ImportRow[] = [];
-      // Saltamos fila de instrucciones (headerRow+2) pero también intentamos desde headerRow+1
       const startRow = headerRow + 1;
       for (let i = startRow; i < raw.length; i++) {
         const row = raw[i];
@@ -91,7 +90,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
         const nameVal = colMap['name'] !== undefined ? row[colMap['name']] : undefined;
         const skuVal = colMap['sku'] !== undefined ? row[colMap['sku']] : undefined;
         if (!nameVal || !skuVal) continue;
-        // Saltar fila de instrucciones/ejemplo (detectar si parece instrucción)
         const nameStr = String(nameVal).trim();
         if (nameStr.startsWith('Ej:') || nameStr === 'Nombre *') continue;
 
@@ -126,7 +124,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
     reader.readAsArrayBuffer(file);
   };
 
-  // Cache de proveedores creados durante la importación (nombre → id)
   const supplierCache: Record<string, string> = {};
 
   const resolveSupplier = async (name: string): Promise<string | null> => {
@@ -134,14 +131,11 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
     const cleanName = name.trim();
     const key = cleanName.toLowerCase();
     if (supplierCache[key]) return supplierCache[key];
-    // Buscar existente (comparación sin importar mayúsculas ni espacios)
     const existing = suppliers.find(s => s.name.trim().toLowerCase() === key);
     if (existing) { supplierCache[key] = existing.id; return existing.id; }
-    // También buscar en BD por si acaso (el array suppliers puede estar desactualizado)
     const { data: found } = await supabase.from('suppliers')
       .select('id').eq('company_id', companyId).ilike('name', cleanName).maybeSingle();
     if (found) { supplierCache[key] = found.id; return found.id; }
-    // Crear nuevo proveedor automáticamente
     const { data, error } = await supabase.from('suppliers')
       .insert({ company_id: companyId, name: cleanName, products_supplied: '' })
       .select('id').single();
@@ -160,27 +154,21 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
       if (row._status === 'error') { errors++; continue; }
       const supplier_id = row.supplier_name ? await resolveSupplier(row.supplier_name) : null;
       try {
-        // Buscar si ya existe un producto con ese SKU en esta empresa
         const { data: existing } = await supabase
           .from('products').select('id, stock_quantity')
           .eq('company_id', companyId).eq('sku', row.sku).maybeSingle();
 
         let error: any = null;
         if (existing) {
-          // ── Lote nuevo por proveedor diferente ──────────────────────────────
-          // Si está activado, y el proveedor del Excel es distinto al del producto,
-          // crear un producto nuevo con SKU sufijado en lugar de actualizar
           if (newLotOnDiffSupplier && supplier_id && row.stock_quantity && row.stock_quantity > 0) {
             const existingFull = await supabase.from('products')
               .select('supplier_id').eq('id', existing.id).single();
             const existingSupplier = existingFull.data?.supplier_id;
             const isDifferentSupplier = existingSupplier && existingSupplier !== supplier_id;
             if (isDifferentSupplier) {
-              // Generar SKU único con sufijo del proveedor
               const supplierObj = suppliers.find(s => s.id === supplier_id);
               const suffix = (supplierObj?.name || 'LOTE').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 6);
               let newSku = `${row.sku}-${suffix}`;
-              // Verificar que el nuevo SKU no exista
               const { data: skuCheck } = await supabase.from('products')
                 .select('id').eq('company_id', companyId).eq('sku', newSku).maybeSingle();
               if (skuCheck) newSku = `${newSku}-${Date.now().toString().slice(-4)}`;
@@ -200,10 +188,9 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               setProgress(Math.round(((i + 1) / updated.length) * 100));
               setRows([...updated]);
               if (!e) ok++;
-              continue; // Saltar el resto del procesamiento de esta fila
+              continue;
             }
           }
-          // ── Actualizar producto existente ────────────────────────────────────
           const updatePayload: any = {
             name: row.name,
             category: row.category || null,
@@ -228,7 +215,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
           }
           const { error: e } = await supabase.from('products').update(updatePayload).eq('id', existing.id);
           error = e;
-          // Registrar movimiento COMPRA si se sumó stock
           if (!e && registerAsCompra && (addToStock || updateStock) && (row.stock_quantity ?? 0) > 0) {
             await supabase.from('inventory_movements').insert({
               company_id:     companyId,
@@ -243,7 +229,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             });
           }
         } else {
-          // No existe: insertar nuevo
           const { data: inserted, error: e } = await supabase.from('products').insert({
             company_id: companyId, branch_id: branchId || null, name: row.name, sku: row.sku,
             barcode: row.barcode || null, category: row.category || null,
@@ -256,7 +241,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             ...(supplier_id ? { supplier_id } : {}),
           }).select('id').single();
           error = e;
-          // Registrar movimiento COMPRA para producto nuevo con stock inicial
           if (!e && registerAsCompra && inserted?.id && (row.stock_quantity ?? 0) > 0) {
             await supabase.from('inventory_movements').insert({
               company_id:     companyId,
@@ -299,7 +283,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Descargar plantilla */}
           <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl p-4">
             <div>
               <p className="font-bold text-blue-800 text-sm">¿Primera vez?</p>
@@ -307,8 +290,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             </div>
             <button onClick={() => {
               const wb = XLSX.utils.book_new();
-
-              // ── Hoja principal ───────────────────────────────────────────
               const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede','Fecha Creación'];
               const branchNames = branches.map(b => b.name).join(' | ') || 'Sede Principal';
               const examples = [
@@ -328,11 +309,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               const wsData = [headers, ...examples, [], ...notes];
               const ws = XLSX.utils.aoa_to_sheet(wsData);
               ws['!cols'] = headers.map((h, i) => ({ wch: [28,14,18,16,14,28,14,10,13,13,8,10,22,20][i] || 16 }));
-
-              // Estilo encabezado (color azul — requiere sheetjs-style, dejamos comentario)
               XLSX.utils.book_append_sheet(wb, ws, 'Productos');
-
-              // ── Hoja de proveedores actuales ─────────────────────────────
               const supHeaders = ['Nombre del Proveedor','NIT','Teléfono','Email'];
               const supExamples = [
                 ['Distribuidora XYZ','900123456-1','3001234567','ventas@xyz.com'],
@@ -342,7 +319,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               const wsProveedores = XLSX.utils.aoa_to_sheet([supHeaders, ...supExamples, ...supNotes]);
               wsProveedores['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 26 }];
               XLSX.utils.book_append_sheet(wb, wsProveedores, 'Proveedores (referencia)');
-
               XLSX.writeFile(wb, 'plantilla_inventario_POSmaster.xlsx');
             }}
               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors">
@@ -350,7 +326,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             </button>
           </div>
 
-          {/* Opciones de importación */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-3">¿Qué hacer con productos que ya existen?</p>
             {[
@@ -362,10 +337,8 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             ].map(opt => (
               <button key={opt.key} type="button"
                 onClick={() => {
-                  // addToStock y updateStock son mutuamente excluyentes
                   if (opt.key === 'addToStock' && !opt.state) setUpdateStock(false);
                   if (opt.key === 'updateStock' && !opt.state) setAddToStock(false);
-                  // newLotOnDiffSupplier requiere que updateSupplier esté activo
                   if (opt.key === 'newLotOnDiffSupplier' && !opt.state) setUpdateSupplier(true);
                   opt.set(!opt.state);
                 }}
@@ -387,7 +360,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             </p>
           </div>
 
-          {/* Registrar como compra — destacado */}
           <button type="button" onClick={() => setRegisterAsCompra(v => !v)}
             className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl border-2 transition-all text-left ${registerAsCompra ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
             <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${registerAsCompra ? 'bg-teal-500' : 'bg-white border-2 border-slate-300'}`}>
@@ -402,7 +374,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             </div>
           </button>
 
-          {/* Upload area */}
           <div onClick={() => fileRef.current?.click()}
             className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all">
             <Upload size={36} className="mx-auto text-slate-300 mb-2" />
@@ -812,11 +783,8 @@ const SuppliersTab: React.FC<{ companyId: string; businessContext: string }> = (
   );
 };
 
-
-
 // ─────────────────────────────────────────────
-// PESABLES TAB — componente propio para evitar
-// violación de reglas de hooks en condicionales
+// PESABLES TAB
 // ─────────────────────────────────────────────
 interface PesablesTabProps {
   companyId: string;
@@ -825,13 +793,10 @@ interface PesablesTabProps {
 }
 
 const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMoney }) => {
-
-  // ── estado local del tab (IIFE pattern) ──────────────────────
   const [pesables, setPesables] = useState<any[]>([]);
   const [loadingP, setLoadingP] = useState(true);
   const [showPModal, setShowPModal] = useState(false);
   const [editingP, setEditingP] = useState<any>(null);
-  // Calculadora de rentabilidad
   const [calc, setCalc] = useState({ kg_comprados: '', valor_compra: '', precio_venta: '' });
   const [calcResult, setCalcResult] = useState<{ costo_kg: number; ganancia_kg: number; margen: number; ganancia_total: number } | null>(null);
 
@@ -894,13 +859,10 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
 
   const COP = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
   const stockKg = (g: number) => `${(g / 1000).toFixed(2)} kg`;
-
   const CATEGORIAS = ['Frutas y verduras', 'Granos y cereales', 'Carnes y embutidos', 'Lácteos y quesos', 'Panadería y repostería', 'Otro'];
 
   return (
     <div className="space-y-6">
-
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { icon: '🥬', label: 'Productos pesables', value: pesables.length, color: 'green' },
@@ -918,7 +880,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
         ))}
       </div>
 
-      {/* ── CALCULADORA DE RENTABILIDAD ────────────────────────────── */}
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
@@ -965,7 +926,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
           className="w-full md:w-auto px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors flex items-center gap-2">
           <TrendingUp size={15} /> Calcular rentabilidad
         </button>
-
         {calcResult && (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
@@ -988,7 +948,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
         )}
       </div>
 
-      {/* ── LISTA DE PRODUCTOS PESABLES ───────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1071,7 +1030,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
         )}
       </div>
 
-      {/* ── MODAL CREAR / EDITAR PRODUCTO PESABLE ─────────────────── */}
       {showPModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -1148,7 +1106,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
                     className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-400" />
                 </div>
               </div>
-
               {pForm.price_per_unit > 0 && pForm.cost > 0 && (
                 <div className="bg-emerald-50 rounded-xl p-3 flex items-center justify-between">
                   <span className="text-sm text-emerald-700">Margen estimado:</span>
@@ -1157,7 +1114,6 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
                   </span>
                 </div>
               )}
-
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowPModal(false)}
                   className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 text-sm">Cancelar</button>
@@ -1170,10 +1126,8 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
           </div>
         </div>
       )}
-
     </div>
   );
-      
 };
 
 // ─────────────────────────────────────────────
@@ -1184,7 +1138,6 @@ const Inventory: React.FC = () => {
   const { companyId } = useCompany();
   const { company, branchId } = useDatabase();
 
-  // Detectar tipo de negocio para adaptar etiquetas y mensajes
   const cfg = (company?.config as any) || {};
   const businessTypes: string[] = Array.isArray(cfg.business_types)
     ? cfg.business_types
@@ -1196,11 +1149,7 @@ const Inventory: React.FC = () => {
   const isVeterinaria  = businessTypes.includes('veterinaria');
   const isOdontologia  = businessTypes.includes('odontologia');
   const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
-  // Negocios con módulo propio que no usan el inventario genérico para vender
-  const hasOwnInventory = isFarmacia; // Farmacia tiene pharma_medications
-  const isServiceOnly   = isVeterinaria || isOdontologia; // Solo servicios, sin inventario físico propio
 
-  // Contexto activo: qué tipo de insumos/productos pertenecen a este negocio
   const currentBusinessContext =
     isRestaurante  ? 'restaurante'  :
     isZapateria    ? 'zapateria'    :
@@ -1228,6 +1177,7 @@ const Inventory: React.FC = () => {
     isVeterinaria  ? 'Materiales y suministros del consultorio: guantes, jeringas, gasas, etc. Los servicios se gestionan en el módulo Veterinaria.' :
     isOdontologia  ? 'Materiales e insumos del consultorio: guantes, gasas, materiales dentales, etc. Los servicios se gestionan en el módulo Odontología.' :
     'Productos para la venta con control de stock, precios y proveedores.';
+
   const [products, setProducts] = useState<Product[]>([]);
   const [branches, setBranches] = useState<{id: string; name: string}[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1251,8 +1201,6 @@ const Inventory: React.FC = () => {
   const [showInactive, setShowInactive] = useState(false);
   const [showDescuentos, setShowDescuentos] = useState(false);
 
-  // Mostrar alerta de stock bajo UNA SOLA VEZ mientras la página esté abierta
-  // sessionStorage se limpia al cerrar/recargar la pestaña
   useEffect(() => {
     if (!loading && products.length > 0) {
       if (sessionStorage.getItem('lowStockShown')) return;
@@ -1297,6 +1245,7 @@ const Inventory: React.FC = () => {
     setForm({ ...EMPTY_PRODUCT, company_id: companyId || '', business_context: currentBusinessContext });
     setShowModal(true);
   };
+
   const openEdit = (p: Product) => {
     loadSuppliers();
     setEditing(p); setForm({ ...p } as any); setShowModal(true);
@@ -1337,7 +1286,6 @@ const Inventory: React.FC = () => {
         toast.success('Producto creado');
         setShowModal(false);
         await load();
-        // If has_variants, open variant manager immediately
         if ((form as any).has_variants && created?.id) {
           setVariantProduct({ ...productData, id: created.id, company_id: companyId! } as any);
         }
@@ -1346,10 +1294,29 @@ const Inventory: React.FC = () => {
     finally { setSaving(false); }
   };
 
+  // ─── ELIMINAR PRODUCTO ACTIVO: verifica historial ───────────────
+  // Si tiene historial → soft delete (desactiva)
+  // Si no tiene historial → hard delete (borra permanentemente)
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este producto?')) return;
-    try { await productService.delete(id); toast.success('Eliminado'); load(); }
-    catch (e: any) { toast.error(e.message); }
+    try {
+      const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+        supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
+        supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
+      ]);
+      const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+      if (hasHistory) {
+        // Tiene historial → solo desactivar (soft delete)
+        await productService.delete(id);
+        toast.success('Producto desactivado (tiene historial asociado)');
+      } else {
+        // Sin historial → eliminar permanentemente
+        const { error } = await supabase.from('products').delete().eq('id', id);
+        if (error) throw error;
+        toast.success('Producto eliminado permanentemente');
+      }
+      load();
+    } catch (e: any) { toast.error(e.message); }
   };
 
   const toggleSelect = (id: string) => {
@@ -1368,34 +1335,75 @@ const Inventory: React.FC = () => {
     }
   };
 
+  // ─── ELIMINACIÓN MASIVA ─────────────────────────────────────────
+  // Detecta si hay inactivos en la selección para decidir el tipo de operación
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`¿Eliminar ${selectedIds.size} producto${selectedIds.size > 1 ? 's' : ''}? Esta acción no se puede deshacer.`)) return;
-    let ok = 0;
-    for (const id of Array.from(selectedIds)) {
-      try { await productService.delete(id); ok++; } catch {}
+
+    const ids = Array.from(selectedIds);
+    const hasInactive = ids.some(id => {
+      const p = products.find(x => x.id === id);
+      return p && (p as any).is_active === false;
+    });
+    const hasActive = ids.some(id => {
+      const p = products.find(x => x.id === id);
+      return p && (p as any).is_active !== false;
+    });
+
+    if (hasActive && !hasInactive) {
+      // Solo activos → verificar historial por cada uno
+      if (!confirm(`¿Eliminar ${ids.length} producto${ids.length > 1 ? 's' : ''}? Los que tengan historial se desactivarán; los demás se borrarán permanentemente.`)) return;
+      let softDeleted = 0; let hardDeleted = 0;
+      for (const id of ids) {
+        try {
+          const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+            supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
+            supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
+          ]);
+          const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+          if (hasHistory) {
+            await productService.delete(id);
+            softDeleted++;
+          } else {
+            const { error } = await supabase.from('products').delete().eq('id', id);
+            if (!error) hardDeleted++;
+          }
+        } catch {}
+      }
+      if (hardDeleted > 0) toast.success(`${hardDeleted} producto${hardDeleted > 1 ? 's' : ''} eliminado${hardDeleted > 1 ? 's' : ''} permanentemente`);
+      if (softDeleted > 0) toast.success(`${softDeleted} producto${softDeleted > 1 ? 's' : ''} desactivado${softDeleted > 1 ? 's' : ''} (tenían historial)`);
+    } else {
+      // Hay inactivos → eliminación permanente directa
+      if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n${ids.length} producto${ids.length > 1 ? 's' : ''} se borrarán definitivamente.\n\nLos que tengan facturas o movimientos asociados NO se eliminarán.\n\n¿Continuar?`)) return;
+      let ok = 0; let skipped = 0;
+      for (const id of ids) {
+        try {
+          const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+            supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
+            supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
+          ]);
+          const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+          if (hasHistory) { skipped++; continue; }
+          const { error } = await supabase.from('products').delete().eq('id', id);
+          if (!error) ok++;
+        } catch {}
+      }
+      if (ok > 0) toast.success(`${ok} producto${ok > 1 ? 's' : ''} eliminado${ok > 1 ? 's' : ''} permanentemente`);
+      if (skipped > 0) toast.error(`${skipped} no se pudo${skipped > 1 ? 'eron' : ''} eliminar (tiene${skipped > 1 ? 'n' : ''} historial asociado)`);
     }
-    toast.success(`${ok} producto${ok > 1 ? 's' : ''} eliminado${ok > 1 ? 's' : ''}`);
+
     setSelectedIds(new Set());
     load();
   };
 
   const filtered = products.filter(p => {
-    // Filtrar por is_active — los inactivos solo se muestran con el toggle
     if (!showInactive && (p as any).is_active === false) return false;
-
-    // WEIGHABLE pertenece exclusivamente a supermercado — nunca mezclar
-    if ((p as any).type === 'WEIGHABLE') return false; // se gestionan en tab Pesables
-
-    // Filtrar por contexto de negocio (estricto — cada tipo solo ve el suyo)
+    if ((p as any).type === 'WEIGHABLE') return false;
     const ctx = (p as any).business_context || 'general';
     const contextMatch = currentBusinessContext === 'general'
       ? (ctx === 'general' || ctx === null)
       : ctx === currentBusinessContext;
     if (!contextMatch) return false;
-
-    // Los productos con stock 0 siguen siendo visibles — el cliente necesita verlos para gestionarlos
-
     return (
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku.toLowerCase().includes(search.toLowerCase()) ||
@@ -1423,7 +1431,7 @@ const Inventory: React.FC = () => {
   const ProductRow = ({ p }: { p: Product }) => {
     const supplier = suppliers.find(s => s.id === (p as any).supplier_id);
     const isChecked = selectedIds.has(p.id!);
-    const isInactive = (p as any).is_active === false;
+    const isInactive = !(p as any).is_active;
     return (
       <tr className={`hover:bg-slate-50 ${isChecked ? 'bg-blue-50' : ''} ${isInactive ? 'opacity-60' : ''}`}>
         <td className="px-3 py-3">
@@ -1469,38 +1477,57 @@ const Inventory: React.FC = () => {
             : '—'}
         </td>
         <td className="px-4 py-3">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
             <button onClick={() => setVariantProduct(p)} title="Variantes" className="text-indigo-500 hover:text-indigo-700"><Tag size={15} /></button>
             {isInactive ? (
-  <div className="flex gap-1">
-    <button onClick={async () => { await productService.reactivate(p.id!); toast.success('Producto reactivado'); load(); }}
-      className="text-green-600 hover:text-green-800 text-xs font-bold px-2 py-0.5 border border-green-300 rounded">Activar</button>
-    <button onClick={async () => {
-      // Verificar si tiene facturas o movimientos asociados
-      const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
-        supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
-        supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
-      ]);
-      const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
-      if (hasHistory) {
-        toast.error(`No se puede eliminar: tiene ${invoiceCount ?? 0} factura(s) y ${movCount ?? 0} movimiento(s) de inventario asociados. Este registro es necesario para mantener el historial.`, { duration: 6000 });
-        return;
-      }
-      if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n"${p.name}"\n\nEsta acción NO se puede deshacer. El producto se borrará definitivamente de la base de datos.\n\n¿Estás seguro?`)) return;
-      const { error } = await supabase.from('products').delete().eq('id', p.id!);
-      if (error) { toast.error('Error al eliminar: ' + error.message); return; }
-      toast.success('Producto eliminado permanentemente');
-      load();
-    }}
-      className="text-red-600 hover:text-red-800 text-xs font-bold px-2 py-0.5 border border-red-300 rounded bg-red-50"
-      title="Eliminar permanentemente">
-      🗑️ Borrar
-    </button>
-  </div>
-) : (
-  <button onClick={() => handleDelete(p.id!)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>
-)}
+              // ── Producto INACTIVO: Activar o Borrar definitivamente ──
+              <div className="flex gap-1">
+                <button
+                  onClick={async () => {
+                    await productService.reactivate(p.id!);
+                    toast.success('Producto reactivado');
+                    load();
+                  }}
+                  className="text-green-600 hover:text-green-800 text-xs font-bold px-2 py-0.5 border border-green-300 rounded">
+                  Activar
+                </button>
+                <button
+                  onClick={async () => {
+                    // Verificar historial antes de borrar
+                    const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+                      supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
+                      supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
+                    ]);
+                    const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+                    if (hasHistory) {
+                      toast.error(
+                        `No se puede eliminar: tiene ${invoiceCount ?? 0} factura(s) y ${movCount ?? 0} movimiento(s) asociados. Este registro es necesario para mantener el historial.`,
+                        { duration: 6000 }
+                      );
+                      return;
+                    }
+                    if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n"${p.name}"\n\nEsta acción NO se puede deshacer. ¿Estás seguro?`)) return;
+                    // Hard delete directo — producto inactivo sin historial
+                    const { error } = await supabase.from('products').delete().eq('id', p.id!);
+                    if (error) { toast.error('Error al eliminar: ' + error.message); return; }
+                    toast.success('Producto eliminado permanentemente');
+                    load();
+                  }}
+                  className="text-red-600 hover:text-red-800 text-xs font-bold px-2 py-0.5 border border-red-300 rounded bg-red-50"
+                  title="Eliminar permanentemente">
+                  🗑️ Borrar
+                </button>
+              </div>
+            ) : (
+              // ── Producto ACTIVO: eliminar (con lógica automática) ──
+              <button
+                onClick={() => handleDelete(p.id!)}
+                className="text-red-500 hover:text-red-700"
+                title="Eliminar">
+                <Trash2 size={15} />
+              </button>
+            )}
           </div>
         </td>
       </tr>
@@ -1576,7 +1603,6 @@ const Inventory: React.FC = () => {
             </button>
           )}
           {activeTab === 'products' && <>
-          {/* BOTÓN CATÁLOGO WHATSAPP */}
           <button onClick={() => {
               const url = window.location.origin + window.location.pathname + '#/catalogo/' + companyId;
               const msg = encodeURIComponent('🛍️ Mira nuestro catálogo:\n' + url);
@@ -1586,7 +1612,6 @@ const Inventory: React.FC = () => {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
             Catálogo WhatsApp
           </button>
-          {/* BOTÓN EXPORTAR PDF */}
           <button onClick={() => {
             const lowStock = products.filter((p: any) => p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
             const now = new Date().toLocaleString('es-CO');
@@ -1599,12 +1624,10 @@ const Inventory: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium text-sm">
             📄 Exportar PDF
           </button>
-          {/* BOTÓN DESCUENTOS */}
           <button onClick={() => setShowDescuentos(true)}
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-sm">
             <Tag size={16} /> Descuentos
           </button>
-          {/* BOTÓN IMPORTAR EXCEL */}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
             <FileSpreadsheet size={16} /> Importar Excel
@@ -1628,7 +1651,6 @@ const Inventory: React.FC = () => {
         </div>
       </div>
 
-      {/* Banner contextual para tipos especiales */}
       {(isRestaurante || isFarmacia || isVeterinaria || isOdontologia) && (
         <div className={`flex items-start gap-3 p-4 rounded-xl border ${
           isRestaurante ? 'bg-orange-50 border-orange-200' :
@@ -1662,7 +1684,6 @@ const Inventory: React.FC = () => {
         </div>
       )}
 
-      {/* PESTAÑAS */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
         <button onClick={() => setActiveTab('products')}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${activeTab === 'products' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -1734,33 +1755,54 @@ const Inventory: React.FC = () => {
           <>
             {selectedIds.size > 0 && (
               <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-200">
-                <span className="text-sm font-semibold text-blue-700">{selectedIds.size} producto{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
+                <span className="text-sm font-semibold text-blue-700">
+                  {selectedIds.size} producto{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}
+                </span>
                 <div className="flex gap-2">
-                  <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100">Cancelar</button>
-                  <button onClick={handleBulkDelete} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-100">
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      let ok = 0;
+                      for (const id of Array.from(selectedIds)) {
+                        try { await productService.reactivate(id); ok++; } catch {}
+                      }
+                      toast.success(`${ok} producto${ok > 1 ? 's' : ''} activado${ok > 1 ? 's' : ''}`);
+                      setSelectedIds(new Set());
+                      load();
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">
+                    <CheckCircle size={14} /> Activar {selectedIds.size}
+                  </button>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium">
                     <Trash2 size={14} /> Eliminar {selectedIds.size}
                   </button>
                 </div>
               </div>
             )}
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-3 py-4">
-                  <input type="checkbox"
-                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
-                </th>
-                {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
-                  <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.map(p => <ProductRow key={p.id} p={p} />)}
-            </tbody>
-          </table>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-3 py-4">
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                  </th>
+                  {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
+                    <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map(p => <ProductRow key={p.id} p={p} />)}
+              </tbody>
+            </table>
           </>
         ) : selectedCategory ? (
           <div className="p-6 space-y-6">
@@ -1785,21 +1827,14 @@ const Inventory: React.FC = () => {
           </div>
         )}
       </div>
-
       </>)}
 
-
-      {/* ══════════════════════════════════════════════════════════════
-          TAB: PESABLES — Solo supermercado/abarrotes
-      ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'pesables' && isSupermercado && companyId && (
         <PesablesTab companyId={companyId} branchId={branchId} formatMoney={formatMoney} />
       )}
 
-      {/* TAB PROVEEDORES */}
       {activeTab === 'suppliers' && companyId && <SuppliersTab companyId={companyId} businessContext={currentBusinessContext} />}
 
-      {/* MODAL STOCK BAJO */}
       {variantProduct && (
         <VariantManager
           product={variantProduct}
@@ -1808,11 +1843,11 @@ const Inventory: React.FC = () => {
           onSaved={() => { setVariantProduct(null); load(); }}
         />
       )}
+
       {showLowStock && (
         <LowStockModal products={products} suppliers={suppliers} onClose={() => setShowLowStock(false)} onGoInventory={() => setActiveTab('products')} />
       )}
 
-      {/* MODAL IMPORTAR */}
       {showImport && companyId && (
         <ImportModal
           companyId={companyId}
@@ -1824,7 +1859,6 @@ const Inventory: React.FC = () => {
         />
       )}
 
-      {/* MODAL DESCUENTOS */}
       {showDescuentos && companyId && (
         <DescuentosModal
           companyId={companyId}
@@ -1832,7 +1866,6 @@ const Inventory: React.FC = () => {
         />
       )}
 
-      {/* MODAL CREAR/EDITAR */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
