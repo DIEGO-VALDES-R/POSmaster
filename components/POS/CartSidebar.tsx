@@ -197,30 +197,22 @@ const CartSidebar: React.FC<CartSidebarProps> = ({
                   </span>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => onUpdateQuantity(idx, -1)}
-                      className="p-1 hover:bg-slate-200 rounded"
+                      onPointerDown={e => { e.preventDefault(); onUpdateQuantity(idx, item.quantity - 1); }}
+                      className="p-1 hover:bg-slate-200 rounded select-none"
                     >
                       <Minus size={14} />
                     </button>
-                    {/* Cantidad editable directamente */}
-                    <input
-                      type="number"
-                      min={1}
-                      value={editingQty?.idx === idx ? editingQty.val : item.quantity}
-                      onFocus={() => setEditingQty({ idx, val: String(item.quantity) })}
-                      onChange={e => setEditingQty({ idx, val: e.target.value })}
-                      onBlur={() => handleQtyBlur(idx, item.quantity)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleQtyBlur(idx, item.quantity); }}
-                      className="w-10 text-center text-sm font-bold border border-slate-300 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 py-0.5"
-                    />
+                    <span className="w-10 text-center text-sm font-bold border border-slate-300 rounded py-0.5 bg-white select-none">
+                      {item.quantity}
+                    </span>
                     <button
-                      onClick={() => onUpdateQuantity(idx, 1)}
-                      className="p-1 hover:bg-slate-200 rounded"
+                      onPointerDown={e => { e.preventDefault(); onUpdateQuantity(idx, item.quantity + 1); }}
+                      className="p-1 hover:bg-slate-200 rounded select-none"
                     >
                       <Plus size={14} />
                     </button>
                     <button
-                      onClick={() => onRemoveItem(idx)}
+                      onPointerDown={e => { e.preventDefault(); onRemoveItem(idx); }}
                       className="p-1 text-red-500 hover:bg-red-50 rounded"
                     >
                       <Trash2 size={14} />

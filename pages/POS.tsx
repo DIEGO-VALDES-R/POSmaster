@@ -100,6 +100,8 @@ const POS: React.FC = () => {
   const isSupermercado = businessTypes.some(t => ['supermercado', 'abarrotes', 'mercado'].includes(t));
   const isLavadero     = businessTypes.includes('lavadero');
   const isServiceBusiness = isZapateria || isSalon || isVeterinaria || isOdontologia || isOptometria;
+  const isGimnasio  = businessTypes.some(t => ['gimnasio', 'gym'].includes(t));
+  const isPanaderia = businessTypes.some(t => ['panaderia', 'panadería', 'bakery'].includes(t));
 
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -160,16 +162,135 @@ const POS: React.FC = () => {
   }, [company?.id, isFarmacia]);
 
   const loadSpecialtyServices = useCallback(async () => {
-    if (!company?.id || (!isVeterinaria && !isOdontologia && !isSalon && !isLavadero)) return;
-    if (isLavadero) {
-      const { data } = await supabase.from('lavadero_servicios').select('*').eq('company_id', company.id).eq('is_active', true).order('tipo_vehiculo').order('precio');
-      if (data) setSpecialtyServices(data);
-      return;
-    }
-    const table = isVeterinaria ? 'vet_servicios' : isOdontologia ? 'odonto_servicios' : 'salon_servicios';
-    const { data } = await supabase.from(table).select('*').eq('company_id', company.id).eq('activo', true).order('nombre');
-    if (data) setSpecialtyServices(data);
-  }, [company?.id, isVeterinaria, isOdontologia, isSalon, isLavadero]);
+  if (!company?.id) return;
+  const hasSpecialty = isVeterinaria || isOdontologia || isSalon || isLavadero || isOptometria;
+  if (!hasSpecialty) return;
+
+   // ── Lavadero ──────────────────────────────────────────────
+  if (isLavadero) {
+    const { data } = await supabase
+      .from('lavadero_servicios')
+      .select('id, nombre, precio, categoria, tipo_vehiculo, descripcion, is_active')
+      .eq('company_id', company.id)
+      .eq('is_active', true)
+      .order('tipo_vehiculo')
+      .order('precio');
+    if (data) setSpecialtyServices(
+      data.map(s => ({ ...s, nombre: s.nombre, precio: Number(s.precio) || 0 }))
+    );
+    return;
+  }
+
+  // ── Salón de Belleza ──────────────────────────────────────
+  if (isSalon) {
+    const { data } = await supabase
+      .from('salon_servicios')
+      .select('id, nombre, name, price, category, duration_minutes, activo, is_active')
+      .eq('company_id', company.id);
+    if (data) setSpecialtyServices(
+      data
+        .filter(s => s.activo === true || s.is_active === true)
+        .map(s => ({
+          ...s,
+          nombre: s.nombre || s.name || '',
+          precio: Number(s.price) || 0,
+        }))
+    );
+    return;
+  }
+
+  // ── Veterinaria ───────────────────────────────────────────
+  if (isVeterinaria) {
+    const { data } = await supabase
+      .from('vet_servicios')
+      .select('id, nombre, precio, categoria, activo, is_active')
+      .eq('company_id', company.id);
+    if (data) setSpecialtyServices(
+      data
+        .filter(s => s.activo === true || s.is_active === true)
+        .map(s => ({ ...s, precio: Number(s.precio) || 0 }))
+    );
+    return;
+  }
+
+  // ── Odontología ───────────────────────────────────────────
+  if (isOdontologia) {
+    const { data } = await supabase
+      .from('odonto_servicios')
+      .select('id, nombre, precio, activo')
+      .eq('company_id', company.id)
+      .eq('activo', true)
+      .order('nombre');
+    if (data) setSpecialtyServices(
+      data.map(s => ({ ...s, precio: Number(s.precio) || 0 }))
+    );
+    return;
+  }
+
+  // ── Optometría ────────────────────────────────────────────
+  if (isOptometria) {
+    const { data } = await supabase
+      .from('opto_servicios')
+      .select('id, nombre, precio, categoria, activo')
+      .eq('company_id', company.id)
+      .eq('activo', true)
+      .order('nombre');
+    if (data) setSpecialtyServices(
+      data.map(s => ({ ...s, precio: Number(s.precio) || 0 }))
+    );
+    return;
+  }
+
+  // ── Gimnasio ──────────────────────────────────────────────
+  if (isGimnasio) {
+    const [memRes, supRes] = await Promise.all([
+      supabase
+        .from('gym_membership_types')
+        .select('id, name, price, is_active')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+        .order('name'),
+      supabase
+        .from('gym_supplements')
+        .select('id, name, price, sku, stock_quantity, category, is_active')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+        .gt('stock_quantity', 0)
+        .order('name'),
+    ]);
+    const membresias = (memRes.data || []).map(m => ({
+      ...m,
+      nombre: `🏋️ ${m.name}`,
+      precio: Number(m.price) || 0,
+    }));
+    const suplementos = (supRes.data || []).map(s => ({
+      ...s,
+      nombre: `💊 ${s.name}`,
+      precio: Number(s.price) || 0,
+    }));
+    setSpecialtyServices([...membresias, ...suplementos]);
+    return;
+  }
+
+  // ── Panadería ─────────────────────────────────────────────
+  if (isPanaderia) {
+    const { data } = await supabase
+      .from('bakery_products')
+      .select('id, name, is_active, category')
+      .eq('company_id', company.id)
+      .eq('is_active', true)
+      .order('name');
+    if (data) setSpecialtyServices(
+      data.map(s => ({
+        ...s,
+        nombre: s.name || '',
+        precio: 0, // bakery_products no tiene price — se define al pedir
+      }))
+    );
+    return;
+  }
+
+}, [company?.id, isVeterinaria, isOdontologia, isSalon, isLavadero, isOptometria, isGimnasio, isPanaderia]);
 
   useEffect(() => { loadRestaurantMenu(); },    [loadRestaurantMenu]);
   useEffect(() => { loadPharmaMeds(); },        [loadPharmaMeds]);

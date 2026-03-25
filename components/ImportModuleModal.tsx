@@ -299,26 +299,35 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
 
   // ── SALÓN ────────────────────────────────────────────────────────────────
   salon_servicios: {
-    label: 'Servicios de Salón', table: 'salon_services', color: '#ec4899',
-    templateHeaders: ['Nombre *','SKU *','Categoría','Descripción','Precio *','Duración (min)','Activo'],
-    templateColWidths: [30,14,20,40,14,14,10],
-    templateFn: () => [
-      ['Corte Dama','SAL-COR-D','Cortes','Lavado, corte y peinado','45000','60','SI'],
-      ['Tinte Color Plano','SAL-TINT-P','Colorimetría','Tinte un solo tono','90000','120','SI'],
-      ['Manicure Permanente','SAL-MAN-P','Manicure','Esmalte semipermanente UV','55000','45','SI'],
-    ],
-    columns: [
-      { key: 'name', aliases: ['nombre'], required: true },
-      { key: 'sku', aliases: ['sku'], required: true },
-      { key: 'category', aliases: ['categoría','categoria'] },
-      { key: 'description', aliases: ['descripción','descripcion'] },
-      { key: 'price', aliases: ['precio *','precio'], required: true, type: 'number' },
-      { key: 'duration_minutes', aliases: ['duración (min)','duracion'], type: 'int' },
-      { key: 'active', aliases: ['activo'] },
-    ],
-    validate: (r) => !r.name ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
-    transform: (r, cid) => ({ company_id: cid, name: r.name, category: r.category||null, description: r.description||null, price: r.price||0, duration_minutes: r.duration_minutes||30, active: String(r.active||'SI').toUpperCase()!=='NO' }),
-  },
+  label: 'Servicios de Salón',
+  tableName: 'salon_servicios',
+  templateHeaders: ['Nombre *', 'SKU *', 'Categoría', 'Descripción', 'Precio *', 'Duración (min)', 'Activo'],
+  templateExample: [
+    ['Corte de cabello', 'CORTE001', 'Cabello', 'Corte y lavado', '35000', '30', 'SI'],
+    ['Manicure', 'MANI001', 'Uñas', 'Manicure completo', '40000', '45', 'SI'],
+    ['Pedicure', 'PEDI001', 'Uñas', 'Pedicure spa', '45000', '45', 'SI'],
+  ],
+  columnMapping: [
+    { key: 'name', aliases: ['nombre', 'name'], required: true },
+    { key: 'sku', aliases: ['sku'], required: true },
+    { key: 'category', aliases: ['categoría', 'category'], required: false },
+    { key: 'description', aliases: ['descripción', 'description'], required: false },
+    { key: 'price', aliases: ['precio', 'price'], required: true },
+    { key: 'duration_minutes', aliases: ['duración', 'duration_minutes'], required: false },
+    { key: 'is_active', aliases: ['activo', 'active', 'is_active'], required: false },
+  ],
+  validate: (r) => !r.name ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
+  transform: (r, cid) => ({ 
+    company_id: cid, 
+    name: r.name, 
+    sku: r.sku,
+    category: r.category || null, 
+    description: r.description || null, 
+    price: parseFloat(r.price) || 0, 
+    duration_minutes: parseInt(r.duration_minutes) || 30,
+    is_active: String(r.is_active || 'SI').toUpperCase() !== 'NO' 
+  }),
+},
 
   salon_insumos: {
     label: 'Insumos de Salón', table: 'salon_products', color: '#ec4899',

@@ -48,7 +48,7 @@ interface MovementRow {
   quantity: number; unit_cost: number; total_cost: number;
   reference_id?: string; reference_type?: string; notes?: string;
   products?: { name: string; sku: string; supplier_id?: string; suppliers?: { name: string } };
-  supplier_name?: string; // parsed from notes for excel imports
+  supplier_name?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -90,9 +90,7 @@ const payMethodLabel: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const getMovSupplier = (m: MovementRow): string => {
-  // From product's linked supplier
   if ((m.products as any)?.suppliers?.name) return (m.products as any).suppliers.name;
-  // From notes for excel imports: "Importación Excel — Proveedor: Juan"
   if (m.notes) {
     const match = m.notes.match(/Proveedor:\s*(.+?)(?:\s*·|$)/);
     if (match) return match[1].trim();
@@ -117,7 +115,7 @@ const Reports: React.FC = () => {
   const [expenses, setExpenses]     = useState<ExpenseRow[]>([]);
   const [movements, setMovements]   = useState<MovementRow[]>([]);
 
-  // ── New: Rentabilidad & Horas Pico data ──────────────────────────────────
+  // New: Rentabilidad & Horas Pico data
   const [grossProfitData, setGrossProfitData] = useState<any[]>([]);
   const [hourData,        setHourData]        = useState<any[]>([]);
   const [dowData,         setDowData]         = useState<any[]>([]);
@@ -137,18 +135,19 @@ const Reports: React.FC = () => {
     if (branchId) q = q.eq('branch_id', branchId);
     const { data } = await q;
     const ids = [...new Set((data||[]).map((r:any) => r.customer_id).filter(Boolean))];
-    let custMap: Record<string,string> = {};
+    let custMap: Record<string,any> = {};
     if (ids.length) {
       const { data: custs } = await supabase.from('customers').select('id,name,document,phone').in('id', ids);
-(custs||[]).forEach((c:any) => { custMap[c.id] = { name: c.name, doc: c.document||'', phone: c.phone||'' }; });
-setSales((data||[]).map((r:any) => ({
-  ...r,
-  customer_name:  custMap[r.customer_id]?.name  || '',
-  customer_doc:   custMap[r.customer_id]?.doc   || '',
-  customer_phone: custMap[r.customer_id]?.phone || '',
-})));
-
-    setSales((data||[]).map((r:any) => ({ ...r, customer_name: custMap[r.customer_id] || '' })));
+      (custs||[]).forEach((c:any) => { 
+        custMap[c.id] = { name: c.name, doc: c.document||'', phone: c.phone||'' }; 
+      });
+    }
+    setSales((data||[]).map((r:any) => ({ 
+      ...r, 
+      customer_name:  custMap[r.customer_id]?.name  || '',
+      customer_doc:   custMap[r.customer_id]?.doc   || '',
+      customer_phone: custMap[r.customer_id]?.phone || '',
+    })));
   }, [companyId, branchId, fromISO, toISO]);
 
   const loadInventario = useCallback(async () => {
@@ -192,10 +191,8 @@ setSales((data||[]).map((r:any) => ({
     setMovements((data || []) as MovementRow[]);
   }, [companyId, branchId, fromISO, toISO]);
 
-  // ── Loader: Rentabilidad por producto ──────────────────────────────────────
   const loadRentabilidad = useCallback(async () => {
     if (!companyId) return;
-    // Utilidad bruta real: (precio_venta - costo) * cantidad por ítem
     let q = supabase
       .from('invoice_items')
       .select('quantity, price, products(id, name, sku, cost, category), invoices!inner(company_id, branch_id, created_at, sales_channel, status)')
@@ -206,7 +203,6 @@ setSales((data||[]).map((r:any) => ({
     if (branchId) q = (q as any).eq('invoices.branch_id', branchId);
     const { data } = await q;
 
-    // Aggregate by product
     const byProduct: Record<string, any> = {};
     (data || []).forEach((item: any) => {
       const p = item.products;
@@ -240,7 +236,6 @@ setSales((data||[]).map((r:any) => ({
       .sort((a: any, b: any) => b.gross_profit - a.gross_profit);
     setGrossProfitData(rows);
 
-    // Canal de venta
     const byCh: Record<string, { revenue: number; profit: number }> = {};
     (data || []).forEach((item: any) => {
       const ch = (item.invoices as any)?.sales_channel || 'LOCAL';
@@ -253,7 +248,6 @@ setSales((data||[]).map((r:any) => ({
     setSalesChannelData(Object.entries(byCh).map(([canal, v]) => ({ canal, ...v })));
   }, [companyId, branchId, fromISO, toISO]);
 
-  // ── Loader: Horas pico ──────────────────────────────────────────────────────
   const loadHorasPico = useCallback(async () => {
     if (!companyId) return;
     let q = supabase
@@ -372,31 +366,30 @@ setSales((data||[]).map((r:any) => ({
     const co = company?.name || 'POSmaster';
 
     if (activeTab === 'ventas') {
-  const rows = sales.map(r => ({
-    'Factura':        r.invoice_number,
-    'Fecha':          r.created_at.slice(0, 10),
-    'Hora':           new Date(r.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
-    'Cliente':        r.customer_name || '—',
-    'Doc. Cliente':   r.customer_doc  || '—',
-    'Tel. Cliente':   r.customer_phone|| '—',
-    'Canal':          r.sales_channel || 'LOCAL',
-    'Estado':         r.status        || '—',
-    'Subtotal':       r.subtotal,
-    'IVA':            r.tax_amount,
-    'Descuento':      r.discount_amount || 0,
-    'Total':          r.total_amount,
-    'Método Pago':    typeof r.payment_method === 'object'
-                        ? Object.entries(r.payment_method||{}).map(([k,v])=>`${k}:$${v}`).join(' | ')
-                        : String(r.payment_method||'—'),
-  }));
-  rows.push({ 'Factura':'TOTAL','Fecha':'','Hora':'','Cliente':'','Doc. Cliente':'','Tel. Cliente':'',
-    'Canal':'','Estado':'','Subtotal':ventasKPI.subtot,'IVA':ventasKPI.iva,
-    'Descuento':ventasKPI.desc,'Total':ventasKPI.total,'Método Pago':'' } as any);
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [14,12,8,28,14,14,10,10,16,14,14,16,30].map(w => ({ wch: w }));
-  XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
-  XLSX.writeFile(wb, `Facturas_${co}_${from}_${to}.xlsx`);
-}
+      const rows = sales.map(r => ({
+        'Factura':        r.invoice_number,
+        'Fecha':          r.created_at.slice(0, 10),
+        'Hora':           new Date(r.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+        'Cliente':        r.customer_name || '—',
+        'Doc. Cliente':   r.customer_doc  || '—',
+        'Tel. Cliente':   r.customer_phone|| '—',
+        'Canal':          r.sales_channel || 'LOCAL',
+        'Estado':         r.status        || '—',
+        'Subtotal':       r.subtotal,
+        'IVA':            r.tax_amount,
+        'Descuento':      r.discount_amount || 0,
+        'Total':          r.total_amount,
+        'Método Pago':    typeof r.payment_method === 'object'
+                          ? Object.entries(r.payment_method||{}).map(([k,v])=>`${k}:$${v}`).join(' | ')
+                          : String(r.payment_method||'—'),
+      }));
+      rows.push({ 'Factura':'TOTAL','Fecha':'','Hora':'','Cliente':'','Doc. Cliente':'','Tel. Cliente':'',
+        'Canal':'','Estado':'','Subtotal':ventasKPI.subtot,'IVA':ventasKPI.iva,
+        'Descuento':ventasKPI.desc,'Total':ventasKPI.total,'Método Pago':'' } as any);
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [14,12,8,28,14,14,10,10,16,14,14,16,30].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+      XLSX.writeFile(wb, `Facturas_${co}_${from}_${to}.xlsx`);
     } else if (activeTab === 'inventario') {
       const rows = products.map(p => ({
         'Nombre': p.name, 'SKU': p.sku, 'Categoría': p.category||'', 'Marca': p.brand||'',
@@ -408,7 +401,6 @@ setSales((data||[]).map((r:any) => ({
       const ws = XLSX.utils.json_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
       XLSX.writeFile(wb, `Inventario_${co}_${new Date().toISOString().slice(0,10)}.xlsx`);
-
     } else if (activeTab === 'cartera') {
       const rows = receivables.map(r => ({
         'Cliente': r.customer_name, 'Doc': r.customer_doc||'', 'Tel': r.customer_phone||'',
@@ -418,7 +410,6 @@ setSales((data||[]).map((r:any) => ({
       const ws = XLSX.utils.json_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, 'Cartera');
       XLSX.writeFile(wb, `Cartera_${co}_${new Date().toISOString().slice(0,10)}.xlsx`);
-
     } else if (activeTab === 'egresos') {
       const rows = expenses.map(e => ({
         'Concepto': e.concept, 'Categoría': e.category,
@@ -428,7 +419,6 @@ setSales((data||[]).map((r:any) => ({
       const ws = XLSX.utils.json_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, 'Egresos');
       XLSX.writeFile(wb, `Egresos_${co}_${from}_${to}.xlsx`);
-
     } else if (activeTab === 'compras') {
       const rows = movements.map(m => ({
         'Fecha':    m.created_at.slice(0,10),
@@ -442,7 +432,7 @@ setSales((data||[]).map((r:any) => ({
       }));
       rows.push({ 'Fecha': 'TOTAL', 'Producto': '', 'SKU': '', 'Cantidad': comprasKPI.totalUnids, 'Costo U.': 0, 'Total': comprasKPI.totalCosto, 'Proveedor': '', 'Notas': '' } as any);
       const ws = XLSX.utils.json_to_sheet(rows);
-      ws['!cols'] = [12,30,14,10,14,14,30].map(w => ({ wch: w }));
+      ws['!cols'] = [12,30,14,10,14,14,30,30].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws, 'Compras');
       XLSX.writeFile(wb, `Compras_${co}_${from}_${to}.xlsx`);
     }
@@ -494,28 +484,26 @@ setSales((data||[]).map((r:any) => ({
     doc.setFontSize(9); doc.setFont('helvetica','bold');
 
     if (activeTab === 'ventas') {
-  doc.text(`Total: ${formatMoney(ventasKPI.total)}  ·  Facturas: ${ventasKPI.count}  ·  IVA: ${formatMoney(ventasKPI.iva)}  ·  Desc: ${formatMoney(ventasKPI.desc)}`, 14, summaryY);
-  drawTable(
-    ['Factura','Fecha','Cliente','Canal','Estado','Subtotal','IVA','Desc.','Total','Pago'],
-    sales.map(r => [
-      r.invoice_number,
-      r.created_at.slice(0,10),
-      r.customer_name||'—',
-      r.sales_channel||'LOCAL',
-      r.status||'—',
-      formatMoney(r.subtotal),
-      formatMoney(r.tax_amount),
-      formatMoney(r.discount_amount||0),
-      formatMoney(r.total_amount),
-      typeof r.payment_method === 'object'
-        ? Object.keys(r.payment_method||{}).join('+')
-        : String(r.payment_method||'—'),
-    ]),
-    summaryY+6, [26,22,42,16,16,24,20,20,26,18],
-    ['','','TOTAL','','',formatMoney(ventasKPI.subtot),formatMoney(ventasKPI.iva),formatMoney(ventasKPI.desc),formatMoney(ventasKPI.total),'']
-  );
-}
-
+      doc.text(`Total: ${formatMoney(ventasKPI.total)}  ·  Facturas: ${ventasKPI.count}  ·  IVA: ${formatMoney(ventasKPI.iva)}  ·  Desc: ${formatMoney(ventasKPI.desc)}`, 14, summaryY);
+      drawTable(
+        ['Factura','Fecha','Cliente','Canal','Estado','Subtotal','IVA','Desc.','Total','Pago'],
+        sales.map(r => [
+          r.invoice_number,
+          r.created_at.slice(0,10),
+          r.customer_name||'—',
+          r.sales_channel||'LOCAL',
+          r.status||'—',
+          formatMoney(r.subtotal),
+          formatMoney(r.tax_amount),
+          formatMoney(r.discount_amount||0),
+          formatMoney(r.total_amount),
+          typeof r.payment_method === 'object'
+            ? Object.keys(r.payment_method||{}).join('+')
+            : String(r.payment_method||'—'),
+        ]),
+        summaryY+6, [26,22,42,16,16,24,20,20,26,18],
+        ['','','TOTAL','','',formatMoney(ventasKPI.subtot),formatMoney(ventasKPI.iva),formatMoney(ventasKPI.desc),formatMoney(ventasKPI.total),'']
+      );
     } else if (activeTab === 'inventario') {
       doc.text(`Productos: ${invKPI.total}  ·  Valor costo: ${formatMoney(invKPI.totalValue)}  ·  Bajo mínimo: ${invKPI.lowStock}  ·  Sin stock: ${invKPI.noStock}`, 14, summaryY);
       drawTable(
@@ -547,8 +535,8 @@ setSales((data||[]).map((r:any) => ({
         ['Fecha','Producto','SKU','Cant.','Costo U.','Total','Proveedor','Notas'],
         movements.map(m => [m.created_at.slice(0,10), m.products?.name||'—', m.products?.sku||'—',
           String(m.quantity), formatMoney(m.unit_cost||0), formatMoney(m.total_cost||0), getMovSupplier(m), m.notes||'']),
-        summaryY+6, [24,50,22,14,24,24,52],
-        ['','','TOTAL',String(comprasKPI.totalUnids),'',formatMoney(comprasKPI.totalCosto),'']
+        summaryY+6, [24,50,22,14,24,24,30,30],
+        ['','','TOTAL',String(comprasKPI.totalUnids),'',formatMoney(comprasKPI.totalCosto),'','']
       );
     }
 
@@ -716,9 +704,11 @@ setSales((data||[]).map((r:any) => ({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Factura','Fecha','Cliente','Subtotal','IVA','Total'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}</tr>
+                    <tr>
+                      {['Factura','Fecha','Cliente','Subtotal','IVA','Total'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {sales.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">Sin ventas en este período</td></tr>}
@@ -758,7 +748,6 @@ setSales((data||[]).map((r:any) => ({
                 <KPICard label="Promedio/compra"    value={formatMoney(comprasKPI.count ? comprasKPI.totalCosto / comprasKPI.count : 0)} color="amber" />
               </div>
 
-              {/* Top productos más comprados */}
               {comprasKPI.top5.length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4">
                   <p className="text-sm font-bold text-slate-700 mb-3">Top productos por inversión</p>
@@ -772,10 +761,7 @@ setSales((data||[]).map((r:any) => ({
                             <span className="font-bold text-teal-700">{formatMoney(p.cost)}</span>
                           </div>
                           <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-teal-500 rounded-full"
-                              style={{ width: `${(p.cost / comprasKPI.totalCosto) * 100}%` }}
-                            />
+                            <div className="h-full bg-teal-500 rounded-full" style={{ width: `${(p.cost / comprasKPI.totalCosto) * 100}%` }} />
                           </div>
                         </div>
                         <span className="text-xs text-slate-400 w-16 text-right">{p.qty} uds</span>
@@ -785,7 +771,6 @@ setSales((data||[]).map((r:any) => ({
                 </div>
               )}
 
-              {/* Gráfico compras por día */}
               {comprasChartData.length > 1 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-4">
                   <p className="text-sm font-bold text-slate-700 mb-3">Compras por día</p>
@@ -801,21 +786,21 @@ setSales((data||[]).map((r:any) => ({
                 </div>
               )}
 
-              {/* Tabla detalle */}
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Fecha','Producto','SKU','Cantidad','Costo U.','Total','Proveedor','Notas'].map(h => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}</tr>
+                    <tr>
+                      {['Fecha','Producto','SKU','Cantidad','Costo U.','Total','Proveedor','Notas'].map(h => (
+                        <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {movements.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-slate-400 text-sm">
+                        <td colSpan={8} className="px-4 py-10 text-center text-slate-400 text-sm">
                           <Truck size={32} className="mx-auto mb-2 opacity-20" />
-                          No hay compras registradas en este período.<br />
-                          <span className="text-xs">Las compras se registran automáticamente al recibir una Orden de Compra.</span>
+                          No hay compras registradas en este período.
                         </td>
                       </tr>
                     )}
@@ -840,6 +825,7 @@ setSales((data||[]).map((r:any) => ({
                         <td />
                         <td className="px-3 py-3 font-black text-teal-700 text-base">{formatMoney(comprasKPI.totalCosto)}</td>
                         <td />
+                        <td />
                       </tr>
                     </tfoot>
                   )}
@@ -860,9 +846,11 @@ setSales((data||[]).map((r:any) => ({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Nombre','SKU','Categoría','Precio','Costo','Stock','Valor costo','Estado'].map(h => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}</tr>
+                    <tr>
+                      {['Nombre','SKU','Categoría','Precio','Costo','Stock','Valor costo','Estado'].map(h => (
+                        <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {products.map(p => {
@@ -899,9 +887,11 @@ setSales((data||[]).map((r:any) => ({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Cliente','Documento','Teléfono','Monto','Saldo','Vencimiento','Estado'].map(h => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}</tr>
+                    <tr>
+                      {['Cliente','Documento','Teléfono','Monto','Saldo','Vencimiento','Estado'].map(h => (
+                        <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {receivables.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">Sin registros de cartera</td></tr>}
@@ -953,9 +943,11 @@ setSales((data||[]).map((r:any) => ({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Concepto','Categoría','Monto','Fecha'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}</tr>
+                    <tr>
+                      {['Concepto','Categoría','Monto','Fecha'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {expenses.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">Sin egresos en este período</td></tr>}
@@ -985,7 +977,6 @@ setSales((data||[]).map((r:any) => ({
           {/* ══════════════════════════ RENTABILIDAD ═════════════════════════ */}
           {activeTab === 'rentabilidad' && (
             <div className="space-y-5">
-              {/* KPIs */}
               {(() => {
                 const totalRev  = grossProfitData.reduce((s: number, r: any) => s + r.revenue, 0);
                 const totalCOGS = grossProfitData.reduce((s: number, r: any) => s + r.cogs, 0);
@@ -1001,7 +992,6 @@ setSales((data||[]).map((r:any) => ({
                 );
               })()}
 
-              {/* Canal de venta */}
               {salesChannelData.length > 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-5">
                   <p className="text-sm font-bold text-slate-700 mb-4">Ventas y utilidad por canal</p>
@@ -1045,7 +1035,6 @@ setSales((data||[]).map((r:any) => ({
                 </div>
               )}
 
-              {/* Top productos por utilidad bruta */}
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100">
                   <p className="text-sm font-bold text-slate-700">Utilidad bruta real por producto</p>
@@ -1079,8 +1068,7 @@ setSales((data||[]).map((r:any) => ({
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-slate-100 rounded-full h-1.5 max-w-[60px]">
-                              <div className="h-1.5 rounded-full bg-emerald-500"
-                                style={{ width: `${Math.min(r.margin_pct, 100)}%` }} />
+                              <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${Math.min(r.margin_pct, 100)}%` }} />
                             </div>
                             <span className={`text-xs font-bold ${r.margin_pct >= 30 ? 'text-emerald-600' : r.margin_pct >= 15 ? 'text-amber-600' : 'text-red-500'}`}>
                               {r.margin_pct.toFixed(1)}%
@@ -1111,7 +1099,6 @@ setSales((data||[]).map((r:any) => ({
           {activeTab === 'horasPico' && (
             <div className="space-y-5">
               <div className="grid md:grid-cols-2 gap-5">
-                {/* Por hora */}
                 <div className="bg-white rounded-xl border border-slate-200 p-5">
                   <p className="text-sm font-bold text-slate-700 mb-1">Ventas por hora del día</p>
                   <p className="text-xs text-slate-400 mb-4">Número de facturas emitidas cada hora</p>
@@ -1137,7 +1124,6 @@ setSales((data||[]).map((r:any) => ({
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
-                  {/* Top 3 horas */}
                   <div className="mt-4 flex gap-2 flex-wrap">
                     {[...hourData].sort((a: any,b: any) => b.count - a.count).slice(0,3).map((h: any, i: number) => (
                       <div key={h.hour} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${i===0?'bg-blue-600 text-white':i===1?'bg-blue-100 text-blue-700':'bg-slate-100 text-slate-600'}`}>
@@ -1147,7 +1133,6 @@ setSales((data||[]).map((r:any) => ({
                   </div>
                 </div>
 
-                {/* Por día de la semana */}
                 <div className="bg-white rounded-xl border border-slate-200 p-5">
                   <p className="text-sm font-bold text-slate-700 mb-1">Ventas por día de la semana</p>
                   <p className="text-xs text-slate-400 mb-4">Ingresos totales acumulados por día</p>
@@ -1174,7 +1159,6 @@ setSales((data||[]).map((r:any) => ({
                 </div>
               </div>
 
-              {/* Tabla resumen por hora */}
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100">
                   <p className="text-sm font-bold text-slate-700">Resumen completo por hora</p>

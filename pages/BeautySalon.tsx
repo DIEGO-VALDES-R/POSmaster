@@ -22,8 +22,10 @@ type CalendarView = 'day' | 'week' | 'month';
 
 interface SalonService {
   id: string; company_id: string; name: string; category: string;
-  price: number; duration_minutes: number; is_active: boolean;
+  price: number; // ← era precio
+  duration_minutes: number; is_active: boolean;
 }
+
 interface Stylist {
   id: string; company_id: string; name: string; specialty: string;
   commission_pct: number; is_active: boolean;
@@ -59,7 +61,6 @@ const SERVICE_CATEGORIES = [
 
 // ── HELPERS CORREGIDOS ───────────────────────────────────────────────────────────────────
 
-// Normalizar fecha ISO a objeto Date (maneja tanto UTC como strings locales)
 const normalizeIso = (iso: string): Date | null => {
   if (!iso) return null;
   const date = new Date(iso);
@@ -67,7 +68,6 @@ const normalizeIso = (iso: string): Date | null => {
   return date;
 };
 
-// Formatear hora en hora local de Colombia (UTC-5)
 const fmtTime = (iso: string): string => {
   const date = normalizeIso(iso);
   if (!date) return '—';
@@ -79,7 +79,6 @@ const fmtTime = (iso: string): string => {
   });
 };
 
-// Formatear fecha en hora local de Colombia
 const fmtDate = (iso: string): string => {
   const date = normalizeIso(iso);
   if (!date) return '—';
@@ -91,7 +90,6 @@ const fmtDate = (iso: string): string => {
   });
 };
 
-// Obtener la parte de la fecha (YYYY-MM-DD) en hora local
 const getDatePart = (iso: string): string => {
   const date = normalizeIso(iso);
   if (!date) return '';
@@ -101,7 +99,6 @@ const getDatePart = (iso: string): string => {
   return `${y}-${m}-${d}`;
 };
 
-// Convertir Date local a string ISO para guardar en UTC
 const isoLocal = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -111,7 +108,6 @@ const isoLocal = (date: Date): string => {
   return `${y}-${m}-${d}T${h}:${min}`;
 };
 
-// Obtener la fecha actual en formato local YYYY-MM-DD
 const toLocalDateStr = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -119,18 +115,15 @@ const toLocalDateStr = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
-// Verificar si dos fechas son el mismo día en hora local
 const isSameDay = (d1: Date, d2: Date): boolean => {
   return toLocalDateStr(d1) === toLocalDateStr(d2);
 };
 
-// Formatear moneda
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
-const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am – 9pm
+const HOURS = Array.from({ length: 15 }, (_, i) => i + 7);
 
-// Helpers para vista semanal/mensual
 const getWeekDays = (date: Date): Date[] => {
   const d = new Date(date);
   const day = d.getDay();
@@ -304,30 +297,59 @@ const BeautySalon: React.FC = () => {
         .eq('company_id', companyId)
         .order('scheduled_at', { ascending: true, nullsFirst: false });
       if (error) throw error;
-      setOrders((data || []) as ServiceOrder[]);
+      setOrders(
+  (data || []).map(o => ({
+    ...o,
+    service_price: Number(o.service_price) || 0
+  }))
+);
     } catch (err) {
       console.error('Error loading orders:', err);
     }
   }, [companyId]);
 
   const loadServices = useCallback(async () => {
-    if (!companyId) return;
-    try {
-      const { data } = await supabase
-        .from('salon_services').select('*')
-        .eq('company_id', companyId).eq('is_active', true).order('category, name');
-      setServices((data || []) as SalonService[]);
-    } catch (err) {
-      console.error('Error loading services:', err);
+  if (!companyId) return;
+  try {
+    const { data, error } = await supabase
+      .from('salon_servicios')
+      .select('id, company_id, name, category, price, duration_minutes, is_active')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('name');
+    
+    if (error) {
+      console.error('Error loading services:', error);
+      return;
     }
-  }, [companyId]);
+    
+    console.log('Servicios cargados:', data); // Para debug
+    setServices(
+  (data || []).map(s => ({
+    ...s,
+    price: Number(s.price) || 0
+  }))
+);
+  } catch (err) {
+    console.error('Error loading services:', err);
+  }
+}, [companyId]);
 
   const loadStylists = useCallback(async () => {
     if (!companyId) return;
     try {
-      const { data } = await supabase
-        .from('salon_stylists').select('*')
-        .eq('company_id', companyId).eq('is_active', true).order('name');
+      const { data, error } = await supabase
+        .from('salon_stylists')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .order('name');
+      
+      if (error) {
+        console.error('Error loading stylists:', error);
+        return;
+      }
+      
       setStylists((data || []) as Stylist[]);
     } catch (err) {
       console.error('Error loading stylists:', err);
@@ -446,41 +468,31 @@ const BeautySalon: React.FC = () => {
   );
 
   const todayDone = useMemo(() =>
-  orders.filter(o => {
-    if (o.status !== 'DONE') return false;
-    if (!o.finished_at) return false;
-    const finishedDate = normalizeIso(o.finished_at);
-    if (!finishedDate) return false;
-    return toLocalDateStr(finishedDate) === todayStr;
-  }),
-  [orders, todayStr]
-);
+    orders.filter(o => {
+      if (o.status !== 'DONE') return false;
+      if (!o.finished_at) return false;
+      const finishedDate = normalizeIso(o.finished_at);
+      if (!finishedDate) return false;
+      return toLocalDateStr(finishedDate) === todayStr;
+    }),
+    [orders, todayStr]
+  );
 
   const todayRevenue = useMemo(() =>
     todayDone.reduce((s, o) => s + o.service_price, 0),
     [todayDone]
   );
 
-  // Reemplazar la definición de todayOrders con esta versión más robusta:
-const todayOrders = useMemo(() => {
-  const today = toLocalDateStr(new Date());
-  return orders.filter(o => {
-    // Solo contar citas que tienen fecha agendada
-    if (!o.scheduled_at) return false;
-    
-    // Normalizar la fecha de la cita
-    const appointmentDate = normalizeIso(o.scheduled_at);
-    if (!appointmentDate) return false;
-    
-    // Comparar solo la fecha (sin hora)
-    const appointmentDateStr = toLocalDateStr(appointmentDate);
-    
-    // Para debug (puedes comentar después)
-    console.log(`Cita: ${o.client_name}, Agendada: ${appointmentDateStr}, Hoy: ${today}, Coincide: ${appointmentDateStr === today}`);
-    
-    return appointmentDateStr === today;
-  });
-}, [orders]);
+  const todayOrders = useMemo(() => {
+    const today = toLocalDateStr(new Date());
+    return orders.filter(o => {
+      if (!o.scheduled_at) return false;
+      const appointmentDate = normalizeIso(o.scheduled_at);
+      if (!appointmentDate) return false;
+      const appointmentDateStr = toLocalDateStr(appointmentDate);
+      return appointmentDateStr === today;
+    });
+  }, [orders]);
 
   const waiting = useMemo(() =>
     activeOrders.filter(o => o.status === 'WAITING'),
@@ -614,54 +626,75 @@ const todayOrders = useMemo(() => {
 
   // ── ACTIONS CORREGIDAS ───────────────────────────────────────────────────────────────
   const handleCreateOrder = async () => {
-    if (!companyId) return;
-    if (!validateOrderForm()) return;
-    setSaving(true);
-    const svc = services.find(s => s.id === orderForm.service_id);
-    const stl = stylists.find(s => s.id === orderForm.stylist_id);
-    
-    try {
-      let scheduledAtUTC = null;
-      if (orderForm.scheduled_at) {
-        const localDate = new Date(orderForm.scheduled_at);
-        scheduledAtUTC = localDate.toISOString();
-      }
-      
-      const { error } = await supabase.from('salon_orders').insert({
-        company_id: companyId, 
-        client_name: orderForm.client_name.trim(),
-        client_phone: orderForm.client_phone || null,
-        client_email: orderForm.client_email || null,
-        service_id: orderForm.service_id, 
-        service_name: svc?.name || '',
-        service_price: svc?.price || 0,
-        stylist_id: orderForm.stylist_id || null,
-        stylist_name: stl?.name || null,
-        status: orderForm.stylist_id ? 'ASSIGNED' : 'WAITING',
-        notes: orderForm.notes,
-        scheduled_at: scheduledAtUTC,
-      });
-      
-      if (error) throw error;
+  if (!companyId) return;
 
-      triggerSuccess();
-      toast.success('Cita registrada ✅');
-      setShowNewOrder(false);
-      setOrderForm(defaultOrderForm);
-      setOrderErrors({});
-      
-      await loadOrders();
-      setTimeout(() => loadOrders(), 1500);
-      
-      if (orderForm.scheduled_at) {
-        setAgendaDate(new Date(orderForm.scheduled_at));
-      }
-    } catch (error: any) {
-      toast.error(error?.message || 'Error al crear la cita');
-    } finally {
-      setSaving(false);
+  // ✅ Validación básica
+  if (!orderForm.service_id) {
+    toast.error('Debes seleccionar un servicio');
+    return;
+  }
+
+  if (!validateOrderForm()) return;
+
+  setSaving(true);
+
+  // 🔥 FIX: comparación segura de IDs
+  const svc = services.find(s => String(s.id) === String(orderForm.service_id));
+  const stl = stylists.find(s => s.id === orderForm.stylist_id);
+
+  // ❌ Si no encuentra el servicio → evita NaN
+  if (!svc) {
+    toast.error('Servicio no válido o no encontrado');
+    setSaving(false);
+    return;
+  }
+
+  // 🔥 FIX: asegurar número válido
+  const price = !isNaN(Number(svc.price)) ? Number(svc.price) : 0;
+
+  try {
+    let scheduledAtUTC = null;
+
+    if (orderForm.scheduled_at) {
+      const localDate = new Date(orderForm.scheduled_at);
+      scheduledAtUTC = localDate.toISOString();
     }
-  };
+
+    const { error } = await supabase.from('salon_orders').insert({
+      company_id: companyId,
+      client_name: orderForm.client_name.trim(),
+      client_phone: orderForm.client_phone || null,
+      client_email: orderForm.client_email || null,
+
+      service_id: orderForm.service_id,
+
+      // 🔥 FIX CLAVE (esto soluciona el NaN)
+      service_name: svc.name,
+      service_price: price,
+
+      stylist_id: orderForm.stylist_id || null,
+      stylist_name: stl?.name || null,
+      status: orderForm.stylist_id ? 'ASSIGNED' : 'WAITING',
+      notes: orderForm.notes,
+      scheduled_at: scheduledAtUTC,
+    });
+
+    if (error) throw error;
+
+    toast.success('Cita creada correctamente');
+    triggerSuccess();
+
+    setShowNewOrder(false);
+    setOrderForm(defaultOrderForm);
+    loadOrders();
+
+  } catch (err) {
+    console.error(err);
+    toast.error('Error al crear la cita');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const updateOrderStatus = async (id: string, status: ServiceStatus) => {
     const extra: Record<string,any> = {};
@@ -808,38 +841,55 @@ const todayOrders = useMemo(() => {
     }
   };
 
-  const handleSaveService = async () => {
-    if (!companyId || !serviceForm.name) { toast.error('Nombre obligatorio'); return; }
-    setSaving(true);
-    const payload = {
-      company_id: companyId, name: serviceForm.name, category: serviceForm.category,
-      price: parseFloat(serviceForm.price) || 0,
-      duration_minutes: parseInt(serviceForm.duration_minutes) || 30,
-      is_active: true,
-    };
-    
-    try {
-      const { error } = editingService
-        ? await supabase.from('salon_services').update(payload).eq('id', editingService.id)
-        : await supabase.from('salon_services').insert(payload);
-      
-      if (error) throw error;
-      
-      toast.success(editingService ? 'Servicio actualizado' : 'Servicio creado');
-      setShowServiceModal(false);
-      setEditingService(null);
-      setServiceForm({ name:'', category:'cabello', price:'', duration_minutes:'30' });
-      loadServices();
-    } catch (error: any) {
-      toast.error(error?.message || 'Error al guardar');
-    } finally {
-      setSaving(false);
-    }
+ const handleSaveService = async () => {
+  if (!companyId || !serviceForm.name) {
+    toast.error('Nombre obligatorio');
+    return;
+  }
+
+  setSaving(true);
+
+  // 🔥 LIMPIEZA REAL DEL PRECIO
+  const cleanPrice = serviceForm.price
+    .toString()
+    .replace(/\./g, '')
+    .replace(/,/g, '')
+    .replace(/[^\d]/g, '');
+
+  const price = Number(cleanPrice) || 0;
+
+  const payload = {
+    company_id: companyId,
+    name: serviceForm.name,
+    category: serviceForm.category,
+
+    // ✅ FIX DEFINITIVO
+    price: price,
+
+    duration_minutes: Number(serviceForm.duration_minutes) || 30,
+    is_active: true,
   };
+
+  const { error } = await supabase
+    .from('salon_servicios')
+    .insert(payload);
+
+  if (error) {
+    console.error(error);
+    toast.error('Error al guardar servicio');
+  } else {
+    toast.success('Servicio guardado');
+    setShowServiceModal(false);
+    setServiceForm({ name:'', category:'cabello', price:'', duration_minutes:'30' });
+    loadServices();
+  }
+
+  setSaving(false);
+};
 
   const handleDeleteService = async (id: string) => {
     if (!confirm('¿Eliminar este servicio?')) return;
-    await supabase.from('salon_services').update({ is_active: false }).eq('id', id);
+    await supabase.from('salon_servicios').update({ is_active: false }).eq('id', id);
     toast.success('Servicio eliminado');
     loadServices();
   };
@@ -992,7 +1042,7 @@ const todayOrders = useMemo(() => {
         </div>
       </div>
 
-            {/* ── KPI ROW ── */}
+      {/* ── KPI ROW ── */}
       <div className="grid grid-cols-4 gap-3 px-5 pt-4 flex-shrink-0">
         {[
           { label: 'Ingresos hoy',    value: fmt(todayRevenue),  icon: <DollarSign size={18}/>,  color: '#10b981', bg: '#ecfdf5' },
@@ -1686,7 +1736,7 @@ const todayOrders = useMemo(() => {
           </div>
         )}
 
-        {/* ════════════ HISTORIAL ════════════ */}
+                {/* ════════════ HISTORIAL ════════════ */}
         {activeTab === 'historial' && (
           <div className="bg-white rounded-b-2xl rounded-tr-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col"
             style={{ height: 'calc(100vh - 300px)' }}>
@@ -1711,9 +1761,15 @@ const todayOrders = useMemo(() => {
             <div className="overflow-auto flex-1">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 sticky top-0">
-                  <tr>{['Cliente','Servicio','Estilista','Cita','Estado','Precio','Cobrado'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
-                  ))}</tr>
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Cliente</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Servicio</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Estilista</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Cita</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Precio</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Cobrado</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {pagedHistory.map(o => {
@@ -1917,16 +1973,16 @@ const todayOrders = useMemo(() => {
             <div>
               <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Servicio *</label>
               <select value={orderForm.service_id} onChange={e => setOrderForm(p => ({ ...p, service_id: e.target.value }))}
-                className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${orderErrors.service_id ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-indigo-400'}`}>
-                <option value="">Seleccionar servicio...</option>
-                {SERVICE_CATEGORIES.map(cat => {
-                  const s2 = services.filter(s => s.category === cat.id);
-                  if (!s2.length) return null;
-                  return <optgroup key={cat.id} label={cat.label}>
-                    {s2.map(s => <option key={s.id} value={s.id}>{s.name} — {fmt(s.price)}</option>)}
-                  </optgroup>;
-                })}
-              </select>
+  className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${orderErrors.service_id ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-indigo-400'}`}>
+  <option value="">Seleccionar servicio...</option>
+  {SERVICE_CATEGORIES.map(cat => {
+    const s2 = services.filter(s => s.category === cat.id);
+    if (!s2.length) return null;
+    return <optgroup key={cat.id} label={cat.label}>
+      {s2.map(s => <option key={s.id} value={s.id}>{s.name} — {fmt(s.price || 0)}</option>)}
+    </optgroup>;
+  })}
+</select>
               {orderErrors.service_id && <p className="text-xs text-red-500 mt-1">{orderErrors.service_id}</p>}
             </div>
             <div>
@@ -1946,14 +2002,14 @@ const todayOrders = useMemo(() => {
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-400 resize-none"/>
             </div>
             {orderForm.service_id && (() => {
-              const s = services.find(x => x.id === orderForm.service_id);
-              return s ? (
-                <div className="flex items-center justify-between bg-indigo-50 rounded-xl p-3 border border-indigo-100">
-                  <span className="text-sm text-indigo-700 font-semibold">{s.name} · {s.duration_minutes} min</span>
-                  <span className="font-bold text-indigo-800">{fmt(s.price)}</span>
-                </div>
-              ) : null;
-            })()}
+  const s = services.find(x => x.id === orderForm.service_id);
+  return s ? (
+    <div className="flex items-center justify-between bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+      <span className="text-sm text-indigo-700 font-semibold">{s.name} · {s.duration_minutes} min</span>
+      <span className="font-bold text-indigo-800">{fmt(s.price)}</span>
+    </div>
+  ) : null;
+})()}
             <button onClick={handleCreateOrder} disabled={saving}
               className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 shadow-sm transition-all active:scale-95"
               style={{ background: brandColor }}>
@@ -2146,8 +2202,17 @@ const todayOrders = useMemo(() => {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Precio ($)</label>
-                <input type="number" value={serviceForm.price} onChange={e => setServiceForm(p => ({ ...p, price: e.target.value }))}
-                  placeholder="0" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-400"/>
+                <input
+  type="text"
+  inputMode="numeric"
+  value={serviceForm.price}
+  onChange={e => setServiceForm(p => ({
+    ...p,
+    price: e.target.value.replace(/[^\d]/g, '')
+  }))}
+  placeholder="15000"
+  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-400"
+/>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Duración (min)</label>

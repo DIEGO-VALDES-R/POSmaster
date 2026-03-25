@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, X, Search, User, Users, Calendar, FileText,
   Heart, DollarSign, CheckCircle, Clock, XCircle,
@@ -8,7 +8,7 @@ import {
   Stethoscope, ClipboardList, ShoppingCart, Receipt,
   TrendingUp, Package, RefreshCw, Printer,
   FlaskConical, FileCheck, Bell, MessageSquare,
-  AlertTriangle, Download, Grid, List
+  AlertTriangle, Download, Grid, List, Upload, Camera, Image, FolderOpen
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
@@ -56,7 +56,6 @@ interface Consultorio {
   estado: ConsultorioStatus; observaciones: string;
 }
 
-// Tipos de atención disponibles para veterinarias con convenio público
 type TipoAtencion = 'PARTICULAR' | 'ALCALDIA' | 'GOBERNACION' | 'JORNADA_GRATUITA' | 'RURAL' | 'OTRO_CONVENIO';
 
 interface Cita {
@@ -69,8 +68,8 @@ interface Cita {
   tipo_cita?: string;
   tipo_atencion: TipoAtencion;
   zona: 'URBANA' | 'RURAL';
-  convenio_numero?: string;   // Número del contrato/convenio
-  entidad_convenio?: string;  // Nombre del contrato si aplica
+  convenio_numero?: string;
+  entidad_convenio?: string;
 }
 
 interface HistoriaClinica {
@@ -84,6 +83,7 @@ interface HistoriaClinica {
   zona: 'URBANA' | 'RURAL';
   convenio_numero?: string;
   entidad_convenio?: string;
+  fotos_quirurgicas?: Array<{ url: string; fecha: string; descripcion: string }>;
 }
 
 interface ResultadoLab {
@@ -193,7 +193,6 @@ const TIPOS_PERSONAL: Record<PersonalType, string> = {
 };
 const TIPOS_MEDICAMENTO = ['Antibiótico', 'Analgésico', 'Antiparasitario', 'Vitamina', 'Vacuna', 'Otro'];
 
-// ─── TIPOS DE ATENCIÓN (sistema de convenios públicos) ────────────────────────
 const TIPOS_ATENCION: Record<TipoAtencion, { label: string; color: string; icon: string }> = {
   PARTICULAR:       { label: 'Particular',          color: '#6366f1', icon: '💰' },
   ALCALDIA:         { label: 'Convenio Alcaldía',    color: '#0ea5e9', icon: '🏛️' },
@@ -216,13 +215,12 @@ const uid = () => crypto.randomUUID();
 const today = () => new Date().toISOString().split('T')[0];
 
 // ══════════════════════════════════════════════════════════════════════════════
-// COMPONENTES UI — definidos FUERA del componente principal para evitar
-// que React los destruya y recree en cada render (bug de pérdida de foco)
+// COMPONENTES UI
 // ══════════════════════════════════════════════════════════════════════════════
 
-const Card: React.FC<{ title: string; value: string | number; sub?: string; icon: React.ReactNode; color: string }> =
-  ({ title, value, sub, icon, color }) => (
-  <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100 flex items-center gap-4">
+const Card: React.FC<{ title: string; value: string | number; sub?: string; icon: React.ReactNode; color: string; onClick?: () => void }> =
+  ({ title, value, sub, icon, color, onClick }) => (
+  <div onClick={onClick} className={`bg-white rounded-xl p-5 shadow-sm border border-slate-100 flex items-center gap-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}>
     <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + '18' }}>
       <span style={{ color }}>{icon}</span>
     </div>
@@ -308,14 +306,15 @@ const TableWrapper: React.FC<{ headers: string[]; children: React.ReactNode; onA
   </div>
 );
 
-const Row: React.FC<{ cells: React.ReactNode[]; onEdit?: () => void; onDelete?: () => void; onView?: () => void }> =
-  ({ cells, onEdit, onDelete, onView }) => (
+const Row: React.FC<{ cells: React.ReactNode[]; onEdit?: () => void; onDelete?: () => void; onView?: () => void; onPrint?: () => void }> =
+  ({ cells, onEdit, onDelete, onView, onPrint }) => (
   <tr className="hover:bg-slate-50 transition-colors">
     {cells.map((c, i) => <td key={i} className="px-4 py-3 text-slate-700">{c}</td>)}
     <td className="px-4 py-3">
       <div className="flex gap-2">
-        {onView   && <button onClick={onView}   className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500"><Eye size={14} /></button>}
-        {onEdit   && <button onClick={onEdit}   className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500"><Edit2 size={14} /></button>}
+        {onView && <button onClick={onView} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500"><Eye size={14} /></button>}
+        {onPrint && <button onClick={onPrint} className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-500"><Printer size={14} /></button>}
+        {onEdit && <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500"><Edit2 size={14} /></button>}
         {onDelete && <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14} /></button>}
       </div>
     </td>
@@ -445,6 +444,10 @@ const AtencionSelector: React.FC<{
   );
 };
 
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ══════════════════════════════════════════════════════════════════════════════
+
 const Veterinaria: React.FC = () => {
   const { company, companyId } = useDatabase();
   const { formatMoney } = useCurrency();
@@ -454,6 +457,19 @@ const Veterinaria: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [importModal, setImportModal] = useState<ModuleType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  
+  // Estado para fotos
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'mascota' | 'historia' | null>(null);
+  const [currentMascotaId, setCurrentMascotaId] = useState<string | null>(null);
+  const [currentHistoriaId, setCurrentHistoriaId] = useState<string | null>(null);
+  const [tempPhotoFile, setTempPhotoFile] = useState<File | null>(null);
+  const [tempPhotoPreview, setTempPhotoPreview] = useState<string | null>(null);
+  const [tempPhotoDesc, setTempPhotoDesc] = useState('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // ── DATA STATE ──
   const [propietarios, setPropietarios]       = useState<Propietario[]>([]);
@@ -488,7 +504,7 @@ const Veterinaria: React.FC = () => {
   const emptyPersonal      = (): Personal        => ({ nombre:'', documento:'', tipo:'VETERINARIO', especialidad:'General', telefono:'', estado:'ACTIVO', registro_profesional:'' });
   const emptyConsultorio   = (): Consultorio     => ({ nombre:'', veterinario_id:'', auxiliar_id:'', estado:'DISPONIBLE', observaciones:'' });
   const emptyCita          = (): Cita            => ({ mascota_id:'', propietario_id:'', veterinario_id:'', consultorio_id:'', fecha:today(), hora:'09:00', motivo:'', estado:'PROGRAMADA', notas:'', tipo_cita:'Consulta general', tipo_atencion:'PARTICULAR', zona:'URBANA', convenio_numero:'', entidad_convenio:'' });
-  const emptyHistoria      = (): HistoriaClinica => ({ mascota_id:'', veterinario_id:'', consultorio_id:'', fecha:today(), peso:0, temperatura:38.5, diagnostico:'', tratamiento:'', medicamentos:'', observaciones:'', proximo_control:'', tipo_atencion:'PARTICULAR', zona:'URBANA', convenio_numero:'', entidad_convenio:'' });
+  const emptyHistoria      = (): HistoriaClinica => ({ mascota_id:'', veterinario_id:'', consultorio_id:'', fecha:today(), peso:0, temperatura:38.5, diagnostico:'', tratamiento:'', medicamentos:'', observaciones:'', proximo_control:'', tipo_atencion:'PARTICULAR', zona:'URBANA', convenio_numero:'', entidad_convenio:'', fotos_quirurgicas: [] });
   const emptyLab           = (): ResultadoLab    => ({ mascota_id:'', tipo:'Hemograma', fecha:today(), descripcion:'', archivo_url:'', veterinario_id:'', resultado:'', valores_referencia:'' });
   const emptyVacuna        = (): Vacuna          => ({ mascota_id:'', nombre_vacuna:'', fecha_aplicada:today(), proxima_dosis:'', veterinario_id:'', lote:'', laboratorio:'' });
   const emptyPeso          = (): ControlPeso     => ({ mascota_id:'', fecha:today(), peso:0, observaciones:'' });
@@ -556,6 +572,160 @@ const Veterinaria: React.FC = () => {
     reloadAll();
   }, [companyId, loadTable]);
 
+  // ── FUNCIONES PARA FOTOS ─────────────────────────────────────────────────
+  
+  const uploadPhoto = async (file: File, folder: string, entityId: string): Promise<string | null> => {
+    if (!companyId) return null;
+    
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${entityId}_${Date.now()}.${fileExt}`;
+    const filePath = `${folder}/${companyId}/${fileName}`;
+    
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('veterinaria')
+        .upload(filePath, file);
+      
+      if (uploadError) throw uploadError;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('veterinaria')
+        .getPublicUrl(filePath);
+      
+      return publicUrl;
+    } catch (error: any) {
+      toast.error('Error al subir foto: ' + error.message);
+      return null;
+    }
+  };
+
+  const uploadMascotaFoto = async (mascotaId: string, file: File) => {
+    setUploadingPhoto(true);
+    try {
+      const fotoUrl = await uploadPhoto(file, 'mascotas', mascotaId);
+      if (fotoUrl) {
+        const { error } = await supabase
+          .from('vet_mascotas')
+          .update({ foto_url: fotoUrl })
+          .eq('id', mascotaId);
+        
+        if (error) throw error;
+        
+        setMascotas(prev => prev.map(m => 
+          m.id === mascotaId ? { ...m, foto_url: fotoUrl } : m
+        ));
+        
+        toast.success('Foto de mascota actualizada');
+        closeModal();
+      }
+    } catch (error: any) {
+      toast.error('Error: ' + error.message);
+    } finally {
+      setUploadingPhoto(false);
+      setTempPhotoFile(null);
+      setTempPhotoPreview(null);
+      setShowCameraModal(false);
+    }
+  };
+
+  const uploadHistoriaFoto = async (historiaId: string, file: File, descripcion: string) => {
+    setUploadingPhoto(true);
+    try {
+      const fotoUrl = await uploadPhoto(file, 'historias', historiaId);
+      if (fotoUrl) {
+        const historia = historias.find(h => h.id === historiaId);
+        const fotosExistentes = historia?.fotos_quirurgicas || [];
+        
+        const { error } = await supabase
+          .from('vet_historias_clinicas')
+          .update({ 
+            fotos_quirurgicas: [...fotosExistentes, { url: fotoUrl, fecha: new Date().toISOString(), descripcion: descripcion || 'Procedimiento quirúrgico' }]
+          })
+          .eq('id', historiaId);
+        
+        if (error) throw error;
+        
+        await loadTable('vet_historias_clinicas', setHistorias);
+        toast.success('Foto agregada a la historia clínica');
+      }
+    } catch (error: any) {
+      toast.error('Error: ' + error.message);
+    } finally {
+      setUploadingPhoto(false);
+      setTempPhotoFile(null);
+      setTempPhotoPreview(null);
+      setTempPhotoDesc('');
+      setShowCameraModal(false);
+    }
+  };
+
+  const openImagePicker = (mode: 'mascota' | 'historia', entityId?: string) => {
+    setCameraMode(mode);
+    if (mode === 'mascota' && entityId) setCurrentMascotaId(entityId);
+    if (mode === 'historia' && entityId) setCurrentHistoriaId(entityId);
+    setShowCameraModal(true);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast.error('Solo se permiten imágenes');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('La imagen no debe superar los 5MB');
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onloadend = () => setTempPhotoPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      setTempPhotoFile(file);
+    }
+  };
+
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setTempPhotoPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      setTempPhotoFile(file);
+    }
+  };
+
+  const confirmPhotoUpload = async () => {
+    if (!tempPhotoFile) return;
+    
+    if (cameraMode === 'mascota' && currentMascotaId) {
+      await uploadMascotaFoto(currentMascotaId, tempPhotoFile);
+    } else if (cameraMode === 'historia' && currentHistoriaId) {
+      await uploadHistoriaFoto(currentHistoriaId, tempPhotoFile, tempPhotoDesc);
+    }
+  };
+
+  const deleteHistoriaFoto = async (historiaId: string, fotoIndex: number) => {
+    const historia = historias.find(h => h.id === historiaId);
+    if (!historia) return;
+    
+    const nuevasFotos = historia.fotos_quirurgicas?.filter((_, i) => i !== fotoIndex) || [];
+    
+    try {
+      const { error } = await supabase
+        .from('vet_historias_clinicas')
+        .update({ fotos_quirurgicas: nuevasFotos })
+        .eq('id', historiaId);
+      
+      if (error) throw error;
+      
+      await loadTable('vet_historias_clinicas', setHistorias);
+      toast.success('Foto eliminada');
+    } catch (error: any) {
+      toast.error('Error al eliminar foto: ' + error.message);
+    }
+  };
+
   // ── TABLE MAP para upsert/delete ──────────────────────────────────────────
   const TABLE: Record<string, string> = {
     propietarios: 'vet_propietarios', mascotas: 'vet_mascotas',
@@ -568,119 +738,6 @@ const Veterinaria: React.FC = () => {
     consentimientos: 'vet_consentimientos', facturas: 'vet_facturas',
   };
 
-  const descontarStock = async (texto: string) => {
-    const nombres = texto.split(',').map(s => s.trim()).filter(Boolean);
-    for (const nombre of nombres) {
-      const med = medicamentos.find(m => m.nombre.toLowerCase().includes(nombre.toLowerCase()));
-      if (!med?.id) continue;
-      const nuevo = Math.max(0, med.stock - 1);
-      await supabase.from('vet_medicamentos').update({ stock: nuevo }).eq('id', med.id);
-      setMedicamentos(p => p.map(m => m.id === med.id ? { ...m, stock: nuevo } : m));
-      if (nuevo <= (med.stock_minimo || 5)) toast(`⚠️ Stock bajo: ${med.nombre} — ${nuevo} uds`, { icon: '🔔' });
-    }
-  };
-
-  const enviarRecordatorio = (c: Cita) => {
-    const prop = propietarios.find(p => p.id === c.propietario_id);
-    if (!prop?.telefono) return toast.error('Sin teléfono registrado');
-    const tel = prop.telefono.replace(/\D/g, '');
-    const msg = encodeURIComponent(`Hola ${prop.nombre}, recuerde la cita veterinaria el *${c.fecha}* a las *${c.hora}* para *${c.mascota_nombre}*. Motivo: ${c.motivo}. ¡Los esperamos! 🐾`);
-    window.open(`https://wa.me/57${tel}?text=${msg}`, '_blank');
-    toast.success('Recordatorio enviado por WhatsApp');
-  };
-
-  const imprimirReceta = (h: HistoriaClinica) => {
-    const m   = mascotas.find(x => x.id === h.mascota_id);
-    const p   = propietarios.find(x => x.id === m?.propietario_id);
-    const vet = personal.find(x => x.id === h.veterinario_id);
-    const html = `<!DOCTYPE html><html><head><title>Receta</title><style>
-      body{font-family:Arial,sans-serif;padding:40px;max-width:700px;margin:0 auto;color:#1e293b}
-      .hdr{display:flex;justify-content:space-between;border-bottom:3px solid ${brandColor};padding-bottom:16px;margin-bottom:20px}
-      .clinic{font-size:22px;font-weight:bold;color:${brandColor}}.badge{background:${brandColor};color:#fff;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:bold}
-      .sec{background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px}.sec h3{font-size:11px;text-transform:uppercase;color:#94a3b8;margin-bottom:10px}
-      .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.f label{font-size:11px;color:#64748b}.f p{font-size:14px;font-weight:600;margin:2px 0 0}
-      .meds{background:#eff6ff;border-left:4px solid ${brandColor};padding:14px;border-radius:0 8px 8px 0;white-space:pre-wrap;font-size:14px}
-      .ftr{border-top:1px solid #e2e8f0;padding-top:20px;margin-top:24px;display:flex;justify-content:space-between}
-      .firma{text-align:center}.firma .ln{border-bottom:1px solid #94a3b8;width:200px;margin:40px auto 6px}.firma p{font-size:12px;color:#64748b}
-    </style></head><body>
-    <div class="hdr"><div><div class="clinic">${company?.name||'Clínica Veterinaria'}</div><div style="font-size:12px;color:#64748b">${company?.address||''}</div></div><div class="badge">RECETA MÉDICA</div></div>
-    <div class="sec"><h3>Datos del Paciente</h3><div class="g2">
-      <div class="f"><label>Paciente</label><p>${m?.nombre||'-'}</p></div>
-      <div class="f"><label>Especie / Raza</label><p>${m?.especie||''} · ${m?.raza||''}</p></div>
-      <div class="f"><label>Propietario</label><p>${p?.nombre||'-'}</p></div>
-      <div class="f"><label>Teléfono</label><p>${p?.telefono||'-'}</p></div>
-      <div class="f"><label>Fecha</label><p>${h.fecha}</p></div>
-      <div class="f"><label>Peso / Temperatura</label><p>${h.peso}kg · ${h.temperatura}°C</p></div>
-    </div></div>
-    <div class="sec"><h3>Diagnóstico</h3><div style="font-size:15px;font-weight:600">${h.diagnostico}</div>${h.tratamiento?`<div style="margin-top:8px;font-size:13px;color:#475569">${h.tratamiento}</div>`:''}</div>
-    <div class="sec"><h3>Medicamentos (Rp/)</h3><div class="meds">${h.medicamentos||'Sin medicamentos prescritos'}</div></div>
-    ${h.observaciones?`<div class="sec"><h3>Observaciones</h3><p style="font-size:14px">${h.observaciones}</p></div>`:''}
-    ${h.proximo_control?`<div style="background:#f0fdf4;border-radius:8px;padding:12px;font-size:14px;color:#166534;margin-bottom:16px">📅 <strong>Próximo control:</strong> ${h.proximo_control}</div>`:''}
-    <div class="ftr">
-      <div class="firma"><div class="ln"></div><p><strong>${vet?.nombre||'Médico Veterinario'}</strong></p><p>${vet?.especialidad||''}</p>${vet?.registro_profesional?`<p>M.V. Reg. ${vet.registro_profesional}</p>`:''}</div>
-      <div style="font-size:11px;color:#94a3b8;text-align:right;align-self:flex-end"><p>Emitido: ${new Date().toLocaleDateString('es-CO')}</p><p>${company?.name||''}</p></div>
-    </div></body></html>`;
-    const w = window.open('', '_blank'); w?.document.write(html); w?.document.close(); w?.print();
-  };
-
-  const imprimirConsentimiento = (c: Consentimiento) => {
-    const m   = mascotas.find(x => x.id === c.mascota_id);
-    const p   = propietarios.find(x => x.id === c.propietario_id);
-    const vet = personal.find(x => x.id === c.veterinario_id);
-    const html = `<!DOCTYPE html><html><head><title>Consentimiento</title><style>
-      body{font-family:Arial,sans-serif;padding:50px;max-width:680px;margin:0 auto;line-height:1.6;color:#1e293b}
-      h1{text-align:center;font-size:20px;color:${brandColor};border-bottom:2px solid ${brandColor};padding-bottom:10px}
-      .data{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f8fafc;padding:16px;border-radius:8px;margin-bottom:16px}
-      .f label{font-size:11px;color:#94a3b8;display:block}.f span{font-size:14px;font-weight:600}
-      .desc{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:16px;margin:12px 0;font-size:14px}
-      .firmas{display:flex;justify-content:space-around;margin-top:60px}.fb{text-align:center}
-      .fb .ln{border-bottom:1px solid #334155;width:180px;margin:50px auto 6px}.fb p{font-size:12px;color:#64748b}
-    </style></head><body>
-    <h1>CONSENTIMIENTO INFORMADO VETERINARIO</h1>
-    <p style="text-align:center;font-size:13px;color:#64748b">${company?.name||'Clínica Veterinaria'} · ${new Date().toLocaleDateString('es-CO')}</p>
-    <div class="data">
-      <div class="f"><label>Mascota</label><span>${m?.nombre||'-'} (${m?.especie||''})</span></div>
-      <div class="f"><label>Raza</label><span>${m?.raza||''}</span></div>
-      <div class="f"><label>Propietario</label><span>${p?.nombre||'-'}</span></div>
-      <div class="f"><label>Documento</label><span>${p?.documento||'-'}</span></div>
-      <div class="f"><label>Teléfono</label><span>${p?.telefono||'-'}</span></div>
-      <div class="f"><label>Procedimiento</label><span>${c.tipo}</span></div>
-    </div>
-    <h2 style="font-size:14px;text-transform:uppercase;color:#64748b">Descripción</h2>
-    <div class="desc">${c.descripcion||'Procedimiento veterinario autorizado.'}</div>
-    <p style="font-size:14px">Yo, <strong>${p?.nombre||'___'}</strong>, C.C. <strong>${p?.documento||'___'}</strong>, propietario(a) de <strong>${m?.nombre||'___'}</strong>, declaro haber sido informado(a) y <strong>AUTORIZO</strong> el procedimiento de <strong>${c.tipo}</strong>.</p>
-    <div class="firmas">
-      <div class="fb"><div class="ln"></div><p><strong>Firma Propietario</strong></p><p>${p?.nombre||''}</p></div>
-      <div class="fb"><div class="ln"></div><p><strong>Médico Veterinario</strong></p><p>${vet?.nombre||''}</p>${vet?.registro_profesional?`<p>Reg. ${vet.registro_profesional}</p>`:''}</div>
-    </div></body></html>`;
-    const w = window.open('', '_blank'); w?.document.write(html); w?.document.close(); w?.print();
-  };
-
-  // ── SEED DATA ──
-  const seedServicios = (): Servicio[] => [
-    { id: uid(), nombre: 'Consulta general',   precio: 50000,  descripcion: 'Consulta médica veterinaria', activo: true },
-    { id: uid(), nombre: 'Vacunación',          precio: 40000,  descripcion: 'Aplicación de vacuna',        activo: true },
-    { id: uid(), nombre: 'Desparasitación',     precio: 35000,  descripcion: 'Tratamiento antiparasitario', activo: true },
-    { id: uid(), nombre: 'Baño y peluquería',   precio: 60000,  descripcion: 'Aseo completo',               activo: true },
-    { id: uid(), nombre: 'Cirugía menor',       precio: 300000, descripcion: 'Procedimiento quirúrgico menor', activo: true },
-    { id: uid(), nombre: 'Esterilización',      precio: 400000, descripcion: 'Castración / esterilización', activo: true },
-    { id: uid(), nombre: 'Radiografía',         precio: 80000,  descripcion: 'Estudio radiológico',          activo: true },
-    { id: uid(), nombre: 'Ecografía',           precio: 120000, descripcion: 'Estudio ecográfico',           activo: true },
-  ];
-  const seedMedicamentos = (): Medicamento[] => [
-    { id: uid(), nombre: 'Amoxicilina 250mg',  tipo: 'Antibiótico',     presentacion: 'Tabletas', stock: 50, precio: 8000 },
-    { id: uid(), nombre: 'Meloxicam 1mg',      tipo: 'Analgésico',      presentacion: 'Tabletas', stock: 30, precio: 5000 },
-    { id: uid(), nombre: 'Ivermectina 1%',     tipo: 'Antiparasitario', presentacion: 'Inyectable', stock: 20, precio: 12000 },
-  ];
-  const seedPlanes = (): Plan[] => [
-    { id: uid(), nombre: 'Plan Mascota Saludable', precio: 250000, servicios_incluidos: '2 consultas al año, vacunas básicas, desparasitación', descuento: 10, estado: 'ACTIVO' },
-    { id: uid(), nombre: 'Plan Premium',           precio: 500000, servicios_incluidos: '4 consultas, vacunas completas, baño mensual, laboratorio', descuento: 20, estado: 'ACTIVO' },
-  ];
-
-  // ── SUPABASE CRUD HELPERS ─────────────────────────────────────────────────
-
-  // Convierte strings vacíos en campos UUID a null para evitar
-  // "invalid input syntax for type uuid: ''" en PostgreSQL
   const sanitizeRow = (row: any): any => {
     const UUID_FIELDS = [
       'veterinario_id', 'auxiliar_id', 'consultorio_id', 'mascota_id',
@@ -691,7 +748,6 @@ const Veterinaria: React.FC = () => {
     return clean;
   };
 
-  // Retorna true si el upsert fue exitoso, false si hubo error
   const upsertDB = async (key: string, row: any): Promise<boolean> => {
     const table = TABLE[key];
     if (!table) return false;
@@ -762,7 +818,8 @@ const Veterinaria: React.FC = () => {
   const saveHistoria = async () => {
     if (!formHistoria.mascota_id || !formHistoria.diagnostico.trim()) return toast.error('Mascota y diagnóstico requeridos');
     const mascota = mascotas.find(m => m.id === formHistoria.mascota_id);
-    const row = { ...formHistoria, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, company_id: companyId };
+    const existingFotos = editing?.fotos_quirurgicas || [];
+    const row = { ...formHistoria, id: editing?.id || uid(), mascota_nombre: mascota?.nombre, fotos_quirurgicas: existingFotos, company_id: companyId };
     if (!(await upsertDB('historias', row))) return;
     if (formHistoria.medicamentos && !editing?.id) await descontarStock(formHistoria.medicamentos);
     if (formHistoria.peso > 0 && !editing?.id) {
@@ -772,6 +829,18 @@ const Veterinaria: React.FC = () => {
     }
     await loadTable('vet_historias_clinicas', setHistorias);
     toast.success('Historia clínica guardada'); closeModal();
+  };
+
+  const descontarStock = async (texto: string) => {
+    const nombres = texto.split(',').map(s => s.trim()).filter(Boolean);
+    for (const nombre of nombres) {
+      const med = medicamentos.find(m => m.nombre.toLowerCase().includes(nombre.toLowerCase()));
+      if (!med?.id) continue;
+      const nuevo = Math.max(0, med.stock - 1);
+      await supabase.from('vet_medicamentos').update({ stock: nuevo }).eq('id', med.id);
+      setMedicamentos(p => p.map(m => m.id === med.id ? { ...m, stock: nuevo } : m));
+      if (nuevo <= (med.stock_minimo || 5)) toast(`⚠️ Stock bajo: ${med.nombre} — ${nuevo} uds`, { icon: '🔔' });
+    }
   };
 
   const saveLab = async () => {
@@ -876,51 +945,101 @@ const Veterinaria: React.FC = () => {
     toast.success('Abono registrado'); setModal(null); setFormAbono(0);
   };
 
-  const SETTER_MAP: Record<string, [any[], React.Dispatch<any>, string]> = {
-    propietarios:    [propietarios,    setPropietarios,    'vet_propietarios'],
-    mascotas:        [mascotas,        setMascotas,        'vet_mascotas'],
-    personal:        [personal,        setPersonal,        'vet_personal'],
-    consultorios:    [consultorios,    setConsultorios,    'vet_consultorios'],
-    citas:           [citas,           setCitas,           'vet_citas'],
-    historias:       [historias,       setHistorias,       'vet_historias_clinicas'],
-    laboratorio:     [resultadosLab,   setResultadosLab,   'vet_resultados_lab'],
-    vacunas:         [vacunas,         setVacunas,         'vet_vacunas'],
-    pesos:           [pesos,           setPesos,           'vet_control_peso'],
-    hospitalizaciones:[hospitalizaciones,setHospitalizaciones,'vet_hospitalizaciones'],
-    monitoreos:      [monitoreos,      setMonitoreos,      'vet_monitoreos_hosp'],
-    medicamentos:    [medicamentos,    setMedicamentos,    'vet_medicamentos'],
-    servicios:       [servicios,       setServicios,       'vet_servicios'],
-    planes:          [planes,          setPlanes,          'vet_planes'],
-    consentimientos: [consentimientos, setConsentimientos, 'vet_consentimientos'],
-    facturas:        [facturas,        setFacturas,        'vet_facturas'],
+  const enviarRecordatorio = (c: Cita) => {
+    const prop = propietarios.find(p => p.id === c.propietario_id);
+    if (!prop?.telefono) return toast.error('Sin teléfono registrado');
+    const tel = prop.telefono.replace(/\D/g, '');
+    const msg = encodeURIComponent(`Hola ${prop.nombre}, recuerde la cita veterinaria el *${c.fecha}* a las *${c.hora}* para *${c.mascota_nombre}*. Motivo: ${c.motivo}. ¡Los esperamos! 🐾`);
+    window.open(`https://wa.me/57${tel}?text=${msg}`, '_blank');
+    toast.success('Recordatorio enviado por WhatsApp');
+  };
+
+  const imprimirReceta = (h: HistoriaClinica) => {
+    const m   = mascotas.find(x => x.id === h.mascota_id);
+    const p   = propietarios.find(x => x.id === m?.propietario_id);
+    const vet = personal.find(x => x.id === h.veterinario_id);
+    const html = `<!DOCTYPE html><html><head><title>Receta</title><style>
+      body{font-family:Arial,sans-serif;padding:40px;max-width:700px;margin:0 auto;color:#1e293b}
+      .hdr{display:flex;justify-content:space-between;border-bottom:3px solid ${brandColor};padding-bottom:16px;margin-bottom:20px}
+      .clinic{font-size:22px;font-weight:bold;color:${brandColor}}.badge{background:${brandColor};color:#fff;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:bold}
+      .sec{background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px}.sec h3{font-size:11px;text-transform:uppercase;color:#94a3b8;margin-bottom:10px}
+      .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.f label{font-size:11px;color:#64748b}.f p{font-size:14px;font-weight:600;margin:2px 0 0}
+      .meds{background:#eff6ff;border-left:4px solid ${brandColor};padding:14px;border-radius:0 8px 8px 0;white-space:pre-wrap;font-size:14px}
+      .ftr{border-top:1px solid #e2e8f0;padding-top:20px;margin-top:24px;display:flex;justify-content:space-between}
+      .firma{text-align:center}.firma .ln{border-bottom:1px solid #94a3b8;width:200px;margin:40px auto 6px}.firma p{font-size:12px;color:#64748b}
+    </style></head><body>
+    <div class="hdr"><div><div class="clinic">${company?.name||'Clínica Veterinaria'}</div><div style="font-size:12px;color:#64748b">${company?.address||''}</div></div><div class="badge">RECETA MÉDICA</div></div>
+    <div class="sec"><h3>Datos del Paciente</h3><div class="g2">
+      <div class="f"><label>Paciente</label><p>${m?.nombre||'-'}</p></div>
+      <div class="f"><label>Especie / Raza</label><p>${m?.especie||''} · ${m?.raza||''}</p></div>
+      <div class="f"><label>Propietario</label><p>${p?.nombre||'-'}</p></div>
+      <div class="f"><label>Teléfono</label><p>${p?.telefono||'-'}</p></div>
+      <div class="f"><label>Fecha</label><p>${h.fecha}</p></div>
+      <div class="f"><label>Peso / Temperatura</label><p>${h.peso}kg · ${h.temperatura}°C</p></div>
+    </div></div>
+    <div class="sec"><h3>Diagnóstico</h3><div style="font-size:15px;font-weight:600">${h.diagnostico}</div>${h.tratamiento?`<div style="margin-top:8px;font-size:13px;color:#475569">${h.tratamiento}</div>`:''}</div>
+    <div class="sec"><h3>Medicamentos (Rp/)</h3><div class="meds">${h.medicamentos||'Sin medicamentos prescritos'}</div></div>
+    ${h.observaciones?`<div class="sec"><h3>Observaciones</h3><p style="font-size:14px">${h.observaciones}</p></div>`:''}
+    ${h.proximo_control?`<div style="background:#f0fdf4;border-radius:8px;padding:12px;font-size:14px;color:#166534;margin-bottom:16px">📅 <strong>Próximo control:</strong> ${h.proximo_control}</div>`:''}
+    <div class="ftr">
+      <div class="firma"><div class="ln"></div><p><strong>${vet?.nombre||'Médico Veterinario'}</strong></p><p>${vet?.especialidad||''}</p>${vet?.registro_profesional?`<p>M.V. Reg. ${vet.registro_profesional}</p>`:''}</div>
+      <div style="font-size:11px;color:#94a3b8;text-align:right;align-self:flex-end"><p>Emitido: ${new Date().toLocaleDateString('es-CO')}</p><p>${company?.name||''}</p></div>
+    </div></body></html>`;
+    const w = window.open('', '_blank'); w?.document.write(html); w?.document.close(); w?.print();
+  };
+
+  const imprimirConsentimiento = (c: Consentimiento) => {
+    const m   = mascotas.find(x => x.id === c.mascota_id);
+    const p   = propietarios.find(x => x.id === c.propietario_id);
+    const vet = personal.find(x => x.id === c.veterinario_id);
+    const html = `<!DOCTYPE html><html><head><title>Consentimiento</title><style>
+      body{font-family:Arial,sans-serif;padding:50px;max-width:680px;margin:0 auto;line-height:1.6;color:#1e293b}
+      h1{text-align:center;font-size:20px;color:${brandColor};border-bottom:2px solid ${brandColor};padding-bottom:10px}
+      .data{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f8fafc;padding:16px;border-radius:8px;margin-bottom:16px}
+      .f label{font-size:11px;color:#94a3b8;display:block}.f span{font-size:14px;font-weight:600}
+      .desc{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:16px;margin:12px 0;font-size:14px}
+      .firmas{display:flex;justify-content:space-around;margin-top:60px}.fb{text-align:center}
+      .fb .ln{border-bottom:1px solid #334155;width:180px;margin:50px auto 6px}.fb p{font-size:12px;color:#64748b}
+    </style></head><body>
+    <h1>CONSENTIMIENTO INFORMADO VETERINARIO</h1>
+    <p style="text-align:center;font-size:13px;color:#64748b">${company?.name||'Clínica Veterinaria'} · ${new Date().toLocaleDateString('es-CO')}</p>
+    <div class="data">
+      <div class="f"><label>Mascota</label><span>${m?.nombre||'-'} (${m?.especie||''})</span></div>
+      <div class="f"><label>Raza</label><span>${m?.raza||''}</span></div>
+      <div class="f"><label>Propietario</label><span>${p?.nombre||'-'}</span></div>
+      <div class="f"><label>Documento</label><span>${p?.documento||'-'}</span></div>
+      <div class="f"><label>Teléfono</label><span>${p?.telefono||'-'}</span></div>
+      <div class="f"><label>Procedimiento</label><span>${c.tipo}</span></div>
+    </div>
+    <h2 style="font-size:14px;text-transform:uppercase;color:#64748b">Descripción</h2>
+    <div class="desc">${c.descripcion||'Procedimiento veterinario autorizado.'}</div>
+    <p style="font-size:14px">Yo, <strong>${p?.nombre||'___'}</strong>, C.C. <strong>${p?.documento||'___'}</strong>, propietario(a) de <strong>${m?.nombre||'___'}</strong>, declaro haber sido informado(a) y <strong>AUTORIZO</strong> el procedimiento de <strong>${c.tipo}</strong>.</p>
+    <div class="firmas">
+      <div class="fb"><div class="ln"></div><p><strong>Firma Propietario</strong></p><p>${p?.nombre||''}</p></div>
+      <div class="fb"><div class="ln"></div><p><strong>Médico Veterinario</strong></p><p>${vet?.nombre||''}</p>${vet?.registro_profesional?`<p>Reg. ${vet.registro_profesional}</p>`:''}</div>
+    </div></body></html>`;
+    const w = window.open('', '_blank'); w?.document.write(html); w?.document.close(); w?.print();
   };
 
   const deleteItem = async (collection: string, id: string) => {
-    const entry = SETTER_MAP[collection];
-    if (!entry) return;
-    const [, setter, table] = entry;
+    const table = TABLE[collection];
+    if (!table) return;
     const { error } = await supabase.from(table).delete().eq('id', id);
     if (error) { toast.error('Error al eliminar'); return; }
-    setter((prev: any[]) => prev.filter(x => x.id !== id));
+    const setters: Record<string, React.Dispatch<any>> = {
+      propietarios: setPropietarios, mascotas: setMascotas, personal: setPersonal,
+      consultorios: setConsultorios, citas: setCitas, historias: setHistorias,
+      laboratorio: setResultadosLab, vacunas: setVacunas, pesos: setPesos,
+      hospitalizaciones: setHospitalizaciones, monitoreos: setMonitoreos,
+      medicamentos: setMedicamentos, servicios: setServicios, planes: setPlanes,
+      consentimientos: setConsentimientos, facturas: setFacturas,
+    };
+    const setter = setters[collection];
+    if (setter) setter((prev: any[]) => prev.filter(x => x.id !== id));
     toast.success('Eliminado');
   };
 
   const closeModal = () => { setModal(null); setEditing(null); };
-
-  // ── ENVIAR AL POS ──────────────────────────────────────────────────────────
-  const enviarAlPOS = (mascota: Mascota, propietario: Propietario | undefined, servicio: string, total: number) => {
-    const params = new URLSearchParams({
-      vet:      mascota.id!,
-      cliente:  propietario?.nombre || mascota.nombre,
-      cedula:   propietario?.documento || '',
-      tel:      propietario?.telefono || '',
-      email:    propietario?.correo || '',
-      servicio,
-      total:    total.toString(),
-      ticket:   `VET-${mascota.id!.slice(0,6).toUpperCase()}`,
-    });
-    navigate(`/pos?${params.toString()}`);
-  };
 
   const openEdit = (tab: string, item: any) => {
     setEditing(item);
@@ -944,6 +1063,20 @@ const Veterinaria: React.FC = () => {
     setModal(tab);
   };
 
+  const enviarAlPOS = (mascota: Mascota, propietario: Propietario | undefined, servicio: string, total: number) => {
+    const params = new URLSearchParams({
+      vet:      mascota.id!,
+      cliente:  propietario?.nombre || mascota.nombre,
+      cedula:   propietario?.documento || '',
+      tel:      propietario?.telefono || '',
+      email:    propietario?.correo || '',
+      servicio,
+      total:    total.toString(),
+      ticket:   `VET-${mascota.id!.slice(0,6).toUpperCase()}`,
+    });
+    navigate(`/pos?${params.toString()}`);
+  };
+
   // ─── STATS para dashboard ─────────────────────────────────────────────────
   const stats = {
     totalMascotas:     mascotas.length,
@@ -955,8 +1088,6 @@ const Veterinaria: React.FC = () => {
     stockBajo:         medicamentos.filter(m => m.stock <= (m.stock_minimo || 5)).length,
     labPendientes:     resultadosLab.filter(r => !r.resultado || r.resultado.trim() === '').length,
   };
-
-  // ─── RENDER HELPERS ───────────────────────────────────────────────────────
 
   const fmtCurrency = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
@@ -987,6 +1118,111 @@ const Veterinaria: React.FC = () => {
     arr.filter(item => keys.some(k => (item[k] || '').toLowerCase().includes(searchQ.toLowerCase())));
 
   // ══════════════════════════════════════════════════════════════════════════
+  // COMPONENTE MODAL DE CÁMARA
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const CameraModal = () => {
+    if (!showCameraModal) return null;
+    
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h3 className="font-bold text-slate-800">
+              {cameraMode === 'mascota' ? 'Foto de Mascota' : 'Foto de Procedimiento'}
+            </h3>
+            <button onClick={() => {
+              setShowCameraModal(false);
+              setTempPhotoFile(null);
+              setTempPhotoPreview(null);
+              setTempPhotoDesc('');
+            }} className="p-1 hover:bg-slate-100 rounded-lg">
+              <X size={18} />
+            </button>
+          </div>
+          
+          <div className="p-5 space-y-4">
+            {tempPhotoPreview ? (
+              <div className="relative">
+                <img src={tempPhotoPreview} alt="Preview" className="w-full h-64 object-cover rounded-xl" />
+                <button
+                  onClick={() => {
+                    setTempPhotoFile(null);
+                    setTempPhotoPreview(null);
+                  }}
+                  className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-full text-white hover:bg-black/70"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-sky-400 transition-colors">
+                  <Camera size={28} className="text-slate-400" />
+                  <span className="text-xs font-medium text-slate-600">Tomar foto</span>
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleCameraCapture}
+                    className="hidden"
+                  />
+                </label>
+                
+                <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-sky-400 transition-colors">
+                  <Image size={28} className="text-slate-400" />
+                  <span className="text-xs font-medium text-slate-600">Galería</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            )}
+            
+            {cameraMode === 'historia' && tempPhotoPreview && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Descripción</label>
+                <textarea
+                  value={tempPhotoDesc}
+                  onChange={e => setTempPhotoDesc(e.target.value)}
+                  placeholder="Ej: Herida pre-quirúrgica, incisión post-cirugía, etc."
+                  rows={2}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+              </div>
+            )}
+          </div>
+          
+          {tempPhotoPreview && (
+            <div className="px-5 pb-5">
+              <button
+                onClick={confirmPhotoUpload}
+                disabled={uploadingPhoto}
+                className="w-full py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+                style={{ background: brandColor }}
+              >
+                {uploadingPhoto ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Subiendo...
+                  </div>
+                ) : (
+                  'Subir foto'
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
   // RENDER TABS
   // ══════════════════════════════════════════════════════════════════════════
 
@@ -1004,7 +1240,6 @@ const Veterinaria: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Citas de hoy */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><Calendar size={16} style={{ color: brandColor }} /> Citas de Hoy</h3>
           {citas.filter(c => c.fecha === today()).length === 0
@@ -1027,7 +1262,6 @@ const Veterinaria: React.FC = () => {
           }
         </div>
 
-        {/* Vacunas próximas */}
         <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><Syringe size={16} style={{ color: '#f59e0b' }} /> Alertas de Vacunas</h3>
           {vacunas.filter(v => v.proxima_dosis).length === 0
@@ -1048,7 +1282,6 @@ const Veterinaria: React.FC = () => {
         </div>
       </div>
 
-      {/* Hospitalizaciones activas */}
       {stats.hospitalizados > 0 && (
         <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><BedDouble size={16} className="text-red-500" /> Pacientes Hospitalizados</h3>
@@ -1202,6 +1435,29 @@ const Veterinaria: React.FC = () => {
     </TableWrapper>
   );
 
+  const renderLaboratorio = () => (
+    <TableWrapper headers={['Mascota','Tipo','Fecha','Descripción','Resultado','Acciones']}
+      onAdd={() => { setFormLab(emptyLab()); setModal('laboratorio'); }} btnLabel="Nuevo Resultado"
+      search brandColor={brandColor} searchQ={searchQ} setSearchQ={setSearchQ}>
+      {filteredQ(resultadosLab, ['mascota_nombre','tipo','descripcion']).sort((a,b) => b.fecha > a.fecha ? 1 : -1).map(r => (
+        <Row key={r.id}
+          cells={[
+            <span className="font-semibold">{r.mascota_nombre || '-'}</span>,
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-700">{r.tipo}</span>,
+            r.fecha,
+            <span className="max-w-[140px] truncate block text-xs">{r.descripcion}</span>,
+            r.resultado
+              ? <span className="text-emerald-600 font-semibold text-xs">{r.resultado.slice(0,30)}{r.resultado.length>30?'...':''}</span>
+              : pill('Pendiente','#f59e0b'),
+          ]}
+          onView={() => setDetailItem({ type: 'laboratorio', data: r })}
+          onEdit={() => openEdit('laboratorio', r)}
+          onDelete={() => deleteItem('laboratorio', r.id!)}
+        />
+      ))}
+    </TableWrapper>
+  );
+
   const renderVacunacion = () => (
     <div className="space-y-4">
       <TableWrapper headers={['Mascota','Vacuna','Fecha Aplicada','Próxima Dosis','Veterinario','Estado','Acciones']}
@@ -1226,7 +1482,6 @@ const Veterinaria: React.FC = () => {
   );
 
   const renderPeso = () => {
-    const mascotaSeleccionada = mascotas[0];
     return (
       <div className="space-y-4">
         <div className="flex justify-end">
@@ -1251,7 +1506,7 @@ const Veterinaria: React.FC = () => {
                     <th className="text-left py-1 text-xs text-slate-400">Fecha</th>
                     <th className="text-left py-1 text-xs text-slate-400">Peso</th>
                     <th className="text-left py-1 text-xs text-slate-400">Obs.</th>
-                  </tr></thead>
+                   </tr></thead>
                   <tbody>
                     {registros.map(r => (
                       <tr key={r.id} className="border-b border-slate-50 last:border-0">
@@ -1404,6 +1659,28 @@ const Veterinaria: React.FC = () => {
     </div>
   );
 
+  const renderConsentimientos = () => (
+    <TableWrapper headers={['Mascota','Propietario','Tipo','Fecha','Veterinario','Firmado','Acciones']}
+      onAdd={() => { setFormConsentimiento(emptyConsentimiento()); setModal('consentimientos'); }}
+      btnLabel="Nuevo Consentimiento" search brandColor={brandColor} searchQ={searchQ} setSearchQ={setSearchQ}>
+      {filteredQ(consentimientos, ['mascota_nombre','propietario_nombre','tipo']).sort((a,b) => b.fecha > a.fecha ? 1 : -1).map(c => (
+        <Row key={c.id}
+          cells={[
+            <span className="font-semibold">{c.mascota_nombre || '-'}</span>,
+            c.propietario_nombre || '-',
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">{c.tipo}</span>,
+            c.fecha,
+            personal.find(p => p.id === c.veterinario_id)?.nombre || '-',
+            c.firmado ? pill('Firmado','#10b981') : pill('Pendiente','#f59e0b'),
+          ]}
+          onPrint={() => imprimirConsentimiento(c)}
+          onEdit={() => openEdit('consentimientos', c)}
+          onDelete={() => deleteItem('consentimientos', c.id!)}
+        />
+      ))}
+    </TableWrapper>
+  );
+
   const renderFacturacion = () => (
     <VetFacturacionClinica
       companyId={companyId || ''}
@@ -1417,10 +1694,7 @@ const Veterinaria: React.FC = () => {
     />
   );
 
-  // ─── REPORTE DE CONVENIOS ────────────────────────────────────────────────────
-
   const renderConvenios = () => {
-    // Agrupar citas, historias y facturas por tipo_atencion
     const allRecords = [
       ...citas.map(c => ({ tipo: (c.tipo_atencion as TipoAtencion)||'PARTICULAR', zona: c.zona||'URBANA', fecha: c.fecha, tipo_registro: 'Cita', mascota: c.mascota_nombre||'-', propietario: c.propietario_nombre||'-', convenio: c.convenio_numero||'', entidad: c.entidad_convenio||'', monto: 0 })),
       ...historias.map(h => ({ tipo: (h.tipo_atencion as TipoAtencion)||'PARTICULAR', zona: h.zona||'URBANA', fecha: h.fecha, tipo_registro: 'Historia Clínica', mascota: h.mascota_nombre||'-', propietario: '', convenio: h.convenio_numero||'', entidad: h.entidad_convenio||'', monto: 0 })),
@@ -1458,7 +1732,6 @@ const Veterinaria: React.FC = () => {
 
     return (
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h3 className="font-bold text-slate-800 text-lg">Reporte de Convenios y Atenciones</h3>
@@ -1471,7 +1744,6 @@ const Veterinaria: React.FC = () => {
           </button>
         </div>
 
-        {/* Tarjetas resumen por tipo */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {resumen.map(r => (
             <div key={r.key} className="bg-white rounded-xl p-5 border shadow-sm" style={{ borderLeftWidth: 4, borderLeftColor: r.cfg.color }}>
@@ -1499,7 +1771,6 @@ const Veterinaria: React.FC = () => {
           ))}
         </div>
 
-        {/* Este mes */}
         <div className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
           <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
             <BarChart2 size={16} style={{ color: brandColor }}/> Atenciones Este Mes ({mesActual})
@@ -1522,7 +1793,6 @@ const Veterinaria: React.FC = () => {
           </div>
         </div>
 
-        {/* Tabla detallada de convenios */}
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
             <p className="font-bold text-slate-700 text-sm">Detalle de Registros con Convenio</p>
@@ -1532,8 +1802,7 @@ const Veterinaria: React.FC = () => {
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr>{['Tipo','Zona','Mascota','Propietario','Fecha','Tipo Registro','Convenio','Entidad'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase">{h}</th>
-                ))}</tr>
-              </thead>
+                ))}</thead>
               <tbody className="divide-y divide-slate-50">
                 {allRecords.filter(r => r.tipo !== 'PARTICULAR').length === 0
                   ? <tr><td colSpan={8} className="text-center py-8 text-slate-400">Sin registros de convenios aún</td></tr>
@@ -1558,74 +1827,6 @@ const Veterinaria: React.FC = () => {
     );
   };
 
-  // ─── NUEVOS RENDER: LABORATORIO, CONSENTIMIENTOS, HOSPITALIZACION MEJORADA ──
-
-  const renderLaboratorio = () => (
-    <TableWrapper headers={['Mascota','Tipo','Fecha','Descripción','Resultado','Acciones']}
-      onAdd={() => { setFormLab(emptyLab()); setModal('laboratorio'); }} btnLabel="Nuevo Resultado"
-      search brandColor={brandColor} searchQ={searchQ} setSearchQ={setSearchQ}>
-      {filteredQ(resultadosLab, ['mascota_nombre','tipo','descripcion']).sort((a,b) => b.fecha > a.fecha ? 1 : -1).map(r => (
-        <Row key={r.id}
-          cells={[
-            <span className="font-semibold">{r.mascota_nombre || '-'}</span>,
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-700">{r.tipo}</span>,
-            r.fecha,
-            <span className="max-w-[140px] truncate block text-xs">{r.descripcion}</span>,
-            r.resultado
-              ? <span className="text-emerald-600 font-semibold text-xs">{r.resultado.slice(0,30)}{r.resultado.length>30?'...':''}</span>
-              : pill('Pendiente','#f59e0b'),
-          ]}
-          onView={() => setDetailItem({ type: 'laboratorio', data: r })}
-          onEdit={() => openEdit('laboratorio', r)}
-          onDelete={() => deleteItem('laboratorio', r.id!)}
-        />
-      ))}
-    </TableWrapper>
-  );
-
-  const renderConsentimientos = () => (
-    <TableWrapper headers={['Mascota','Propietario','Tipo','Fecha','Veterinario','Firmado','Acciones']}
-      onAdd={() => { setFormConsentimiento(emptyConsentimiento()); setModal('consentimientos'); }}
-      btnLabel="Nuevo Consentimiento" search brandColor={brandColor} searchQ={searchQ} setSearchQ={setSearchQ}>
-      {filteredQ(consentimientos, ['mascota_nombre','propietario_nombre','tipo']).sort((a,b) => b.fecha > a.fecha ? 1 : -1).map(c => (
-        <Row key={c.id}
-          cells={[
-            <span className="font-semibold">{c.mascota_nombre || '-'}</span>,
-            c.propietario_nombre || '-',
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">{c.tipo}</span>,
-            c.fecha,
-            personal.find(p => p.id === c.veterinario_id)?.nombre || '-',
-            c.firmado ? pill('Firmado','#10b981') : pill('Pendiente','#f59e0b'),
-          ]}
-          onPrint={() => imprimirConsentimiento(c)}
-          onEdit={() => openEdit('consentimientos', c)}
-          onDelete={() => deleteItem('consentimientos', c.id!)}
-        />
-      ))}
-    </TableWrapper>
-  );
-
-  // ─── TAB CONTENT MAP ──────────────────────────────────────────────────────
-  const tabContent: Record<TabId, () => React.ReactNode> = {
-    dashboard:       renderDashboard,
-    propietarios:    renderPropietarios,
-    mascotas:        renderMascotas,
-    personal:        renderPersonal,
-    consultorios:    renderConsultorios,
-    agenda:          renderAgenda,
-    historia:        renderHistoria,
-    laboratorio:     renderLaboratorio,
-    vacunacion:      renderVacunacion,
-    peso:            renderPeso,
-    hospitalizacion: renderHospitalizacion,
-    farmacia:        renderFarmacia,
-    servicios:       renderServicios,
-    planes:          renderPlanes,
-    consentimientos: renderConsentimientos,
-    facturacion:     renderFacturacion,
-    convenios:       renderConvenios,
-  };
-
   // ─── DETAIL VIEWS ─────────────────────────────────────────────────────────
   const renderDetail = () => {
     if (!detailItem) return null;
@@ -1640,7 +1841,14 @@ const Veterinaria: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100" style={{ background: brandColor }}>
-              <h3 className="font-bold text-lg text-white flex items-center gap-2"><PawPrint size={20} /> {m.nombre}</h3>
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                {m.foto_url ? (
+                  <img src={m.foto_url} alt={m.nombre} className="w-8 h-8 rounded-full object-cover border-2 border-white" />
+                ) : (
+                  <PawPrint size={20} />
+                )}
+                {m.nombre}
+              </h3>
               <button onClick={() => setDetailItem(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -1673,7 +1881,7 @@ const Veterinaria: React.FC = () => {
                     <th className="text-left py-1 text-slate-400">Vacuna</th>
                     <th className="text-left py-1 text-slate-400">Aplicada</th>
                     <th className="text-left py-1 text-slate-400">Próxima</th>
-                  </tr></thead><tbody>
+                   </tr></thead><tbody>
                   {vacMascota.map(v => <tr key={v.id} className="border-b border-slate-50"><td className="py-1 font-medium">{v.nombre_vacuna}</td><td>{v.fecha_aplicada}</td><td>{v.proxima_dosis}</td></tr>)}
                   </tbody></table>
                 }
@@ -1730,13 +1938,13 @@ const Veterinaria: React.FC = () => {
       const vet = personal.find(p => p.id === h.veterinario_id);
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h3 className="font-bold text-lg text-slate-800">Historia Clínica</h3>
-              <button onClick={() => setDetailItem(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100" style={{ background: brandColor }}>
+              <h3 className="font-bold text-lg text-white">Historia Clínica</h3>
+              <button onClick={() => setDetailItem(null)} className="text-white/80 hover:text-white"><X size={20} /></button>
             </div>
-            <div className="p-6 space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-slate-400">Paciente:</span> <strong>{mascota?.nombre}</strong></div>
                 <div><span className="text-slate-400">Fecha:</span> <strong>{h.fecha}</strong></div>
                 <div><span className="text-slate-400">Veterinario:</span> <strong>{vet?.nombre}</strong></div>
@@ -1747,6 +1955,31 @@ const Veterinaria: React.FC = () => {
               <div><span className="text-slate-400 font-semibold">Tratamiento:</span><p className="mt-1 p-3 bg-slate-50 rounded-lg">{h.tratamiento}</p></div>
               {h.medicamentos && <div><span className="text-slate-400 font-semibold">Medicamentos:</span><p className="mt-1 p-3 bg-slate-50 rounded-lg">{h.medicamentos}</p></div>}
               {h.observaciones && <div><span className="text-slate-400 font-semibold">Observaciones:</span><p className="mt-1 p-3 bg-slate-50 rounded-lg">{h.observaciones}</p></div>}
+              
+              {/* Fotos del procedimiento quirúrgico */}
+              {h.fotos_quirurgicas && h.fotos_quirurgicas.length > 0 && (
+                <div>
+                  <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Camera size={14} /> Registro Fotográfico del Procedimiento
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {h.fotos_quirurgicas.map((foto, idx) => (
+                      <div key={idx} className="border border-slate-100 rounded-xl overflow-hidden">
+                        <img 
+                          src={foto.url} 
+                          alt={foto.descripcion} 
+                          className="w-full h-32 object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                          onClick={() => window.open(foto.url, '_blank')} 
+                        />
+                        <div className="p-2 bg-slate-50">
+                          <p className="text-[10px] text-slate-500">{new Date(foto.fecha).toLocaleString('es-CO')}</p>
+                          <p className="text-xs text-slate-700 mt-0.5">{foto.descripcion}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1777,6 +2010,40 @@ const Veterinaria: React.FC = () => {
       {modal === 'mascotas' && (
         <ModalWrapper title={editing?.id ? 'Editar Mascota' : 'Nueva Mascota'} onClose={closeModal} onSave={saveMascota} wide brandColor={brandColor}>
           <div className="grid grid-cols-2 gap-3">
+            {/* Foto Uploader */}
+            <div className="col-span-2 mb-2">
+              <label className="block text-xs font-semibold text-slate-500 mb-2">Foto de la Mascota</label>
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {formMascota.foto_url ? (
+                    <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-slate-200">
+                      <img src={formMascota.foto_url} alt={formMascota.nombre} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center border-2 border-dashed border-slate-300">
+                      <PawPrint size={28} className="text-slate-400" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <button
+                    onClick={() => {
+                      if (editing?.id) {
+                        openImagePicker('mascota', editing.id);
+                      } else {
+                        toast.error('Guarda la mascota primero para agregar foto');
+                      }
+                    }}
+                    disabled={!editing?.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Camera size={14} /> {formMascota.foto_url ? 'Cambiar foto' : 'Agregar foto'}
+                  </button>
+                  <p className="text-[10px] text-slate-400 mt-1">Tomar foto o seleccionar de galería</p>
+                </div>
+              </div>
+            </div>
+            
             <Input label="Nombre *" value={formMascota.nombre} onChange={v => setFormMascota(f => ({...f, nombre: v}))} required />
             <Select label="Propietario *" value={formMascota.propietario_id}
               onChange={v => setFormMascota(f => ({...f, propietario_id: v}))}
@@ -1792,6 +2059,11 @@ const Veterinaria: React.FC = () => {
             <Input label="Peso Inicial (kg)" value={formMascota.peso_inicial} onChange={v => setFormMascota(f => ({...f, peso_inicial: v}))} type="number" />
             <Input label="Color" value={formMascota.color} onChange={v => setFormMascota(f => ({...f, color: v}))} />
             <div className="col-span-2"><Input label="Microchip" value={formMascota.microchip} onChange={v => setFormMascota(f => ({...f, microchip: v}))} /></div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input type="checkbox" id="esterilizado" checked={formMascota.esterilizado || false} 
+                onChange={e => setFormMascota(f => ({...f, esterilizado: e.target.checked}))} className="w-4 h-4 rounded" />
+              <label htmlFor="esterilizado" className="text-sm text-slate-700">Esterilizado / Castrado</label>
+            </div>
             <div className="col-span-2"><VoiceTextarea label="Observaciones" value={formMascota.observaciones} onChange={v => setFormMascota(f => ({...f, observaciones: v}))} rows={2} /></div>
           </div>
         </ModalWrapper>
@@ -1895,6 +2167,70 @@ const Veterinaria: React.FC = () => {
             <div className="col-span-2"><VoiceTextarea label="Medicamentos (separados por coma — se descontarán del stock)" value={formHistoria.medicamentos} onChange={v => setFormHistoria(f => ({...f, medicamentos: v}))} rows={2} placeholder="Amoxicilina 250mg, Meloxicam 1mg" /></div>
             <Input label="Próximo control" value={formHistoria.proximo_control || ''} onChange={v => setFormHistoria(f => ({...f, proximo_control: v}))} type="date" />
             <div className="col-span-2"><VoiceTextarea label="Observaciones" value={formHistoria.observaciones} onChange={v => setFormHistoria(f => ({...f, observaciones: v}))} rows={2} placeholder="Observaciones adicionales..." /></div>
+            
+            {/* Sección para agregar fotos de procedimiento */}
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 mb-2">Fotos de Procedimiento / Cirugía</label>
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                <div className="flex items-center gap-3 mb-3">
+                  <button
+                    onClick={() => {
+                      if (editing?.id) {
+                        openImagePicker('historia', editing.id);
+                      } else {
+                        toast.error('Guarda la historia clínica primero para agregar fotos');
+                      }
+                    }}
+                    disabled={!editing?.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Camera size={14} /> Agregar foto
+                  </button>
+                  <p className="text-xs text-slate-400">Documenta el procedimiento quirúrgico</p>
+                </div>
+                
+                {/* Galería de fotos existentes */}
+                {editing?.fotos_quirurgicas && editing.fotos_quirurgicas.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {editing.fotos_quirurgicas.map((foto: any, idx: number) => (
+                      <div key={idx} className="relative group">
+                        <img src={foto.url} alt={foto.descripcion} className="w-full h-24 object-cover rounded-lg" />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => window.open(foto.url, '_blank')}
+                            className="p-1 bg-white rounded-full text-slate-700 hover:bg-slate-100"
+                          >
+                            <Eye size={12} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (confirm('¿Eliminar esta foto?')) {
+                                const nuevasFotos = editing.fotos_quirurgicas.filter((_: any, i: number) => i !== idx);
+                                supabase
+                                  .from('vet_historias_clinicas')
+                                  .update({ fotos_quirurgicas: nuevasFotos })
+                                  .eq('id', editing.id)
+                                  .then(() => {
+                                    setEditing({ ...editing, fotos_quirurgicas: nuevasFotos });
+                                    loadTable('vet_historias_clinicas', setHistorias);
+                                    toast.success('Foto eliminada');
+                                  });
+                              }
+                            }}
+                            className="p-1 bg-white rounded-full text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <div className="absolute bottom-1 left-1 right-1">
+                          <p className="text-[10px] text-white bg-black/60 rounded px-1 truncate">{foto.descripcion}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </ModalWrapper>
       )}
@@ -1948,6 +2284,22 @@ const Veterinaria: React.FC = () => {
         </ModalWrapper>
       )}
 
+      {modal === 'monitoreo' && hospSeleccionada && (
+        <ModalWrapper title="Agregar Monitoreo" onClose={() => setModal(null)} onSave={() => saveMonitoreo(hospSeleccionada.id!)} wide brandColor={brandColor}>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Fecha" value={formMonitoreo.fecha} onChange={v => setFormMonitoreo(f => ({...f, fecha: v}))} type="date" />
+            <Input label="Hora" value={formMonitoreo.hora} onChange={v => setFormMonitoreo(f => ({...f, hora: v}))} type="time" />
+            <Input label="Temperatura (°C) *" value={formMonitoreo.temperatura} onChange={v => setFormMonitoreo(f => ({...f, temperatura: v}))} type="number" />
+            <Input label="Peso (kg)" value={formMonitoreo.peso} onChange={v => setFormMonitoreo(f => ({...f, peso: v}))} type="number" />
+            <Input label="Frec. Cardíaca (bpm)" value={formMonitoreo.frecuencia_cardiaca || 0} onChange={v => setFormMonitoreo(f => ({...f, frecuencia_cardiaca: v}))} type="number" />
+            <Input label="Frec. Respiratoria (rpm)" value={formMonitoreo.frecuencia_respiratoria || 0} onChange={v => setFormMonitoreo(f => ({...f, frecuencia_respiratoria: v}))} type="number" />
+            <div className="col-span-2"><VoiceTextarea label="Medicación administrada" value={formMonitoreo.medicacion} onChange={v => setFormMonitoreo(f => ({...f, medicacion: v}))} rows={2} /></div>
+            <div className="col-span-2"><VoiceTextarea label="Observaciones" value={formMonitoreo.observaciones} onChange={v => setFormMonitoreo(f => ({...f, observaciones: v}))} rows={2} /></div>
+            <div className="col-span-2"><Input label="Responsable" value={formMonitoreo.responsable || ''} onChange={v => setFormMonitoreo(f => ({...f, responsable: v}))} /></div>
+          </div>
+        </ModalWrapper>
+      )}
+
       {modal === 'medicamentos' && (
         <ModalWrapper title={editing?.id ? 'Editar Medicamento' : 'Nuevo Medicamento'} onClose={closeModal} onSave={saveMedicamento} brandColor={brandColor}>
           <div className="grid grid-cols-2 gap-3">
@@ -1989,59 +2341,6 @@ const Veterinaria: React.FC = () => {
         </ModalWrapper>
       )}
 
-      {modal === 'facturas' && (
-        <ModalWrapper title="Nueva Factura" onClose={closeModal} onSave={saveFactura} wide brandColor={brandColor}>
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Mascota *" value={formFactura.mascota_id}
-              onChange={v => setFormFactura(f => ({...f, mascota_id: v}))}
-              options={[{value:'', label:'Seleccionar...'}, ...mascotas_opts]} />
-            <Input label="Fecha" value={formFactura.fecha} onChange={v => setFormFactura(f => ({...f, fecha: v}))} type="date" />
-            <div className="col-span-2"><Input label="Descripción de Servicio" value={formFactura.servicio_descripcion} onChange={v => setFormFactura(f => ({...f, servicio_descripcion: v}))} /></div>
-            <Input label="Total" value={formFactura.total} onChange={v => setFormFactura(f => ({...f, total: v}))} type="number" />
-            <Input label="Abono Inicial" value={formFactura.abonado} onChange={v => setFormFactura(f => ({...f, abonado: v}))} type="number" />
-            <AtencionSelector
-              tipo={(formFactura.tipo_atencion as TipoAtencion) || 'PARTICULAR'}
-              zona={(formFactura.zona as 'URBANA'|'RURAL') || 'URBANA'}
-              convenioNumero={formFactura.convenio_numero}
-              entidadConvenio={formFactura.entidad_convenio}
-              onChange={patch => setFormFactura(f => ({...f, ...patch}))}
-            />
-            <div className="col-span-2"><VoiceTextarea label="Notas" value={formFactura.notas} onChange={v => setFormFactura(f => ({...f, notas: v}))} rows={2} /></div>
-          </div>
-        </ModalWrapper>
-      )}
-
-      {modal === 'laboratorio' && (
-        <ModalWrapper title={editing?.id ? 'Editar Resultado' : 'Nuevo Resultado de Laboratorio'} onClose={closeModal} onSave={saveLab} wide brandColor={brandColor}>
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Mascota *" value={formLab.mascota_id} onChange={v => setFormLab(f => ({...f, mascota_id: v}))} options={[{value:'',label:'Seleccionar...'}, ...mascotas_opts]} />
-            <Select label="Tipo *" value={formLab.tipo} onChange={v => setFormLab(f => ({...f, tipo: v}))} options={['Hemograma','Uroanálisis','Coprologico','Bioquímica','Radiografía','Ecografía','Citología','Cultivo','PCR','Otro'].map(t => ({value:t,label:t}))} />
-            <Input label="Fecha" value={formLab.fecha} onChange={v => setFormLab(f => ({...f, fecha: v}))} type="date" />
-            <Select label="Veterinario" value={formLab.veterinario_id} onChange={v => setFormLab(f => ({...f, veterinario_id: v}))} options={[{value:'',label:'Sin asignar'}, ...vet_opts]} />
-            <div className="col-span-2"><VoiceTextarea label="Descripción / Parámetros" value={formLab.descripcion} onChange={v => setFormLab(f => ({...f, descripcion: v}))} rows={2} /></div>
-            <div className="col-span-2"><VoiceTextarea label="Resultado" value={formLab.resultado} onChange={v => setFormLab(f => ({...f, resultado: v}))} rows={3} placeholder="Resultados del análisis..." /></div>
-            <div className="col-span-2"><VoiceTextarea label="Valores de Referencia" value={formLab.valores_referencia || ''} onChange={v => setFormLab(f => ({...f, valores_referencia: v}))} rows={2} placeholder="Eritrocitos: 5.5-8.5 M/µL..." /></div>
-            <div className="col-span-2"><Input label="URL Archivo adjunto" value={formLab.archivo_url || ''} onChange={v => setFormLab(f => ({...f, archivo_url: v}))} placeholder="https://drive.google.com/..." /></div>
-          </div>
-        </ModalWrapper>
-      )}
-
-      {modal === 'monitoreo' && hospSeleccionada && (
-        <ModalWrapper title="Agregar Monitoreo" onClose={() => setModal(null)} onSave={() => saveMonitoreo(hospSeleccionada.id!)} wide brandColor={brandColor}>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Fecha" value={formMonitoreo.fecha} onChange={v => setFormMonitoreo(f => ({...f, fecha: v}))} type="date" />
-            <Input label="Hora" value={formMonitoreo.hora} onChange={v => setFormMonitoreo(f => ({...f, hora: v}))} type="time" />
-            <Input label="Temperatura (°C) *" value={formMonitoreo.temperatura} onChange={v => setFormMonitoreo(f => ({...f, temperatura: v}))} type="number" />
-            <Input label="Peso (kg)" value={formMonitoreo.peso} onChange={v => setFormMonitoreo(f => ({...f, peso: v}))} type="number" />
-            <Input label="Frec. Cardíaca (bpm)" value={formMonitoreo.frecuencia_cardiaca || 0} onChange={v => setFormMonitoreo(f => ({...f, frecuencia_cardiaca: v}))} type="number" />
-            <Input label="Frec. Respiratoria (rpm)" value={formMonitoreo.frecuencia_respiratoria || 0} onChange={v => setFormMonitoreo(f => ({...f, frecuencia_respiratoria: v}))} type="number" />
-            <div className="col-span-2"><VoiceTextarea label="Medicación administrada" value={formMonitoreo.medicacion} onChange={v => setFormMonitoreo(f => ({...f, medicacion: v}))} rows={2} /></div>
-            <div className="col-span-2"><VoiceTextarea label="Observaciones" value={formMonitoreo.observaciones} onChange={v => setFormMonitoreo(f => ({...f, observaciones: v}))} rows={2} /></div>
-            <div className="col-span-2"><Input label="Responsable" value={formMonitoreo.responsable || ''} onChange={v => setFormMonitoreo(f => ({...f, responsable: v}))} /></div>
-          </div>
-        </ModalWrapper>
-      )}
-
       {modal === 'consentimientos' && (
         <ModalWrapper title={editing?.id ? 'Editar Consentimiento' : 'Nuevo Consentimiento Informado'} onClose={closeModal} onSave={saveConsentimiento} wide brandColor={brandColor}>
           <div className="grid grid-cols-2 gap-3">
@@ -2057,6 +2356,21 @@ const Veterinaria: React.FC = () => {
               <input type="checkbox" id="firmado" checked={formConsentimiento.firmado} onChange={e => setFormConsentimiento(f => ({...f, firmado: e.target.checked}))} className="w-4 h-4 rounded" />
               <label htmlFor="firmado" className="text-sm text-slate-700 cursor-pointer">Consentimiento firmado por el propietario</label>
             </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {modal === 'laboratorio' && (
+        <ModalWrapper title={editing?.id ? 'Editar Resultado' : 'Nuevo Resultado de Laboratorio'} onClose={closeModal} onSave={saveLab} wide brandColor={brandColor}>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Mascota *" value={formLab.mascota_id} onChange={v => setFormLab(f => ({...f, mascota_id: v}))} options={[{value:'',label:'Seleccionar...'}, ...mascotas_opts]} />
+            <Select label="Tipo *" value={formLab.tipo} onChange={v => setFormLab(f => ({...f, tipo: v}))} options={['Hemograma','Uroanálisis','Coprologico','Bioquímica','Radiografía','Ecografía','Citología','Cultivo','PCR','Otro'].map(t => ({value:t,label:t}))} />
+            <Input label="Fecha" value={formLab.fecha} onChange={v => setFormLab(f => ({...f, fecha: v}))} type="date" />
+            <Select label="Veterinario" value={formLab.veterinario_id} onChange={v => setFormLab(f => ({...f, veterinario_id: v}))} options={[{value:'',label:'Sin asignar'}, ...vet_opts]} />
+            <div className="col-span-2"><VoiceTextarea label="Descripción / Parámetros" value={formLab.descripcion} onChange={v => setFormLab(f => ({...f, descripcion: v}))} rows={2} /></div>
+            <div className="col-span-2"><VoiceTextarea label="Resultado" value={formLab.resultado} onChange={v => setFormLab(f => ({...f, resultado: v}))} rows={3} placeholder="Resultados del análisis..." /></div>
+            <div className="col-span-2"><VoiceTextarea label="Valores de Referencia" value={formLab.valores_referencia || ''} onChange={v => setFormLab(f => ({...f, valores_referencia: v}))} rows={2} placeholder="Eritrocitos: 5.5-8.5 M/µL..." /></div>
+            <div className="col-span-2"><Input label="URL Archivo adjunto" value={formLab.archivo_url || ''} onChange={v => setFormLab(f => ({...f, archivo_url: v}))} placeholder="https://drive.google.com/..." /></div>
           </div>
         </ModalWrapper>
       )}
@@ -2090,6 +2404,26 @@ const Veterinaria: React.FC = () => {
   // ══════════════════════════════════════════════════════════════════════════
   // MAIN RENDER
   // ══════════════════════════════════════════════════════════════════════════
+
+  const tabContent: Record<TabId, () => React.ReactNode> = {
+    dashboard:       renderDashboard,
+    propietarios:    renderPropietarios,
+    mascotas:        renderMascotas,
+    personal:        renderPersonal,
+    consultorios:    renderConsultorios,
+    agenda:          renderAgenda,
+    historia:        renderHistoria,
+    laboratorio:     renderLaboratorio,
+    vacunacion:      renderVacunacion,
+    peso:            renderPeso,
+    hospitalizacion: renderHospitalizacion,
+    farmacia:        renderFarmacia,
+    servicios:       renderServicios,
+    planes:          renderPlanes,
+    consentimientos: renderConsentimientos,
+    facturacion:     renderFacturacion,
+    convenios:       renderConvenios,
+  };
 
   return (
     <div className="space-y-6">
@@ -2142,6 +2476,9 @@ const Veterinaria: React.FC = () => {
 
       {/* Modals */}
       {renderModals()}
+
+      {/* Camera Modal */}
+      <CameraModal />
 
       {/* Detail Views */}
       {detailItem && renderDetail()}
