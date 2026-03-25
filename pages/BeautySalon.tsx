@@ -57,19 +57,61 @@ const SERVICE_CATEGORIES = [
   { id: 'otros',    label: '👁 Otros',    services: ['Diseño de cejas','Pestañas','Extensiones de pestañas','Lifting de pestañas'] },
 ];
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+// ── HELPERS CORREGIDOS ───────────────────────────────────────────────────────────────────
 
-const normalizeIso = (iso: string) =>
-  /Z|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + '-05:00';
+// Normalizar fecha ISO a objeto Date (maneja tanto UTC como strings locales)
+const normalizeIso = (iso: string): Date | null => {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return null;
+  return date;
+};
 
-const fmtTime = (iso: string) =>
-  new Date(normalizeIso(iso)).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' });
+// Formatear hora en hora local de Colombia (UTC-5)
+const fmtTime = (iso: string): string => {
+  const date = normalizeIso(iso);
+  if (!date) return '—';
+  return date.toLocaleTimeString('es-CO', { 
+    timeZone: 'America/Bogota', 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false
+  });
+};
 
-const fmtDate = (iso: string) =>
-  new Date(normalizeIso(iso)).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', weekday: 'short', day: 'numeric', month: 'short' });
+// Formatear fecha en hora local de Colombia
+const fmtDate = (iso: string): string => {
+  const date = normalizeIso(iso);
+  if (!date) return '—';
+  return date.toLocaleDateString('es-CO', { 
+    timeZone: 'America/Bogota', 
+    weekday: 'short', 
+    day: 'numeric', 
+    month: 'short' 
+  });
+};
 
+// Obtener la parte de la fecha (YYYY-MM-DD) en hora local
+const getDatePart = (iso: string): string => {
+  const date = normalizeIso(iso);
+  if (!date) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+// Convertir Date local a string ISO para guardar en UTC
+const isoLocal = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${d}T${h}:${min}`;
+};
+
+// Obtener la fecha actual en formato local YYYY-MM-DD
 const toLocalDateStr = (date: Date): string => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -77,24 +119,14 @@ const toLocalDateStr = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
-const getDatePart = (iso: string): string => {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+// Verificar si dos fechas son el mismo día en hora local
+const isSameDay = (d1: Date, d2: Date): boolean => {
+  return toLocalDateStr(d1) === toLocalDateStr(d2);
 };
 
-const isoLocal = (date: Date) => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-};
-
-const initials = (name: string) =>
-  name.trim().split(/\s+/).slice(0,2).map(w => w[0]?.toUpperCase() || '').join('');
-
-const AVATAR_COLORS = ['#6366f1','#ec4899','#14b8a6','#f59e0b','#8b5cf6','#10b981','#ef4444','#3b82f6','#f97316'];
-const avatarColor = (name: string) => AVATAR_COLORS[(name.charCodeAt(0) || 0) % AVATAR_COLORS.length];
+// Formatear moneda
+const fmt = (n: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
 const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am – 9pm
 
@@ -102,7 +134,7 @@ const HOURS = Array.from({ length: 15 }, (_, i) => i + 7); // 7am – 9pm
 const getWeekDays = (date: Date): Date[] => {
   const d = new Date(date);
   const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Lunes como primer día
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d.setDate(diff));
   return Array.from({ length: 7 }, (_, i) => {
     const next = new Date(monday);
@@ -118,18 +150,15 @@ const getMonthDays = (date: Date): Date[] => {
   const lastDay = new Date(year, month + 1, 0);
   const days: Date[] = [];
   
-  // Días del mes anterior para completar la primera semana
   const startPadding = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
   for (let i = startPadding; i > 0; i--) {
     days.push(new Date(year, month, 1 - i));
   }
   
-  // Días del mes actual
   for (let i = 1; i <= lastDay.getDate(); i++) {
     days.push(new Date(year, month, i));
   }
   
-  // Días del mes siguiente para completar la última semana
   const endPadding = 7 - (days.length % 7);
   for (let i = 1; i <= endPadding && days.length % 7 !== 0; i++) {
     days.push(new Date(year, month + 1, i));
@@ -138,10 +167,11 @@ const getMonthDays = (date: Date): Date[] => {
   return days;
 };
 
-const isSameDay = (d1: Date, d2: Date): boolean =>
-  d1.getFullYear() === d2.getFullYear() &&
-  d1.getMonth() === d2.getMonth() &&
-  d1.getDate() === d2.getDate();
+const initials = (name: string) =>
+  name.trim().split(/\s+/).slice(0,2).map(w => w[0]?.toUpperCase() || '').join('');
+
+const AVATAR_COLORS = ['#6366f1','#ec4899','#14b8a6','#f59e0b','#8b5cf6','#10b981','#ef4444','#3b82f6','#f97316'];
+const avatarColor = (name: string) => AVATAR_COLORS[(name.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
 // ── SKELETON COMPONENT ────────────────────────────────────────────────────────
 const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
@@ -185,6 +215,23 @@ const SuccessCheck: React.FC<{ show: boolean }> = ({ show }) => {
   );
 };
 
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode; brandColor: string }> =
+  ({ title, onClose, children, brandColor }) => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+            <X size={17}/>
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
@@ -212,14 +259,11 @@ const BeautySalon: React.FC = () => {
   const [importModal, setImportModal] = useState<ModuleType|null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // ═══════════ FIX 4: Panel flotante ═══════════
   const [showActivePanel, setShowActivePanel] = useState(true);
 
-  // Paginación historial
   const [histPage, setHistPage]   = useState(0);
   const HIST_PAGE_SIZE            = 20;
 
-  // Modals
   const [showNewOrder, setShowNewOrder]         = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showStylistModal, setShowStylistModal] = useState(false);
@@ -232,7 +276,6 @@ const BeautySalon: React.FC = () => {
   const [quickSaleOrder, setQuickSaleOrder]     = useState<ServiceOrder|null>(null);
   const [payMethod, setPayMethod] = useState<'efectivo'|'tarjeta'|'transferencia'>('efectivo');
 
-  // Forms
   const defaultOrderForm = { client_name:'', client_phone:'', client_email:'', service_id:'', stylist_id:'', notes:'', scheduled_at:'' };
   const [orderForm, setOrderForm]     = useState(defaultOrderForm);
   const [orderErrors, setOrderErrors] = useState<Record<string,string>>({});
@@ -244,10 +287,8 @@ const BeautySalon: React.FC = () => {
   const [searchQ, setSearchQ]         = useState('');
   const [histFilter, setHistFilter]   = useState<ServiceStatus|''>('');
 
-  // Realtime ref
   const realtimeRef = useRef<any>(null);
 
-  // Sync greeting when company loads
   useEffect(() => {
     const saved = (company?.config as any)?.whatsapp_greeting;
     if (saved) setWhatsappGreeting(saved);
@@ -314,52 +355,49 @@ const BeautySalon: React.FC = () => {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // ═══════════ FIX: Manejo correcto del retorno del POS ═══════════
-useEffect(() => {
-  if (!companyId) return;
-  const params = new URLSearchParams(location.search);
-  const salonOrderId = params.get('salon');
-  const paid         = params.get('paid');
-  const invoiceId    = params.get('invoice_id');
+  // Manejo del retorno del POS
+  useEffect(() => {
+    if (!companyId) return;
+    const params = new URLSearchParams(location.search);
+    const salonOrderId = params.get('salon');
+    const paid         = params.get('paid');
+    const invoiceId    = params.get('invoice_id');
 
-  if (!salonOrderId) return;
+    if (!salonOrderId) return;
 
-  // Limpiar URL sin recargar
-  window.history.replaceState({}, '', location.pathname);
+    window.history.replaceState({}, '', location.pathname);
 
-  if (paid === '1' && invoiceId) {
-    // Validar que invoiceId sea un UUID válido
-    const isValidUUID = (str: string) => {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      return uuidRegex.test(str);
-    };
+    if (paid === '1' && invoiceId) {
+      const isValidUUID = (str: string) => {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(str);
+      };
 
-    if (!isValidUUID(invoiceId)) {
-      console.error('invoice_id no es un UUID válido:', invoiceId);
-      toast.error('Error: ID de factura inválido');
-      return;
+      if (!isValidUUID(invoiceId)) {
+        console.error('invoice_id no es un UUID válido:', invoiceId);
+        toast.error('Error: ID de factura inválido');
+        return;
+      }
+
+      supabase
+        .from('salon_orders')
+        .update({ invoice_id: invoiceId })
+        .eq('id', salonOrderId)
+        .eq('company_id', companyId)
+        .then(({ error }) => {
+          if (error) {
+            console.error('Error marcando salon_order cobrada:', error);
+            toast.error('Error al confirmar el cobro: ' + error.message);
+          } else {
+            toast.success('✅ Cobro registrado correctamente');
+            setQuickSaleOrder(null);
+            loadOrders();
+          }
+        });
     }
+  }, [location.search, companyId, loadOrders]);
 
-    // Actualizar con el invoice_id real (que existe en la tabla invoices)
-    supabase
-      .from('salon_orders')
-      .update({ invoice_id: invoiceId })
-      .eq('id', salonOrderId)
-      .eq('company_id', companyId)
-      .then(({ error }) => {
-        if (error) {
-          console.error('Error marcando salon_order cobrada:', error);
-          toast.error('Error al confirmar el cobro: ' + error.message);
-        } else {
-          toast.success('✅ Cobro registrado correctamente');
-          setQuickSaleOrder(null);
-          loadOrders();
-        }
-      });
-  }
-}, [location.search, companyId, loadOrders]);
-
-  // ✅ REALTIME con manejo de errores mejorado
+  // REALTIME
   useEffect(() => {
     if (!companyId) return;
     
@@ -393,8 +431,8 @@ useEffect(() => {
     };
   }, [companyId, loadOrders]);
 
-  // ── COMPUTED ──────────────────────────────────────────────────────────────
-  const todayStr     = toLocalDateStr(new Date());
+  // ── COMPUTED CORREGIDOS ──────────────────────────────────────────────────────────────
+  const todayStr = toLocalDateStr(new Date());
   const agendaDayStr = toLocalDateStr(agendaDate);
 
   const activeOrders = useMemo(() =>
@@ -402,17 +440,20 @@ useEffect(() => {
     [orders]
   );
 
-  // ═══════════ FIX 4: Computed para citas en proceso ═══════════
   const activeInProgress = useMemo(() =>
     activeOrders.filter(o => o.status === 'IN_PROGRESS'),
     [activeOrders]
   );
 
   const todayDone = useMemo(() =>
-    orders.filter(o =>
-      o.status === 'DONE' && o.finished_at &&
-      getDatePart(o.finished_at) === todayStr
-    ), [orders, todayStr]
+    orders.filter(o => {
+      if (o.status !== 'DONE') return false;
+      if (!o.finished_at) return false;
+      const finishedDate = normalizeIso(o.finished_at);
+      if (!finishedDate) return false;
+      return toLocalDateStr(finishedDate) === todayStr;
+    }),
+    [orders, todayStr]
   );
 
   const todayRevenue = useMemo(() =>
@@ -421,7 +462,12 @@ useEffect(() => {
   );
 
   const todayOrders = useMemo(() =>
-    orders.filter(o => o.scheduled_at && getDatePart(o.scheduled_at) === todayStr),
+    orders.filter(o => {
+      if (!o.scheduled_at) return false;
+      const appointmentDate = normalizeIso(o.scheduled_at);
+      if (!appointmentDate) return false;
+      return toLocalDateStr(appointmentDate) === todayStr;
+    }),
     [orders, todayStr]
   );
 
@@ -432,43 +478,54 @@ useEffect(() => {
 
   const agendaOrders = useMemo(() =>
     orders
-      .filter(o => o.scheduled_at && getDatePart(o.scheduled_at) === agendaDayStr)
-      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime()),
+      .filter(o => {
+        if (!o.scheduled_at) return false;
+        const appointmentDate = normalizeIso(o.scheduled_at);
+        if (!appointmentDate) return false;
+        return toLocalDateStr(appointmentDate) === agendaDayStr;
+      })
+      .sort((a, b) => {
+        const dateA = normalizeIso(a.scheduled_at);
+        const dateB = normalizeIso(b.scheduled_at);
+        if (!dateA || !dateB) return 0;
+        return dateA.getTime() - dateB.getTime();
+      }),
     [orders, agendaDayStr]
   );
 
-  // ✅ Órdenes para vista semanal
   const weekDays = useMemo(() => getWeekDays(agendaDate), [agendaDate]);
   const weekOrders = useMemo(() => {
     const startStr = toLocalDateStr(weekDays[0]);
     const endStr = toLocalDateStr(weekDays[6]);
     return orders.filter(o =>
-      o.scheduled_at &&
-      getDatePart(o.scheduled_at) >= startStr &&
-      getDatePart(o.scheduled_at) <= endStr
+      o.scheduled_at && getDatePart(o.scheduled_at) >= startStr && getDatePart(o.scheduled_at) <= endStr
     );
   }, [orders, weekDays]);
 
-  // ✅ Órdenes para vista mensual
   const monthDays = useMemo(() => getMonthDays(agendaDate), [agendaDate]);
   const monthOrders = useMemo(() => {
     const startStr = toLocalDateStr(monthDays[0]);
     const endStr = toLocalDateStr(monthDays[monthDays.length - 1]);
     return orders.filter(o =>
-      o.scheduled_at &&
-      getDatePart(o.scheduled_at) >= startStr &&
-      getDatePart(o.scheduled_at) <= endStr
+      o.scheduled_at && getDatePart(o.scheduled_at) >= startStr && getDatePart(o.scheduled_at) <= endStr
     );
   }, [orders, monthDays]);
 
   const upcomingToday = useMemo(() =>
     orders
-      .filter(o =>
-        o.scheduled_at &&
-        getDatePart(o.scheduled_at) === todayStr &&
-        !['DONE','CANCELLED'].includes(o.status)
-      )
-      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
+      .filter(o => {
+        if (!o.scheduled_at) return false;
+        if (['DONE','CANCELLED'].includes(o.status)) return false;
+        const appointmentDate = normalizeIso(o.scheduled_at);
+        if (!appointmentDate) return false;
+        return toLocalDateStr(appointmentDate) === todayStr;
+      })
+      .sort((a, b) => {
+        const dateA = normalizeIso(a.scheduled_at);
+        const dateB = normalizeIso(b.scheduled_at);
+        if (!dateA || !dateB) return 0;
+        return dateA.getTime() - dateB.getTime();
+      })
       .slice(0, 6),
     [orders, todayStr]
   );
@@ -494,13 +551,11 @@ useEffect(() => {
     [filteredHistory, histPage]
   );
 
-  // ✅ FIX: Solo mostrar DONE sin invoice_id
   const pendingPayment = useMemo(() =>
     todayDone.filter(o => !o.invoice_id),
     [todayDone]
   );
 
-  // Comisiones del mes actual
   const commissionsThisMonth = useMemo(() => {
     const now = new Date();
     const monthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
@@ -533,7 +588,8 @@ useEffect(() => {
       errs.client_phone = 'Teléfono inválido';
     if (orderForm.scheduled_at) {
       const dt = new Date(orderForm.scheduled_at);
-      if (dt < new Date() && !editingService)
+      const now = new Date();
+      if (dt < now && !editingService)
         errs.scheduled_at = 'No puedes agendar en el pasado';
     }
     setOrderErrors(errs);
@@ -545,8 +601,7 @@ useEffect(() => {
     setTimeout(() => setShowSuccess(false), 1200);
   };
 
-  // ── ACTIONS ───────────────────────────────────────────────────────────────
-  // ═══════════ FIX 3: Agregar loadOrders con delay ═══════════
+  // ── ACTIONS CORREGIDAS ───────────────────────────────────────────────────────────────
   const handleCreateOrder = async () => {
     if (!companyId) return;
     if (!validateOrderForm()) return;
@@ -555,17 +610,25 @@ useEffect(() => {
     const stl = stylists.find(s => s.id === orderForm.stylist_id);
     
     try {
+      let scheduledAtUTC = null;
+      if (orderForm.scheduled_at) {
+        const localDate = new Date(orderForm.scheduled_at);
+        scheduledAtUTC = localDate.toISOString();
+      }
+      
       const { error } = await supabase.from('salon_orders').insert({
-        company_id: companyId, client_name: orderForm.client_name.trim(),
+        company_id: companyId, 
+        client_name: orderForm.client_name.trim(),
         client_phone: orderForm.client_phone || null,
         client_email: orderForm.client_email || null,
-        service_id: orderForm.service_id, service_name: svc?.name || '',
+        service_id: orderForm.service_id, 
+        service_name: svc?.name || '',
         service_price: svc?.price || 0,
         stylist_id: orderForm.stylist_id || null,
         stylist_name: stl?.name || null,
         status: orderForm.stylist_id ? 'ASSIGNED' : 'WAITING',
         notes: orderForm.notes,
-        scheduled_at: orderForm.scheduled_at || null,
+        scheduled_at: scheduledAtUTC,
       });
       
       if (error) throw error;
@@ -577,7 +640,6 @@ useEffect(() => {
       setOrderErrors({});
       
       await loadOrders();
-      // FIX 3: Re-fetch por si realtime tarda
       setTimeout(() => loadOrders(), 1500);
       
       if (orderForm.scheduled_at) {
@@ -609,7 +671,6 @@ useEffect(() => {
     }
   };
 
-  // ✅ NUEVO: Reprogramar cita
   const handleReschedule = async () => {
     if (!detailOrder || !rescheduleForm.scheduled_at) {
       toast.error('Selecciona una fecha y hora');
@@ -618,16 +679,19 @@ useEffect(() => {
     
     setSaving(true);
     try {
+      const localDate = new Date(rescheduleForm.scheduled_at);
+      const scheduledAtUTC = localDate.toISOString();
+      
       const { error } = await supabase
         .from('salon_orders')
-        .update({ scheduled_at: rescheduleForm.scheduled_at })
+        .update({ scheduled_at: scheduledAtUTC })
         .eq('id', detailOrder.id);
       
       if (error) throw error;
       
       toast.success('Cita reprogramada ✅');
       setShowRescheduleModal(false);
-      setDetailOrder(prev => prev ? { ...prev, scheduled_at: rescheduleForm.scheduled_at } : null);
+      setDetailOrder(prev => prev ? { ...prev, scheduled_at: scheduledAtUTC } : null);
       setAgendaDate(new Date(rescheduleForm.scheduled_at));
       await loadOrders();
     } catch (error: any) {
@@ -653,7 +717,6 @@ useEffect(() => {
     }
   };
 
-  // ✅ FIX: Enviar recordatorio - WhatsApp directo
   const sendReminder = async (order: ServiceOrder, channel: 'whatsapp'|'email') => {
     if (channel === 'whatsapp' && !order.client_phone) { 
       toast.error('Sin teléfono registrado'); 
@@ -671,9 +734,10 @@ useEffect(() => {
     setSendingReminder(order.id + channel);
     
     try {
+      const apptDate = normalizeIso(order.scheduled_at);
+      if (!apptDate) throw new Error('Fecha inválida');
+      
       if (channel === 'whatsapp') {
-        // ✅ WhatsApp directo sin Edge Function
-        const apptDate = new Date(normalizeIso(order.scheduled_at));
         const dateStr = apptDate.toLocaleDateString('es-CO', {
           timeZone: 'America/Bogota',
           weekday: 'long',
@@ -684,6 +748,7 @@ useEffect(() => {
           timeZone: 'America/Bogota',
           hour: '2-digit',
           minute: '2-digit',
+          hour12: false
         });
         
         const greeting = whatsappGreeting || defaultGreeting;
@@ -712,13 +777,13 @@ useEffect(() => {
         window.open(whatsappUrl, '_blank');
         toast.success('Abriendo WhatsApp...');
       } else {
-        // Email via Edge Function
         const { error } = await supabase.functions.invoke('salon-reminder', {
           body: {
             company_id: companyId, order_id: order.id, channel,
             client_name: order.client_name, client_phone: order.client_phone,
             client_email: order.client_email, service_name: order.service_name,
-            stylist_name: order.stylist_name, scheduled_at: order.scheduled_at,
+            stylist_name: order.stylist_name, 
+            scheduled_at: apptDate.toISOString(),
             company_name: company?.name,
           },
         });
@@ -818,8 +883,8 @@ useEffect(() => {
       const { error } = await supabase.from('salon_blocked_slots').insert({
         company_id: companyId,
         stylist_id: blockForm.stylist_id,
-        start_at: blockForm.start_at,
-        end_at: blockForm.end_at,
+        start_at: new Date(blockForm.start_at).toISOString(),
+        end_at: new Date(blockForm.end_at).toISOString(),
         reason: blockForm.reason,
       });
       
@@ -836,7 +901,6 @@ useEffect(() => {
     }
   };
 
-  // ✅ FIX COBRO: Navegar al POS con returnUrl
   const handleQuickSalePOS = (order: ServiceOrder) => {
     const returnUrl = encodeURIComponent(`/salon?salon=${order.id}&paid=1`);
     const p = new URLSearchParams({
@@ -1001,7 +1065,6 @@ useEffect(() => {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  {/* Selector de vista */}
                   <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
                     <button onClick={() => setCalendarView('day')}
                       className={`p-1.5 rounded-md transition-all ${calendarView === 'day' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -1061,13 +1124,12 @@ useEffect(() => {
                         ))}
                       </div>
 
-                      {/* ═══════════ FIX 2: Columna "Sin asignar" ═══════════ */}
+                      {/* Columna "Sin asignar" */}
                       {(() => {
                         const unassigned = agendaOrders.filter(o => !o.stylist_id);
                         if (unassigned.length === 0) return null;
                         return (
                           <div className="flex-1 min-w-[130px] border-r border-slate-100 flex flex-col">
-                            {/* Header */}
                             <div className="h-12 border-b border-slate-100 flex items-center justify-center gap-2 px-2 bg-amber-50 sticky top-0 z-10">
                               <div className="w-7 h-7 rounded-full flex items-center justify-center bg-amber-300 text-amber-800 text-xs font-bold flex-shrink-0">?</div>
                               <div className="min-w-0">
@@ -1075,7 +1137,6 @@ useEffect(() => {
                                 <span className="text-[10px] text-amber-500">{unassigned.length} pendiente{unassigned.length !== 1 ? 's' : ''}</span>
                               </div>
                             </div>
-                            {/* Grid de horas */}
                             <div className="relative flex-1">
                               {HOURS.map(h => (
                                 <div key={h}
@@ -1088,11 +1149,11 @@ useEffect(() => {
                                   }}
                                   className="h-16 border-b border-slate-50 hover:bg-amber-50/30 cursor-pointer"/>
                               ))}
-                              {/* Citas posicionadas */}
                               {unassigned.map(o => {
                                 const sc = STATUS_CONFIG[o.status];
                                 const svc = services.find(s => s.id === o.service_id);
-                                const dt = new Date(o.scheduled_at!);
+                                const dt = normalizeIso(o.scheduled_at);
+                                if (!dt) return null;
                                 const topPx = ((dt.getHours() - 7) * 60 + dt.getMinutes()) / 60 * 64;
                                 const heightPx = Math.max((svc?.duration_minutes || 30) / 60 * 64, 44);
                                 return (
@@ -1110,7 +1171,6 @@ useEffect(() => {
                           </div>
                         );
                       })()}
-                      {/* ═══════════ Fin columna sin asignar ═══════════ */}
 
                       {/* Una columna por estilista */}
                       {stylists.map((stl) => {
@@ -1123,7 +1183,6 @@ useEffect(() => {
                         const color = avatarColor(stl.name);
                         return (
                           <div key={stl.id} className="flex-1 min-w-[130px] border-r border-slate-100 last:border-r-0 flex flex-col">
-                            {/* Header estilista */}
                             <div className="h-12 border-b border-slate-100 flex items-center justify-center gap-2 px-2 bg-slate-50 sticky top-0 z-10">
                               <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
                                 style={{ background: color }}>
@@ -1138,7 +1197,6 @@ useEffect(() => {
                               </div>
                             </div>
 
-                            {/* Slots */}
                             <div className="relative flex-1">
                               {HOURS.map(h => (
                                 <div key={h}
@@ -1152,10 +1210,10 @@ useEffect(() => {
                                   className="h-16 border-b border-slate-50 hover:bg-indigo-50/30 transition-colors cursor-pointer"/>
                               ))}
 
-                              {/* Bloques de tiempo bloqueado */}
                               {stlBlocked.map(b => {
-                                const dtS = new Date(b.start_at);
-                                const dtE = new Date(b.end_at);
+                                const dtS = normalizeIso(b.start_at);
+                                const dtE = normalizeIso(b.end_at);
+                                if (!dtS || !dtE) return null;
                                 const topPx    = ((dtS.getHours() - 7) * 60 + dtS.getMinutes()) / 60 * 64;
                                 const duration = (dtE.getTime() - dtS.getTime()) / 60000;
                                 const heightPx = Math.max(duration / 60 * 64, 20);
@@ -1174,11 +1232,11 @@ useEffect(() => {
                                 );
                               })}
 
-                              {/* Citas posicionadas */}
                               {stlOrders.map(o => {
                                 const sc  = STATUS_CONFIG[o.status];
                                 const svc = services.find(s => s.id === o.service_id);
-                                const dt  = new Date(o.scheduled_at!);
+                                const dt  = normalizeIso(o.scheduled_at);
+                                if (!dt) return null;
                                 const topPx    = ((dt.getHours() - 7) * 60 + dt.getMinutes()) / 60 * 64;
                                 const heightPx = Math.max((svc?.duration_minutes || 30) / 60 * 64, 44);
                                 return (
@@ -1220,7 +1278,6 @@ useEffect(() => {
                     </div>
                   ) : (
                     <div className="min-w-[800px]">
-                      {/* Header días de la semana */}
                       <div className="flex border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
                         <div className="w-24 flex-shrink-0 p-2 border-r border-slate-100"/>
                         {weekDays.map((day, i) => {
@@ -1239,7 +1296,6 @@ useEffect(() => {
                         })}
                       </div>
 
-                      {/* Filas por hora */}
                       {HOURS.map(h => (
                         <div key={h} className="flex border-b border-slate-100">
                           <div className="w-24 flex-shrink-0 p-2 border-r border-slate-100 text-[11px] text-slate-400 font-mono">
@@ -1249,7 +1305,8 @@ useEffect(() => {
                             const dayStr = toLocalDateStr(day);
                             const hourOrders = orders.filter(o => {
                               if (!o.scheduled_at) return false;
-                              const od = new Date(o.scheduled_at);
+                              const od = normalizeIso(o.scheduled_at);
+                              if (!od) return false;
                               return getDatePart(o.scheduled_at) === dayStr && od.getHours() === h;
                             });
                             const isToday = isSameDay(day, new Date());
@@ -1287,7 +1344,6 @@ useEffect(() => {
               {/* ════════════ VISTA MENSUAL ════════════ */}
               {calendarView === 'month' && (
                 <div className="flex-1 overflow-auto p-2">
-                  {/* Header días de la semana */}
                   <div className="grid grid-cols-7 gap-1 mb-1">
                     {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => (
                       <div key={d} className="text-center text-[10px] font-bold text-slate-400 uppercase py-2">
@@ -1296,7 +1352,6 @@ useEffect(() => {
                     ))}
                   </div>
 
-                  {/* Grid de días */}
                   <div className="grid grid-cols-7 gap-1">
                     {monthDays.map((day, i) => {
                       const dayStr = toLocalDateStr(day);
@@ -1712,7 +1767,6 @@ useEffect(() => {
             style={{ height: 'calc(100vh - 300px)' }}>
             <div className="max-w-2xl mx-auto p-6 space-y-8">
 
-              {/* Header */}
               <div>
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <MessageCircle size={18} className="text-indigo-500"/> Mensaje de WhatsApp
@@ -1722,7 +1776,6 @@ useEffect(() => {
                 </p>
               </div>
 
-              {/* Preview card */}
               <div className="bg-[#e9fbe5] rounded-2xl p-4 border border-[#c3f0b2] shadow-inner">
                 <p className="text-[11px] font-bold text-[#5a8a4a] uppercase tracking-wider mb-3 flex items-center gap-1.5">
                   <Eye size={11}/> Vista previa del mensaje
@@ -1745,7 +1798,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Greeting field */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-slate-700">
                   Saludo personalizado <span className="text-slate-400 font-normal">(aparece después del nombre del cliente)</span>
@@ -1763,7 +1815,6 @@ useEffect(() => {
                 </div>
                 <p className="text-xs text-slate-400 text-right">{whatsappGreeting.length}/120 caracteres</p>
 
-                {/* Sugerencias */}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <p className="text-xs text-slate-500 w-full font-medium">Sugerencias rápidas:</p>
                   {[
@@ -1780,7 +1831,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Save button */}
               <div className="flex items-center gap-3 pt-2">
                 <button
                   onClick={async () => {
@@ -1952,7 +2002,6 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Recordatorios */}
             {detailOrder.scheduled_at && !['DONE','CANCELLED'].includes(detailOrder.status) && (
               <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
                 <p className="text-xs font-bold text-blue-700 mb-2 flex items-center gap-1.5">
@@ -1978,7 +2027,6 @@ useEffect(() => {
               </div>
             )}
 
-            {/* Asignar estilista */}
             {detailOrder.status === 'WAITING' && stylists.length > 0 && (
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Asignar estilista</label>
@@ -1995,9 +2043,7 @@ useEffect(() => {
               </div>
             )}
 
-            {/* ACCIONES */}
             <div className="flex flex-wrap gap-2">
-              {/* Reprogramar */}
               {!['DONE','CANCELLED'].includes(detailOrder.status) && (
                 <button onClick={() => {
                   setRescheduleForm({ scheduled_at: detailOrder.scheduled_at || isoLocal(new Date()) });
@@ -2021,7 +2067,6 @@ useEffect(() => {
                 </button>
               )}
               
-              {/* Cancelar disponible desde cualquier estado excepto DONE/CANCELLED */}
               {!['DONE','CANCELLED'].includes(detailOrder.status) && (
                 <button onClick={() => { 
                   if (confirm('¿Estás seguro de cancelar esta cita?')) {
@@ -2034,7 +2079,6 @@ useEffect(() => {
                 </button>
               )}
               
-              {/* Cobrar solo si DONE y sin invoice_id */}
               {detailOrder.status === 'DONE' && !detailOrder.invoice_id && (
                 <button onClick={() => { setDetailOrder(null); setQuickSaleOrder(detailOrder); setActiveTab('dashboard'); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all active:scale-95"
@@ -2269,13 +2313,12 @@ useEffect(() => {
           onSuccess={() => { setImportModal(null); loadServices(); }}/>
       )}
 
-      {/* ═══════════ FIX 4: Panel flotante para citas en proceso ═══════════ */}
+      {/* Panel flotante para citas en proceso */}
       {activeInProgress.length > 0 && (
         <>
           {showActivePanel ? (
             <div className="fixed bottom-6 right-6 z-40 w-72 bg-white rounded-2xl shadow-2xl border border-purple-200 overflow-hidden"
               style={{ boxShadow: '0 8px 32px rgba(139,92,246,0.25)' }}>
-              {/* Header */}
               <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-white animate-pulse"/>
@@ -2287,7 +2330,6 @@ useEffect(() => {
                   <X size={14}/>
                 </button>
               </div>
-              {/* Citas en proceso */}
               <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
                 {activeInProgress.map(o => (
                   <div key={o.id} className="p-3">
@@ -2325,7 +2367,6 @@ useEffect(() => {
                   </div>
                 ))}
               </div>
-              {/* Footer — acceso rápido a cobrar */}
               {pendingPayment.length > 0 && (
                 <div className="px-3 pb-3 pt-1 border-t border-slate-100">
                   <button
@@ -2338,7 +2379,6 @@ useEffect(() => {
               )}
             </div>
           ) : (
-            /* Botón compacto cuando el panel está minimizado */
             <button
               onClick={() => setShowActivePanel(true)}
               className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-purple-600 text-white shadow-xl flex items-center justify-center hover:bg-purple-700 transition-all active:scale-95"
@@ -2354,22 +2394,5 @@ useEffect(() => {
     </div>
   );
 };
-
-// ── MODAL ─────────────────────────────────────────────────────────────────────
-const Modal: React.FC<{ title: string; onClose: () => void; children: React.ReactNode; brandColor: string }> =
-  ({ title, onClose, children }) => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h3 className="font-bold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600">
-            <X size={17}/>
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
 
 export default BeautySalon;
