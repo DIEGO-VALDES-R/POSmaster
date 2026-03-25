@@ -978,6 +978,21 @@ const BeautySalon: React.FC = () => {
     navigate(`/pos?${p.toString()}`);
   };
 
+const handleDeleteOrder = async (id: string) => {
+  if (!confirm('¿Eliminar este registro del historial?')) return;
+  try {
+    const { error } = await supabase
+      .from('salon_orders')
+      .delete()
+      .eq('id', id)
+      .eq('company_id', companyId);
+    if (error) throw error;
+    toast.success('Registro eliminado');
+    loadOrders();
+  } catch (err: any) {
+    toast.error(err?.message || 'Error al eliminar');
+  }
+};
   // ── LOADING ───────────────────────────────────────────────────────────────
   if (loading) return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -1769,6 +1784,7 @@ const BeautySalon: React.FC = () => {
                     <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
                     <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Precio</th>
                     <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Cobrado</th>
+                    <th className="px-4 py-3 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1795,6 +1811,13 @@ const BeautySalon: React.FC = () => {
                           {o.invoice_id
                             ? <span className="text-emerald-600 text-xs font-bold flex items-center gap-1"><Check size={12}/>Sí</span>
                             : <span className="text-slate-400 text-xs">Pendiente</span>}
+                        </td>
+                        <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleDeleteOrder(o.id)}
+                            className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                            <Trash2 size={14}/>
+                          </button>
                         </td>
                       </tr>
                     );

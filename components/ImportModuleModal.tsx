@@ -300,32 +300,29 @@ const MODULES: Record<ModuleType, ModuleConfig> = {
   // ── SALÓN ────────────────────────────────────────────────────────────────
   salon_servicios: {
   label: 'Servicios de Salón',
-  tableName: 'salon_servicios',
-  templateHeaders: ['Nombre *', 'SKU *', 'Categoría', 'Descripción', 'Precio *', 'Duración (min)', 'Activo'],
-  templateExample: [
-    ['Corte de cabello', 'CORTE001', 'Cabello', 'Corte y lavado', '35000', '30', 'SI'],
-    ['Manicure', 'MANI001', 'Uñas', 'Manicure completo', '40000', '45', 'SI'],
-    ['Pedicure', 'PEDI001', 'Uñas', 'Pedicure spa', '45000', '45', 'SI'],
+  table: 'salon_servicios',          // ← era "tableName"
+  color: '#ec4899',
+  templateHeaders: ['Nombre *', 'Categoría', 'Precio *', 'Duración (min)'],
+  templateColWidths: [30, 20, 14, 14],
+  templateFn: () => [                // ← era "templateExample"
+    ['Corte de cabello', 'cabello', '35000', '30'],
+    ['Manicure', 'unas', '40000', '45'],
+    ['Pedicure spa', 'unas', '45000', '45'],
   ],
-  columnMapping: [
-    { key: 'name', aliases: ['nombre', 'name'], required: true },
-    { key: 'sku', aliases: ['sku'], required: true },
-    { key: 'category', aliases: ['categoría', 'category'], required: false },
-    { key: 'description', aliases: ['descripción', 'description'], required: false },
-    { key: 'price', aliases: ['precio', 'price'], required: true },
-    { key: 'duration_minutes', aliases: ['duración', 'duration_minutes'], required: false },
-    { key: 'is_active', aliases: ['activo', 'active', 'is_active'], required: false },
+  columns: [                         // ← era "columnMapping"
+    { key: 'name',               aliases: ['nombre', 'name'],                    required: true },
+    { key: 'category',           aliases: ['categoría', 'categoria', 'category'] },
+    { key: 'price',              aliases: ['precio', 'price'],                   required: true, type: 'number' as const },
+    { key: 'duration_minutes',   aliases: ['duración (min)', 'duracion', 'duration_minutes'],   type: 'int' as const },
   ],
-  validate: (r) => !r.name ? 'Nombre requerido' : !r.sku ? 'SKU requerido' : null,
-  transform: (r, cid) => ({ 
-    company_id: cid, 
-    name: r.name, 
-    sku: r.sku,
-    category: r.category || null, 
-    description: r.description || null, 
-    price: parseFloat(r.price) || 0, 
-    duration_minutes: parseInt(r.duration_minutes) || 30,
-    is_active: String(r.is_active || 'SI').toUpperCase() !== 'NO' 
+  validate: (r) => !r.name ? 'Nombre requerido' : !r.price ? 'Precio requerido' : null,
+  transform: (r, cid) => ({
+    company_id: cid,
+    name: r.name,
+    category: r.category || 'otros',
+    price: r.price || 0,
+    duration_minutes: r.duration_minutes || 30,
+    is_active: true,
   }),
 },
 
