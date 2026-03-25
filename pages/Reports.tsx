@@ -22,7 +22,8 @@ interface SaleRow {
   id: string; invoice_number: string; created_at: string;
   total_amount: number; subtotal: number; tax_amount: number;
   discount_amount: number; payment_method: any;
-  customer_name?: string;
+  status?: string; sales_channel?: string;
+  customer_name?: string; customer_doc?: string; customer_phone?: string;
 }
 
 interface ProductRow {
@@ -130,7 +131,7 @@ const Reports: React.FC = () => {
   const loadVentas = useCallback(async () => {
     if (!companyId) return;
     let q = supabase.from('invoices')
-      .select('id,invoice_number,created_at,total_amount,subtotal,tax_amount,discount_amount,payment_method,customer_id')
+      .select('id,invoice_number,created_at,total_amount,subtotal,tax_amount,discount_amount,payment_method,status,sales_channel,customer_id')
       .eq('company_id', companyId).gte('created_at', fromISO).lte('created_at', toISO)
       .order('created_at', { ascending: false });
     if (branchId) q = q.eq('branch_id', branchId);
@@ -138,9 +139,15 @@ const Reports: React.FC = () => {
     const ids = [...new Set((data||[]).map((r:any) => r.customer_id).filter(Boolean))];
     let custMap: Record<string,string> = {};
     if (ids.length) {
-      const { data: custs } = await supabase.from('customers').select('id,name').in('id', ids);
-      (custs||[]).forEach((c:any) => { custMap[c.id] = c.name; });
-    }
+      const { data: custs } = await supabase.from('customers').select('id,name,document,phone').in('id', ids);
+(custs||[]).forEach((c:any) => { custMap[c.id] = { name: c.name, doc: c.document||'', phone: c.phone||'' }; });
+setSales((data||[]).map((r:any) => ({
+  ...r,
+  customer_name:  custMap[r.customer_id]?.name  || '',
+  customer_doc:   custMap[r.customer_id]?.doc   || '',
+  customer_phone: custMap[r.customer_id]?.phone || '',
+})));
+
     setSales((data||[]).map((r:any) => ({ ...r, customer_name: custMap[r.customer_id] || '' })));
   }, [companyId, branchId, fromISO, toISO]);
 
@@ -365,19 +372,31 @@ const Reports: React.FC = () => {
     const co = company?.name || 'POSmaster';
 
     if (activeTab === 'ventas') {
-      const rows = sales.map(r => ({
-        'Factura': r.invoice_number, 'Fecha': r.created_at.slice(0,10),
-        'Cliente': r.customer_name || '', 'Subtotal': r.subtotal,
-        'IVA': r.tax_amount, 'Descuento': r.discount_amount || 0, 'Total': r.total_amount,
-      }));
-      rows.push({ 'Factura': 'TOTAL', 'Fecha': '', 'Cliente': '',
-        'Subtotal': ventasKPI.subtot, 'IVA': ventasKPI.iva,
-        'Descuento': ventasKPI.desc, 'Total': ventasKPI.total } as any);
-      const ws = XLSX.utils.json_to_sheet(rows);
-      ws['!cols'] = [12,12,24,14,12,12,14].map(w => ({ wch: w }));
-      XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
-      XLSX.writeFile(wb, `Ventas_${co}_${from}_${to}.xlsx`);
-
+  const rows = sales.map(r => ({
+    'Factura':        r.invoice_number,
+    'Fecha':          r.created_at.slice(0, 10),
+    'Hora':           new Date(r.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+    'Cliente':        r.customer_name || '—',
+    'Doc. Cliente':   r.customer_doc  || '—',
+    'Tel. Cliente':   r.customer_phone|| '—',
+    'Canal':          r.sales_channel || 'LOCAL',
+    'Estado':         r.status        || '—',
+    'Subtotal':       r.subtotal,
+    'IVA':            r.tax_amount,
+    'Descuento':      r.discount_amount || 0,
+    'Total':          r.total_amount,
+    'Método Pago':    typeof r.payment_method === 'object'
+                        ? Object.entries(r.payment_method||{}).map(([k,v])=>`${k}:$${v}`).join(' | ')
+                        : String(r.payment_method||'—'),
+  }));
+  rows.push({ 'Factura':'TOTAL','Fecha':'','Hora':'','Cliente':'','Doc. Cliente':'','Tel. Cliente':'',
+    'Canal':'','Estado':'','Subtotal':ventasKPI.subtot,'IVA':ventasKPI.iva,
+    'Descuento':ventasKPI.desc,'Total':ventasKPI.total,'Método Pago':'' } as any);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [14,12,8,28,14,14,10,10,16,14,14,16,30].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+  XLSX.writeFile(wb, `Facturas_${co}_${from}_${to}.xlsx`);
+}
     } else if (activeTab === 'inventario') {
       const rows = products.map(p => ({
         'Nombre': p.name, 'SKU': p.sku, 'Categoría': p.category||'', 'Marca': p.brand||'',
@@ -475,14 +494,28 @@ const Reports: React.FC = () => {
     doc.setFontSize(9); doc.setFont('helvetica','bold');
 
     if (activeTab === 'ventas') {
-      doc.text(`Total: ${formatMoney(ventasKPI.total)}  ·  Facturas: ${ventasKPI.count}  ·  IVA: ${formatMoney(ventasKPI.iva)}  ·  Descuentos: ${formatMoney(ventasKPI.desc)}`, 14, summaryY);
-      drawTable(
-        ['Factura','Fecha','Cliente','Subtotal','IVA','Desc.','Total'],
-        sales.map(r => [r.invoice_number, r.created_at.slice(0,10), r.customer_name||'—',
-          formatMoney(r.subtotal), formatMoney(r.tax_amount), formatMoney(r.discount_amount||0), formatMoney(r.total_amount)]),
-        summaryY+6, [30,24,50,28,24,24,30],
-        ['','','TOTAL',formatMoney(ventasKPI.subtot),formatMoney(ventasKPI.iva),formatMoney(ventasKPI.desc),formatMoney(ventasKPI.total)]
-      );
+  doc.text(`Total: ${formatMoney(ventasKPI.total)}  ·  Facturas: ${ventasKPI.count}  ·  IVA: ${formatMoney(ventasKPI.iva)}  ·  Desc: ${formatMoney(ventasKPI.desc)}`, 14, summaryY);
+  drawTable(
+    ['Factura','Fecha','Cliente','Canal','Estado','Subtotal','IVA','Desc.','Total','Pago'],
+    sales.map(r => [
+      r.invoice_number,
+      r.created_at.slice(0,10),
+      r.customer_name||'—',
+      r.sales_channel||'LOCAL',
+      r.status||'—',
+      formatMoney(r.subtotal),
+      formatMoney(r.tax_amount),
+      formatMoney(r.discount_amount||0),
+      formatMoney(r.total_amount),
+      typeof r.payment_method === 'object'
+        ? Object.keys(r.payment_method||{}).join('+')
+        : String(r.payment_method||'—'),
+    ]),
+    summaryY+6, [26,22,42,16,16,24,20,20,26,18],
+    ['','','TOTAL','','',formatMoney(ventasKPI.subtot),formatMoney(ventasKPI.iva),formatMoney(ventasKPI.desc),formatMoney(ventasKPI.total),'']
+  );
+}
+
     } else if (activeTab === 'inventario') {
       doc.text(`Productos: ${invKPI.total}  ·  Valor costo: ${formatMoney(invKPI.totalValue)}  ·  Bajo mínimo: ${invKPI.lowStock}  ·  Sin stock: ${invKPI.noStock}`, 14, summaryY);
       drawTable(

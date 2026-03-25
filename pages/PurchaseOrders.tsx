@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Search, Truck, Package, CheckCircle, XCircle, Clock,
   Edit3, Trash2, Eye, Download, Send, X, Save, AlertCircle,
-  ChevronDown, ArrowRight, ReceiptText, RefreshCw, Banknote
+  ChevronDown, ArrowRight, ReceiptText, RefreshCw, Banknote,
+  FileSpreadsheet
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -10,6 +11,7 @@ import { useCurrency } from '../contexts/CurrencyContext';
 import { Product } from '../types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
+import * as XLSX from 'xlsx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Supplier { id: string; name: string; nit?: string; phone?: string; email?: string; }
@@ -660,6 +662,102 @@ const PurchaseOrders: React.FC = () => {
   const [receiveOrder, setReceiveOrder] = useState<PurchaseOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PurchaseOrder | null>(null);
 
+  // ── Export functions ──────────────────────────────────────────
+  const exportOCExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const co = company?.name || 'POSmaster';
+    // Hoja 1: resumen de órdenes
+    const resumen = orders.map(o => ({
+      'OC':           o.order_number,
+      'Proveedor':    o.supplier_name,
+      'NIT':          o.supplier_nit || '—',
+      'Fecha':        o.created_at.slice(0,10),
+      'F. Esperada':  o.expected_date || '—',
+      'F. Recibida':  o.received_date || '—',
+      'Estado':       STATUS_CFG[o.status]?.label || o.status,
+      'Subtotal':     o.subtotal,
+      'IVA':          o.tax_amount,
+      'Total':        o.total_amount,
+      'Notas':        o.notes || '',
+    }));
+    const totalOC = orders.reduce((s,o) => s + o.total_amount, 0);
+    resumen.push({ 'OC':'TOTAL','Proveedor':'','NIT':'','Fecha':'','F. Esperada':'','F. Recibida':'',
+      'Estado':'','Subtotal':orders.reduce((s,o)=>s+o.subtotal,0),'IVA':orders.reduce((s,o)=>s+o.tax_amount,0),
+      'Total':totalOC,'Notas':'' } as any);
+    const ws1 = XLSX.utils.json_to_sheet(resumen);
+    ws1['!cols'] = [14,28,14,12,12,12,12,16,14,16,30].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws1, 'Órdenes');
+    // Hoja 2: detalle de ítems
+    const items: any[] = [];
+    orders.forEach(o => {
+      (o.purchase_order_items||[]).forEach(it => {
+        items.push({
+          'OC':           o.order_number,
+          'Proveedor':    o.supplier_name,
+          'Fecha':        o.created_at.slice(0,10),
+          'Estado OC':    STATUS_CFG[o.status]?.label || o.status,
+          'Producto':     it.description,
+          'SKU':          it.sku || '—',
+          'Cant. Pedida': it.quantity_ordered,
+          'Cant. Recib.': it.quantity_received,
+          'Costo Unit.':  it.unit_cost,
+          'IVA %':        it.tax_rate,
+          'Total Línea':  it.total || (it.quantity_ordered * it.unit_cost),
+        });
+      });
+    });
+    const ws2 = XLSX.utils.json_to_sheet(items);
+    ws2['!cols'] = [14,28,12,12,30,14,12,12,14,8,16].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws2, 'Detalle Ítems');
+    XLSX.writeFile(wb, `OrdenesCom_${co}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const exportOCPdf = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const co = company?.name || 'POSmaster';
+    const pageW = doc.internal.pageSize.getWidth();
+    const now = new Date().toLocaleString('es-CO');
+    doc.setFillColor(59,130,246); doc.rect(0,0,pageW,22,'F');
+    doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+    doc.text(`${co} — Órdenes de Compra`, 14, 14);
+    doc.setFontSize(8); doc.setFont('helvetica','normal');
+    doc.text(`Generado: ${now}`, pageW - 14, 14, { align: 'right' });
+    doc.setTextColor(30,30,30);
+    const totalInv = orders.reduce((s,o)=>s+o.total_amount,0);
+    doc.setFontSize(9); doc.setFont('helvetica','bold');
+    doc.text(`Total invertido: $${totalInv.toLocaleString('es-CO')}  ·  Órdenes: ${orders.length}`, 14, 30);
+    const rowH = 8; const headerH = 9;
+    let y = 38;
+    const headers = ['OC','Proveedor','NIT','Fecha','F.Esperada','Estado','Subtotal','IVA','Total'];
+    const colW    = [22,42,24,22,22,20,24,20,26];
+    const totalW  = colW.reduce((a,b)=>a+b,0);
+    doc.setFillColor(59,130,246); doc.rect(14,y,totalW,headerH,'F');
+    doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(255,255,255);
+    let x=14; colW.forEach((w,i)=>{ doc.text(headers[i],x+2,y+6); x+=w; });
+    doc.setTextColor(30,30,30); y+=headerH;
+    orders.forEach((o,ri) => {
+      if (y > doc.internal.pageSize.getHeight()-20) { doc.addPage(); y=20; }
+      doc.setFillColor(ri%2===0?248:255,ri%2===0?250:255,ri%2===0?252:255);
+      doc.rect(14,y,totalW,rowH,'F');
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); x=14;
+      const row=[o.order_number,o.supplier_name,o.supplier_nit||'—',o.created_at.slice(0,10),
+        o.expected_date||'—',STATUS_CFG[o.status]?.label||o.status,
+        `$${o.subtotal.toLocaleString('es-CO')}`,`$${o.tax_amount.toLocaleString('es-CO')}`,`$${o.total_amount.toLocaleString('es-CO')}`];
+      colW.forEach((w,i)=>{ const t=String(row[i]||''); doc.text(t.length>20?t.slice(0,17)+'…':t,x+2,y+5.5); x+=w; });
+      doc.setDrawColor(226,232,240); doc.setLineWidth(0.1); doc.line(14,y+rowH,14+totalW,y+rowH); y+=rowH;
+    });
+    // Pie de totales
+    doc.setFillColor(241,245,249); doc.rect(14,y,totalW,rowH,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7); x=14;
+    const foot=['','','','','','TOTAL',
+      `$${orders.reduce((s,o)=>s+o.subtotal,0).toLocaleString('es-CO')}`,
+      `$${orders.reduce((s,o)=>s+o.tax_amount,0).toLocaleString('es-CO')}`,
+      `$${totalInv.toLocaleString('es-CO')}`];
+    colW.forEach((w,i)=>{ doc.text(foot[i]||'',x+2,y+5.5); x+=w; });
+    doc.setDrawColor(203,213,225); doc.setLineWidth(0.3); doc.rect(14,38,totalW,y+rowH-38);
+    doc.save(`OrdenesCom_${co}_${new Date().toISOString().slice(0,10)}.pdf`);
+  };
+
   // ── Productos agotados (stock = 0) ──────────────────────────
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [zeroStockSearch, setZeroStockSearch] = useState('');
@@ -738,16 +836,28 @@ const PurchaseOrders: React.FC = () => {
           <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
           <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
         </div>
-        <button
-          onClick={() => { window.location.hash = '/warehouse'; }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-sm"
-          title="Ir al Display de Bodega">
-          📦 Display Bodega
-        </button>
-        <button onClick={() => { setEditOrder(null); setShowForm(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 shadow-sm">
-          <Plus size={16} /> Nueva orden
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { window.location.hash = '/warehouse'; }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-sm"
+            title="Ir al Display de Bodega">
+            📦 Display Bodega
+          </button>
+          <button
+            onClick={exportOCExcel}
+            className="flex items-center gap-2 px-3 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm">
+            <FileSpreadsheet size={16} /> Excel
+          </button>
+          <button
+            onClick={exportOCPdf}
+            className="flex items-center gap-2 px-3 py-2.5 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-colors shadow-sm">
+            <Download size={16} /> PDF
+          </button>
+          <button onClick={() => { setEditOrder(null); setShowForm(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 shadow-sm">
+            <Plus size={16} /> Nueva orden
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -867,7 +977,7 @@ const PurchaseOrders: React.FC = () => {
                   <th className="text-right px-4 py-3">Total</th>
                   <th className="text-center px-4 py-3">Estado</th>
                   <th className="px-4 py-3"></th>
-                </tr>
+                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map(order => {
