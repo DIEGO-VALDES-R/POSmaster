@@ -7,13 +7,14 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
+import { PizzaTab } from '../components/PizzaTab';
 import toast from 'react-hot-toast';
 
 // ── TYPES ──────────────────────────────────────────────────────────────────────
 
 type OrderStatus  = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
 type ItemStatus   = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED';
-type MainTab      = 'kitchen' | 'menu' | 'beverages';
+type MainTab = 'kitchen' | 'menu' | 'beverages' | 'pizzas';
 
 interface OrderItem {
   id: string; product_id: string; product_name: string;
@@ -461,6 +462,7 @@ const KitchenDisplay: React.FC = () => {
             { id:'kitchen',   label:'Cocina',    icon:<UtensilsCrossed size={14}/> },
             { id:'menu',      label:'Menú',       icon:<BookOpen size={14}/> },
             { id:'beverages', label:'Bebidas',    icon:<Beer size={14}/> },
+            { id:'pizzas', label:'Pizzas', icon:<span>🍕</span> },
           ] as const).map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
@@ -880,6 +882,11 @@ const KitchenDisplay: React.FC = () => {
           )}
         </div>
       )}
+{activeTab === 'pizzas' && (
+  <div className="flex-1 overflow-y-auto p-4">
+    <PizzaTab companyId={companyId!} branchId={branchId} />
+  </div>
+)}
 
       {/* ══════════════════════════════════════════════════════════════
           MODALS

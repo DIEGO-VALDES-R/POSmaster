@@ -6,7 +6,7 @@ import {
   AlertCircle, Printer, ShoppingCart, Coffee,
   Bell, MapPin, Phone, Bike, Car, DollarSign,
   CreditCard, Smartphone, Building2, ArrowRight,
-  QrCode, MessageSquare, Zap, User,
+  QrCode, MessageSquare, Zap, User, Beer, Pizza,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
@@ -69,7 +69,6 @@ const ZONES = ['Salón', 'Terraza', 'Barra', 'Privado', 'Delivery'];
 function playReadySound() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    // Three ascending beeps
     [0, 0.25, 0.5].forEach((delay, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -120,12 +119,10 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
   const handlePay = async () => {
     setSaving(true);
     try {
-      // 1. Generar número de factura
       const ts     = Date.now().toString().slice(-6);
       const rnd    = Math.floor(Math.random() * 100).toString().padStart(2, '0');
       const invNum = `REST-${ts}${rnd}`;
 
-      // 2. Crear factura
       const { data: invoice, error: invErr } = await supabase
         .from('invoices')
         .insert({
@@ -155,7 +152,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
 
       if (invErr) throw invErr;
 
-      // 3. Insertar items de factura
       const itemsToInsert = order.items.map(i => ({
         invoice_id:  invoice.id,
         product_id:  null,
@@ -166,7 +162,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
       }));
       await supabase.from('invoice_items').insert(itemsToInsert);
 
-      // 4. Marcar orden como entregada y liberar mesa
       await supabase.from('table_orders')
         .update({ status: 'DELIVERED', invoice_id: invoice.id, updated_at: new Date().toISOString() })
         .eq('id', order.id);
@@ -175,7 +170,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
         .update({ status: 'FREE', current_order_id: null })
         .eq('id', table.id);
 
-      // 5. Registrar en caja si hay sesión
       if (session?.id) {
         const field = payMethod === 'CASH' ? 'total_sales_cash' : 'total_sales_card';
         await supabase.from('cash_register_sessions')
@@ -194,7 +188,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleGoToPOS = () => {
-    // Guardar items en sessionStorage para que el POS los cargue
     sessionStorage.setItem('pos_preload_table', JSON.stringify({
       tableId:   table.id,
       tableName: table.name,
@@ -215,7 +208,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[95vh] flex flex-col">
 
-        {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-4 flex items-center justify-between">
           <div>
             <h3 className="text-white font-black text-lg flex items-center gap-2">
@@ -230,7 +222,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-          {/* Resumen de items */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Resumen del pedido</p>
             <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-100">
@@ -250,7 +241,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           </div>
 
-          {/* Tipo de pedido */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tipo de pedido</p>
             <div className="grid grid-cols-2 gap-2">
@@ -267,7 +257,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           </div>
 
-          {/* Datos del cliente */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Datos del cliente</p>
             <div className="space-y-2">
@@ -293,7 +282,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           </div>
 
-          {/* Método de pago */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Método de pago</p>
             <div className="grid grid-cols-2 gap-2">
@@ -310,7 +298,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           </div>
 
-          {/* Monto recibido si es efectivo */}
           {payMethod === 'CASH' && (
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-2">Monto recibido</p>
@@ -329,7 +316,6 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
           )}
         </div>
 
-        {/* Footer acciones */}
         <div className="p-5 border-t border-slate-100 space-y-2">
           <button onClick={handlePay} disabled={saving}
             className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-base disabled:opacity-50 flex items-center justify-center gap-2">
@@ -355,7 +341,6 @@ const Tables: React.FC = () => {
   const navigate = useNavigate();
   const companyId = company?.id;
 
-  // State
   const [tables, setTables]   = useState<RestaurantTable[]>([]);
   const [orders, setOrders]   = useState<TableOrder[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -363,7 +348,6 @@ const Tables: React.FC = () => {
   const [selectedZone, setSelectedZone] = useState<string>('Todos');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  // Modals
   const [showTableModal, setShowTableModal]   = useState(false);
   const [showOrderModal, setShowOrderModal]   = useState(false);
   const [showPayModal,   setShowPayModal]     = useState(false);
@@ -371,33 +355,26 @@ const Tables: React.FC = () => {
   const [activeTable,    setActiveTable]      = useState<RestaurantTable | null>(null);
   const [activeOrder,    setActiveOrder]      = useState<TableOrder | null>(null);
 
-  // Table form
   const [tableForm, setTableForm] = useState({ name: '', seats: 4, zone: 'Salón' });
 
-  // Order form
   const [orderItems,     setOrderItems]   = useState<OrderItem[]>([]);
   const [orderNotes,     setOrderNotes]   = useState('');
   const [orderGuests,    setOrderGuests]  = useState(1);
   const [productSearch,  setProductSearch]= useState('');
   const [savingOrder,    setSavingOrder]  = useState(false);
 
-  // Ready notifications — track which tables just became READY
+  const [catalogTab,    setCatalogTab]    = useState<'platos' | 'bebidas' | 'pizzas'>('platos');
+  const [beverages,     setBeverages]     = useState<any[]>([]);
+  const [pizzaSummary,  setPizzaSummary]  = useState<any[]>([]);
+  const [selectedPizzaSlices, setSelectedPizzaSlices] = useState<Record<string, number[]>>({});
+
   const prevReadyTablesRef = useRef<Set<string>>(new Set());
 
-  // Notas rápidas por categoría
   const [quickNotesByCategory, setQuickNotesByCategory] = useState<Record<string, string[]>>({});
-
-  // Color del mesero actual
   const [waiterColor, setWaiterColor] = useState<string>('#3b82f6');
   const [waiterId, setWaiterId]       = useState<string | null>(null);
-
-  // Modal de nota por ítem
   const [editingItemNote, setEditingItemNote] = useState<{ itemId: string; currentNote: string } | null>(null);
-
-  // Modal QR
   const [showQrModal, setShowQrModal] = useState(false);
-
-  // Categorías del menú (para notas rápidas)
   const [menuCategories, setMenuCategories] = useState<{id: string; name: string; quick_notes: string[]}[]>([]);
 
   // ── LOAD DATA ────────────────────────────────────────────────────────────────
@@ -407,7 +384,6 @@ const Tables: React.FC = () => {
       .from('restaurant_tables').select('*')
       .eq('company_id', companyId).eq('is_active', true).order('name');
     if (data) {
-      // Detectar mesas que acaban de cambiar a READY
       const newReadyTables = new Set(
         data.filter((t: RestaurantTable) => t.status === 'READY').map((t: RestaurantTable) => t.id)
       );
@@ -420,11 +396,8 @@ const Tables: React.FC = () => {
           .map((t: RestaurantTable) => t.name)
           .join(', ');
 
-        // 🔔 Sonido
         playReadySound();
-        // 📳 Vibración
         vibrateDevice([200, 100, 200, 100, 400]);
-        // 🍽️ Toast prominente
         toast(
           (t) => (
             <div className="flex items-center gap-3">
@@ -466,12 +439,33 @@ const Tables: React.FC = () => {
 
   const loadProducts = useCallback(async () => {
     if (!companyId) return;
+    const { data: cats } = await supabase
+      .from('rest_menu_categories').select('id, name')
+      .eq('company_id', companyId).eq('is_active', true);
+    const catMap: Record<string, string> = {};
+    (cats || []).forEach((c: any) => { catMap[c.id] = c.name; });
+
     const { data } = await supabase
       .from('rest_menu_items').select('id, name, price, category_id, description')
       .eq('company_id', companyId).eq('is_active', true).eq('is_available', true).order('name');
     if (data) setProducts(data.map((item: any) => ({
-      ...item, category: item.category_id || 'Menú',
+      ...item,
+      category: catMap[item.category_id] || 'Menú',
     })));
+
+    const { data: bevs } = await supabase
+      .from('rest_beverages').select('id, name, category, presentation, price, stock')
+      .eq('company_id', companyId).eq('is_active', true).gt('stock', 0).order('name');
+    setBeverages(bevs || []);
+
+    try {
+      const { data: pizzas } = await supabase
+        .from('pizza_stock_summary').select('*')
+        .eq('company_id', companyId).gt('slices_available', 0);
+      setPizzaSummary(pizzas || []);
+    } catch {
+      setPizzaSummary([]);
+    }
   }, [companyId]);
 
   useEffect(() => {
@@ -483,10 +477,8 @@ const Tables: React.FC = () => {
     init();
   }, [loadTables, loadOrders, loadProducts]);
 
-  // Cargar notas rápidas por categoría y color del mesero
   useEffect(() => {
     if (!companyId) return;
-    // Notas rápidas
     supabase.from('rest_menu_categories')
       .select('id, name, quick_notes')
       .eq('company_id', companyId)
@@ -501,7 +493,6 @@ const Tables: React.FC = () => {
           setQuickNotesByCategory(map);
         }
       });
-    // Color del mesero
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       setWaiterId(user.id);
@@ -513,7 +504,6 @@ const Tables: React.FC = () => {
     });
   }, [companyId]);
 
-  // Realtime — detecta cambios en mesas y órdenes
   useEffect(() => {
     if (!companyId) return;
     const channel = supabase
@@ -533,20 +523,17 @@ const Tables: React.FC = () => {
   const getOrderTotal = (items: OrderItem[]) =>
     items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-  // Obtener notas rápidas para un producto (por su categoría en el menú)
   const getQuickNotesForProduct = (productId: string): string[] => {
     const product = products.find(p => p.id === productId);
     if (!product?.category_id) return [];
     return quickNotesByCategory[product.category_id] || [];
   };
 
-  // Aplicar nota a un ítem específico
   const setItemNote = (itemId: string, note: string) => {
     setOrderItems(prev => prev.map(i => i.id === itemId ? { ...i, notes: note } : i));
     setEditingItemNote(null);
   };
 
-  // QR URL del kiosk mesero
   const waiterQrUrl = companyId
     ? `${window.location.origin}${window.location.pathname}#/kiosk/${companyId}`
     : '';
@@ -570,6 +557,50 @@ const Tables: React.FC = () => {
     ready:    tables.filter(t => t.status === 'READY').length,
     total:    tables.length,
   };
+
+  // ── PIZZA STOCK HELPERS ──────────────────────────────────────────────────────
+  /**
+   * Extrae el pizza_type_id de un product_id de pizza.
+   * Formato: "pizza-{typeId}-slice" o "pizza-{typeId}-whole"
+   */
+  const extractPizzaTypeId = (productId: string): string | null => {
+    if (!productId.startsWith('pizza-')) return null;
+    const withoutPrefix = productId.slice('pizza-'.length); // "{typeId}-slice" o "{typeId}-whole"
+    if (withoutPrefix.endsWith('-slice')) return withoutPrefix.slice(0, -'-slice'.length);
+    if (withoutPrefix.endsWith('-whole')) return withoutPrefix.slice(0, -'-whole'.length);
+    return null;
+  };
+
+  /**
+   * Devuelve N porciones al stock de pizza cuando se cancela/elimina un ítem.
+   * Solo actúa si el producto_id termina en "-slice".
+   */
+  const returnPizzaSlicesToStock = useCallback(async (item: OrderItem) => {
+    if (!item.product_id.startsWith('pizza-') || !item.product_id.endsWith('-slice')) return;
+    const typeId = extractPizzaTypeId(item.product_id);
+    if (!typeId) return;
+
+    const qty = item.quantity;
+    const { data: openRows } = await supabase
+      .from('pizza_stock').select('id, slices_sold')
+      .eq('pizza_type_id', typeId).eq('status', 'OPEN')
+      .order('opened_at').limit(1);
+
+    if (openRows?.[0]) {
+      const newSold = Math.max(0, openRows[0].slices_sold - qty);
+      await supabase.from('pizza_stock')
+        .update({ slices_sold: newSold })
+        .eq('id', openRows[0].id);
+    }
+
+    // Refrescar resumen visual
+    try {
+      const { data: updated } = await supabase
+        .from('pizza_stock_summary').select('*')
+        .eq('company_id', companyId).gt('slices_available', 0);
+      setPizzaSummary(updated || []);
+    } catch { /* ok */ }
+  }, [companyId]);
 
   // ── SAVE TABLE ───────────────────────────────────────────────────────────────
   const handleSaveTable = async () => {
@@ -595,7 +626,7 @@ const Tables: React.FC = () => {
   };
 
   // ── OPEN ORDER MODAL ─────────────────────────────────────────────────────────
-  const openTable = (table: RestaurantTable) => {
+  const openTable = async (table: RestaurantTable) => {
     setActiveTable(table);
     const existing = getTableOrder(table.id);
     if (existing) {
@@ -608,10 +639,13 @@ const Tables: React.FC = () => {
       setOrderNotes(''); setOrderGuests(1);
     }
     setProductSearch('');
+    setCatalogTab('platos');
+    setSelectedPizzaSlices({});
+    await loadProducts();
     setShowOrderModal(true);
   };
 
-  // ── ADD / REMOVE / UPDATE ITEM ───────────────────────────────────────────────
+  // ── ADD ITEM ─────────────────────────────────────────────────────────────────
   const addItem = (product: any) => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.product_id === product.id);
@@ -620,9 +654,119 @@ const Tables: React.FC = () => {
     });
   };
 
-  const removeItem = (id: string) => setOrderItems(prev => prev.filter(i => i.id !== id));
-  const updateQty  = (id: string, delta: number) =>
-    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i).filter(i => i.quantity > 0));
+  const addBeverage = (bev: any) => {
+    const id = `bev-${bev.id}`;
+    setOrderItems(prev => {
+      const existing = prev.find(i => i.product_id === id);
+      if (existing) return prev.map(i => i.product_id === id ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: `🥤 ${bev.name} (${bev.presentation})`, quantity: 1, price: bev.price, notes: '', status: 'PENDING', sent_to_kitchen: false }];
+    });
+  };
+
+  const handleAddPizzaToOrder = async (pizza: any, qty: number, type: 'whole' | 'slice', indices: number[]) => {
+    const unitPrice = type === 'whole' ? pizza.price : pizza.price_per_slice;
+    const name = type === 'whole'
+      ? `🍕 ${pizza.name} — completa`
+      : `🍕 ${pizza.name} × ${qty} porción${qty > 1 ? 'es' : ''}`;
+    const id = `pizza-${pizza.pizza_type_id}-${type}`;
+    setOrderItems(prev => {
+      const existing = prev.find(i => i.product_id === id);
+      if (existing) return prev.map(i => i.product_id === id ? { ...i, quantity: i.quantity + (type === 'whole' ? 1 : qty) } : i);
+      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: name, quantity: type === 'whole' ? 1 : qty, price: unitPrice, notes: '', status: 'PENDING', sent_to_kitchen: false }];
+    });
+
+    // Descontar stock en pizza_stock (solo para porciones)
+    if (type === 'slice') {
+      const { data: openRows } = await supabase
+        .from('pizza_stock').select('id, slices_sold')
+        .eq('pizza_type_id', pizza.pizza_type_id).eq('status', 'OPEN')
+        .order('opened_at').limit(1);
+      if (openRows && openRows[0]) {
+        await supabase.from('pizza_stock')
+          .update({ slices_sold: openRows[0].slices_sold + qty })
+          .eq('id', openRows[0].id);
+      }
+    }
+
+    setSelectedPizzaSlices(prev => ({ ...prev, [pizza.pizza_type_id]: [] }));
+
+    // Refrescar resumen de pizzas
+    const { data: updated } = await supabase
+      .from('pizza_stock_summary').select('*')
+      .eq('company_id', companyId).gt('slices_available', 0);
+    setPizzaSummary(updated || []);
+    toast.success(name);
+  };
+
+  // ── REMOVE / UPDATE ITEM (con devolución de stock de pizza) ──────────────────
+  const removeItem = async (id: string) => {
+    const item = orderItems.find(i => i.id === id);
+    if (item) {
+      // Si es una porción de pizza, devolver stock antes de eliminar
+      await returnPizzaSlicesToStock(item);
+    }
+    setOrderItems(prev => prev.filter(i => i.id !== id));
+  };
+
+  const updateQty = async (id: string, delta: number) => {
+    const item = orderItems.find(i => i.id === id);
+
+    // Si la cantidad va a llegar a 0, eliminar con devolución de stock
+    if (item && item.quantity + delta <= 0) {
+      await removeItem(id);
+      return;
+    }
+
+    // Si es porción de pizza y se reduce cantidad, devolver las porciones quitadas
+    if (item && delta < 0 && item.product_id?.startsWith('pizza-') && item.product_id.endsWith('-slice')) {
+      const typeId = extractPizzaTypeId(item.product_id);
+      if (typeId) {
+        const { data: openRows } = await supabase
+          .from('pizza_stock').select('id, slices_sold')
+          .eq('pizza_type_id', typeId).eq('status', 'OPEN')
+          .order('opened_at').limit(1);
+        if (openRows?.[0]) {
+          const newSold = Math.max(0, openRows[0].slices_sold + delta); // delta es negativo
+          await supabase.from('pizza_stock')
+            .update({ slices_sold: newSold })
+            .eq('id', openRows[0].id);
+          // Refrescar resumen
+          try {
+            const { data: updated } = await supabase
+              .from('pizza_stock_summary').select('*')
+              .eq('company_id', companyId).gt('slices_available', 0);
+            setPizzaSummary(updated || []);
+          } catch { /* ok */ }
+        }
+      }
+    }
+
+    // Si es porción de pizza y se aumenta cantidad, descontar la porción adicional
+    if (item && delta > 0 && item.product_id?.startsWith('pizza-') && item.product_id.endsWith('-slice')) {
+      const typeId = extractPizzaTypeId(item.product_id);
+      if (typeId) {
+        const { data: openRows } = await supabase
+          .from('pizza_stock').select('id, slices_sold')
+          .eq('pizza_type_id', typeId).eq('status', 'OPEN')
+          .order('opened_at').limit(1);
+        if (openRows?.[0]) {
+          await supabase.from('pizza_stock')
+            .update({ slices_sold: openRows[0].slices_sold + delta })
+            .eq('id', openRows[0].id);
+          try {
+            const { data: updated } = await supabase
+              .from('pizza_stock_summary').select('*')
+              .eq('company_id', companyId).gt('slices_available', 0);
+            setPizzaSummary(updated || []);
+          } catch { /* ok */ }
+        }
+      }
+    }
+
+    setOrderItems(prev =>
+      prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)
+    );
+  };
 
   // ── SAVE ORDER ───────────────────────────────────────────────────────────────
   const handleSaveOrder = async (sendToKitchen = false) => {
@@ -674,14 +818,12 @@ const Tables: React.FC = () => {
     toast.success('Mesa liberada');
   };
 
-  // ── OPEN PAYMENT MODAL ───────────────────────────────────────────────────────
   const handleOpenPayment = () => {
     if (!activeOrder) { toast.error('No hay pedido activo para cobrar'); return; }
     setShowOrderModal(false);
     setShowPayModal(true);
   };
 
-  // ── MARK BILLING (solo marca, no paga) ───────────────────────────────────────
   const handleMarkBilling = async (tableId: string) => {
     await supabase.from('restaurant_tables').update({ status: 'BILLING' }).eq('id', tableId);
     setShowOrderModal(false);
@@ -689,7 +831,11 @@ const Tables: React.FC = () => {
     toast.success('Mesa marcada para cobro');
   };
 
-  const filteredProducts     = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || (p.category || '').toLowerCase().includes(productSearch.toLowerCase()));
+  const filteredProducts     = products.filter(p =>
+    !productSearch ||
+    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+    (p.category || '').toLowerCase().includes(productSearch.toLowerCase())
+  );
   const productsByCategory   = filteredProducts.reduce((acc: Record<string, any[]>, p) => {
     const cat = p.category || 'Menú';
     if (!acc[cat]) acc[cat] = [];
@@ -766,7 +912,6 @@ const Tables: React.FC = () => {
         ))}
       </div>
 
-      {/* Banner alerta si hay mesas READY */}
       {stats.ready > 0 && (
         <div className="flex items-center gap-3 bg-purple-50 border-2 border-purple-300 rounded-xl px-4 py-3 animate-pulse">
           <Bell size={20} className="text-purple-600 flex-shrink-0" />
@@ -799,25 +944,21 @@ const Tables: React.FC = () => {
                 className={`relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none ${isReady ? 'ring-2 ring-purple-400 ring-offset-1' : ''}`}
                 style={{ borderColor: status.border, background: status.bg }}>
 
-                {/* Status dot */}
                 <div className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full ${isReady ? 'animate-ping' : 'animate-pulse'}`} style={{ background: status.dot }} />
                 {isReady && <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full" style={{ background: status.dot }} />}
 
-                {/* Bell si está lista */}
                 {isReady && (
                   <div className="absolute top-2 left-2">
                     <Bell size={14} className="text-purple-600" />
                   </div>
                 )}
 
-                {/* Indicador de color del mesero propietario */}
                 {order?.waiter_color && order.waiter_color !== '#3b82f6' && (
                   <div className="absolute bottom-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-sm"
                     style={{ background: order.waiter_color }}
                     title={`Mesero: ${order.waiter_name || 'asignado'}`} />
                 )}
 
-                {/* Edit/delete buttons */}
                 <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100" onClick={e => e.stopPropagation()}>
                   {!isReady && (
                     <button onClick={e => { e.stopPropagation(); setEditingTable(table); setTableForm({ name: table.name, seats: table.seats, zone: table.zone }); setShowTableModal(true); }}
@@ -977,34 +1118,216 @@ const Tables: React.FC = () => {
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
               {/* LEFT: Product catalog */}
               <div className="flex-1 flex flex-col overflow-hidden border-r border-slate-100">
-                <div className="p-3 border-b border-slate-100">
-                  <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                    placeholder="🔍 Buscar plato del menú..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+
+                {/* Tabs */}
+                <div className="flex gap-1 p-2 border-b border-slate-100 bg-slate-50">
+                  {([
+                    { id: 'platos',  label: 'Platos',  icon: <Utensils size={12}/> },
+                    { id: 'bebidas', label: 'Bebidas', icon: <Beer size={12}/> },
+                    { id: 'pizzas',  label: 'Pizzas',  icon: <Pizza size={12}/>,  hide: pizzaSummary.length === 0 },
+                  ] as const).filter(t => !('hide' in t && t.hide)).map(t => (
+                    <button key={t.id} onClick={() => { setCatalogTab(t.id); setProductSearch(''); }}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        catalogTab === t.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-white hover:text-slate-700'
+                      }`}>
+                      {t.icon} {t.label}
+                      {t.id === 'pizzas' && pizzaSummary.length > 0 && (
+                        <span className="bg-orange-500 text-white text-[9px] font-black rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                          {pizzaSummary.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                  {Object.keys(productsByCategory).length === 0 ? (
-                    <div className="text-center py-8 text-slate-400">
-                      <Coffee size={32} className="mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">No hay platos en el menú. Agrégalos en Display de Cocina → Menú.</p>
-                    </div>
-                  ) : (
-                    Object.entries(productsByCategory).map(([cat, prods]) => (
-                      <div key={cat}>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">{cat}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {prods.map((p: any) => (
-                            <button key={p.id} onClick={() => addItem(p)}
-                              className="text-left p-3 bg-slate-50 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded-xl transition-all active:scale-95">
-                              <p className="font-semibold text-slate-800 text-sm leading-tight">{p.name}</p>
-                              <p className="text-blue-600 font-black text-sm mt-1">{formatCurrency(p.price)}</p>
-                            </button>
-                          ))}
-                        </div>
+
+                {/* Buscador */}
+                {catalogTab !== 'pizzas' && (
+                  <div className="p-3 border-b border-slate-100">
+                    <input value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                      placeholder={catalogTab === 'platos' ? '🔍 Buscar plato...' : '🔍 Buscar bebida...'}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                  </div>
+                )}
+
+                {/* ── TAB PLATOS ── */}
+                {catalogTab === 'platos' && (
+                  <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                    {Object.keys(productsByCategory).length === 0 ? (
+                      <div className="text-center py-8 text-slate-400">
+                        <Coffee size={32} className="mx-auto mb-2 opacity-40" />
+                        <p className="text-sm">No hay platos disponibles hoy.</p>
+                        <p className="text-xs mt-1 text-slate-300">Actívalos en Display de Cocina → Menú</p>
                       </div>
-                    ))
-                  )}
-                </div>
+                    ) : (
+                      Object.entries(productsByCategory).map(([cat, prods]) => (
+                        <div key={cat}>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">{cat}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {(prods as any[]).map((p: any) => (
+                              <button key={p.id} onClick={() => addItem(p)}
+                                className="text-left p-3 bg-slate-50 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded-xl transition-all active:scale-95">
+                                <p className="font-semibold text-slate-800 text-sm leading-tight">{p.name}</p>
+                                <p className="text-blue-600 font-black text-sm mt-1">{formatCurrency(p.price)}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* ── TAB BEBIDAS ── */}
+                {catalogTab === 'bebidas' && (() => {
+                  const filteredBevs = beverages.filter(b =>
+                    !productSearch || b.name.toLowerCase().includes(productSearch.toLowerCase())
+                  );
+                  const bevsByCategory = filteredBevs.reduce((acc: Record<string, any[]>, b) => {
+                    const cat = b.category || 'Bebidas';
+                    if (!acc[cat]) acc[cat] = [];
+                    acc[cat].push(b);
+                    return acc;
+                  }, {});
+                  return (
+                    <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                      {filteredBevs.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400">
+                          <Beer size={32} className="mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">No hay bebidas con stock disponible.</p>
+                          <p className="text-xs mt-1 text-slate-300">Agrégalas en Display de Cocina → Bebidas</p>
+                        </div>
+                      ) : (
+                        Object.entries(bevsByCategory).map(([cat, bevs]) => (
+                          <div key={cat}>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">{cat}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {(bevs as any[]).map((b: any) => (
+                                <button key={b.id} onClick={() => addBeverage(b)}
+                                  className="text-left p-3 bg-slate-50 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded-xl transition-all active:scale-95 relative">
+                                  <p className="font-semibold text-slate-800 text-sm leading-tight">{b.name}</p>
+                                  <p className="text-xs text-slate-400 mt-0.5">{b.presentation}</p>
+                                  <p className="text-blue-600 font-black text-sm mt-1">{formatCurrency(b.price)}</p>
+                                  <span className="absolute top-2 right-2 text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">
+                                    {b.stock} disp.
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── TAB PIZZAS ── */}
+                {catalogTab === 'pizzas' && (
+                  <div className="flex-1 overflow-y-auto p-3">
+                    {pizzaSummary.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400">
+                        <Pizza size={32} className="mx-auto mb-2 opacity-40" />
+                        <p className="text-sm">No hay pizzas disponibles en este momento.</p>
+                        <p className="text-xs mt-1 text-slate-300">Ábrelas en Display de Cocina → Pizzas</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4">
+                        {pizzaSummary.map((pizza: any) => {
+                          const selected = selectedPizzaSlices[pizza.pizza_type_id] || [];
+                          const soldSlices = pizza.slices - pizza.slices_available;
+                          const soldSet = new Set(Array.from({ length: Math.min(soldSlices, pizza.slices) }, (_, i) => i));
+                          const selectedSet = new Set(selected);
+                          const pricePerSlice = pizza.price_per_slice || (pizza.price / pizza.slices);
+                          const cx = 70; const cy = 70; const r = 58; const innerR = 13;
+                          const slicePaths = Array.from({ length: pizza.slices }, (_, i) => {
+                            const step = (2 * Math.PI) / pizza.slices;
+                            const start = -Math.PI / 2 + i * step;
+                            const end   = -Math.PI / 2 + (i + 1) * step;
+                            const mid   = (start + end) / 2;
+                            const la = step > Math.PI ? 1 : 0;
+                            const x1 = cx + r * Math.cos(start); const y1 = cy + r * Math.sin(start);
+                            const x2 = cx + r * Math.cos(end);   const y2 = cy + r * Math.sin(end);
+                            const ix1 = cx + innerR * Math.cos(start); const iy1 = cy + innerR * Math.sin(start);
+                            const ix2 = cx + innerR * Math.cos(end);   const iy2 = cy + innerR * Math.sin(end);
+                            const lx = cx + r * 0.62 * Math.cos(mid);  const ly = cy + r * 0.62 * Math.sin(mid);
+                            const d = `M${ix1} ${iy1} L${x1} ${y1} A${r} ${r} 0 ${la} 1 ${x2} ${y2} L${ix2} ${iy2} A${innerR} ${innerR} 0 ${la} 0 ${ix1} ${iy1}Z`;
+                            return { d, i, lx, ly };
+                          });
+                          const getColor = (i: number) => {
+                            if (soldSet.has(i)) return '#e2e8f0';
+                            if (selectedSet.has(i)) return '#22c55e';
+                            if (pizza.is_combined && i >= pizza.slices / 2) return '#dc2626';
+                            return '#f97316';
+                          };
+                          const toggleSlice = (i: number) => {
+                            if (soldSet.has(i)) return;
+                            setSelectedPizzaSlices(prev => {
+                              const cur = prev[pizza.pizza_type_id] || [];
+                              return { ...prev, [pizza.pizza_type_id]: cur.includes(i) ? cur.filter(x => x !== i) : [...cur, i] };
+                            });
+                          };
+                          return (
+                            <div key={pizza.pizza_type_id} className="bg-white rounded-2xl border border-slate-200 p-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div>
+                                  <p className="font-bold text-slate-800">{pizza.name}</p>
+                                  <p className="text-xs text-slate-500">{pizza.size_label} · {pizza.slices} porciones</p>
+                                  {pizza.is_combined && (
+                                    <p className="text-[11px] text-orange-600 font-semibold mt-0.5">
+                                      🔀 {pizza.flavor_a} / {pizza.flavor_b}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-xs text-slate-400">por porción</p>
+                                  <p className="font-black text-orange-600">{formatCurrency(pricePerSlice)}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <svg width={140} height={140} viewBox="0 0 140 140" style={{ cursor: 'pointer', flexShrink: 0 }}>
+                                  <circle cx={cx} cy={cy} r={r + 4} fill="#92400e" />
+                                  {slicePaths.map(({ d, i, lx, ly }) => (
+                                    <g key={i} onClick={() => toggleSlice(i)}>
+                                      <path d={d} fill={getColor(i)} stroke="white" strokeWidth={2}
+                                        opacity={soldSet.has(i) ? 0.4 : 1}
+                                        style={{ cursor: soldSet.has(i) ? 'default' : 'pointer', transition: 'fill 0.15s' }} />
+                                      {soldSet.has(i) && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#94a3b8">✓</text>}
+                                      {selectedSet.has(i) && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fontSize={12} fill="white" fontWeight="bold">●</text>}
+                                    </g>
+                                  ))}
+                                  <circle cx={cx} cy={cy} r={innerR * 0.9} fill="white" />
+                                  <text x={cx} y={cy - 4} textAnchor="middle" dominantBaseline="central" fontSize={13} fontWeight="bold" fill="#1e293b">{pizza.slices_available}</text>
+                                  <text x={cx} y={cy + 10} textAnchor="middle" dominantBaseline="central" fontSize={8} fill="#64748b">disp.</text>
+                                </svg>
+                                <div className="flex-1 space-y-2">
+                                  {selected.length > 0 && (
+                                    <button onClick={() => handleAddPizzaToOrder(pizza, selected.length, 'slice', selected)}
+                                      className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm">
+                                      + {selected.length} porción{selected.length > 1 ? 'es' : ''}<br/>
+                                      <span className="text-xs font-normal">{formatCurrency(selected.length * pricePerSlice)}</span>
+                                    </button>
+                                  )}
+                                  <button onClick={() => handleAddPizzaToOrder(pizza, 1, 'whole', [])}
+                                    className="w-full py-2 border border-orange-300 text-orange-700 hover:bg-orange-50 rounded-xl font-semibold text-sm">
+                                    Pizza completa — {formatCurrency(pizza.price)}
+                                  </button>
+                                  {selected.length === 0 && (
+                                    <p className="text-[10px] text-slate-400 text-center">Toca las porciones naranjas</p>
+                                  )}
+                                </div>
+                              </div>
+                              {pizza.is_combined && (
+                                <div className="flex items-center gap-3 mt-2 justify-center text-xs">
+                                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"/>  {pizza.flavor_a}</span>
+                                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block"/> {pizza.flavor_b}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* RIGHT: Order summary */}
@@ -1035,10 +1358,12 @@ const Tables: React.FC = () => {
                       <div key={item.id} className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm font-semibold text-slate-800 leading-tight flex-1">{item.product_name}</p>
+                          {/* ── BOTÓN ELIMINAR: llama removeItem con devolución de stock ── */}
                           <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-500 mt-0.5"><X size={14} /></button>
                         </div>
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center gap-1.5">
+                            {/* ── BOTONES +/- : llaman updateQty con devolución de stock ── */}
                             <button onClick={() => updateQty(item.id, -1)}
                               className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm flex items-center justify-center">−</button>
                             <span className="w-6 text-center font-black text-slate-700 text-sm">{item.quantity}</span>
@@ -1102,7 +1427,6 @@ const Tables: React.FC = () => {
                   </button>
                   {activeOrder && (
                     <div className="grid grid-cols-2 gap-2">
-                      {/* COBRAR — abre modal de pago completo */}
                       <button onClick={handleOpenPayment}
                         className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1 transition-all">
                         <Receipt size={13} /> Cobrar
@@ -1124,7 +1448,16 @@ const Tables: React.FC = () => {
       {editingItemNote && (() => {
         const item = orderItems.find(i => i.id === editingItemNote.itemId);
         const product = products.find(p => p.id === item?.product_id);
-        const quickNotes = product?.category_id ? (quickNotesByCategory[product.category_id] || []) : [];
+        const isBeverage = item?.product_id?.startsWith('bev-');
+        const isPizza    = item?.product_id?.startsWith('pizza-');
+        let quickNotes: string[] = [];
+        if (product?.category_id) {
+          quickNotes = quickNotesByCategory[product.category_id] || [];
+        } else if (isBeverage) {
+          quickNotes = ['Sin hielo', 'Con hielo', 'Sin azúcar', 'Poco dulce', 'Sin limón', 'Con limón', 'Pequeño', 'Grande'];
+        } else if (isPizza) {
+          quickNotes = ['Bien cocida', 'Poco cocida', 'Sin picante', 'Extra queso', 'Para llevar'];
+        }
         return (
           <div className="fixed inset-0 bg-black/60 z-[60] flex items-end sm:items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
@@ -1196,7 +1529,6 @@ const Tables: React.FC = () => {
             </div>
             <div className="p-5 space-y-4">
               <div className="bg-slate-50 rounded-xl p-4 text-center space-y-3">
-                {/* QR generado con API pública — no requiere librería */}
                 <img
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(waiterQrUrl)}`}
                   alt="QR Mesero"
@@ -1237,7 +1569,6 @@ const Tables: React.FC = () => {
                   <Printer size={14} /> Imprimir
                 </button>
               </div>
-              {/* Color del mesero */}
               <div className="border-t border-slate-100 pt-3">
                 <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
                   <User size={11} /> Tu color de mesero
