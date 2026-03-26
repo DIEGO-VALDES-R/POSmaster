@@ -377,6 +377,18 @@ const Tables: React.FC = () => {
   const [showQrModal, setShowQrModal] = useState(false);
   const [menuCategories, setMenuCategories] = useState<{id: string; name: string; quick_notes: string[]}[]>([]);
 
+  // ── CUSTOM PIZZA STATE ───────────────────────────────────────────────────────
+  const [showCustomPizzaModal, setShowCustomPizzaModal] = useState(false);
+  const [customPizzaForm, setCustomPizzaForm] = useState({
+    slices: 8,
+    isHalf: false,
+    flavorA: '',
+    flavorB: '',
+    price: 0,
+    quantity: 1,
+    notes: '',
+  });
+
   // ── LOAD DATA ────────────────────────────────────────────────────────────────
   const loadTables = useCallback(async () => {
     if (!companyId) return;
@@ -601,6 +613,33 @@ const Tables: React.FC = () => {
       setPizzaSummary(updated || []);
     } catch { /* ok */ }
   }, [companyId]);
+
+  // ── CUSTOM PIZZA HANDLER ────────────────────────────────────────────────────
+  const handleAddCustomPizza = () => {
+    const { slices, isHalf, flavorA, flavorB, price, quantity, notes } = customPizzaForm;
+    if (!flavorA.trim()) { toast.error('Escribe el sabor de la pizza'); return; }
+    if (price <= 0) { toast.error('Ingresa el precio'); return; }
+
+    const name = isHalf
+      ? `🍕 Pizza ${slices}p — ${flavorA.trim()} / ${flavorB.trim() || '?'}`
+      : `🍕 Pizza ${slices}p — ${flavorA.trim()}`;
+
+    const newItem: OrderItem = {
+      id: crypto.randomUUID(),
+      product_id: `custom-pizza-${Date.now()}`,
+      product_name: name,
+      quantity,
+      price,
+      notes: notes.trim() || undefined,
+      status: 'PENDING',
+      sent_to_kitchen: false,
+    };
+
+    setOrderItems(prev => [...prev, newItem]);
+    setShowCustomPizzaModal(false);
+    setCustomPizzaForm({ slices: 8, isHalf: false, flavorA: '', flavorB: '', price: 0, quantity: 1, notes: '' });
+    toast.success(name);
+  };
 
   // ── SAVE TABLE ───────────────────────────────────────────────────────────────
   const handleSaveTable = async () => {
@@ -1140,6 +1179,16 @@ const Tables: React.FC = () => {
                   ))}
                 </div>
 
+                {/* Botón Pizza Personalizada */}
+                <div className="px-3 py-2 border-b border-slate-100">
+                  <button
+                    onClick={() => setShowCustomPizzaModal(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 rounded-xl text-sm font-bold transition-all"
+                  >
+                    <Pizza size={14} /> Pizza personalizada (sabor libre)
+                  </button>
+                </div>
+
                 {/* Buscador */}
                 {catalogTab !== 'pizzas' && (
                   <div className="p-3 border-b border-slate-100">
@@ -1518,6 +1567,162 @@ const Tables: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ════ MODAL: CUSTOM PIZZA ════ */}
+      {showCustomPizzaModal && (
+        <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <Pizza size={16} className="text-orange-500" /> Pizza personalizada
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">El cliente define el sabor en el momento</p>
+              </div>
+              <button onClick={() => setShowCustomPizzaModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+
+              {/* Tamaño */}
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tamaño</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { slices: 4,  label: '4p', sub: 'Personal' },
+                    { slices: 6,  label: '6p', sub: 'Mediana' },
+                    { slices: 8,  label: '8p', sub: 'Grande' },
+                    { slices: 12, label: '12p', sub: 'Familiar' },
+                  ].map(s => (
+                    <button key={s.slices}
+                      onClick={() => setCustomPizzaForm(f => ({ ...f, slices: s.slices }))}
+                      className={`py-2 rounded-xl border-2 text-center transition-all ${
+                        customPizzaForm.slices === s.slices
+                          ? 'border-orange-500 bg-orange-50 text-orange-700'
+                          : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                      }`}
+                    >
+                      <p className="font-black text-sm">{s.label}</p>
+                      <p className="text-[10px]">{s.sub}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tipo */}
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tipo</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: false }))}
+                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
+                      !customPizzaForm.isHalf
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    🍕 Un sabor
+                  </button>
+                  <button
+                    onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: true }))}
+                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
+                      customPizzaForm.isHalf
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    🔀 Mitad y mitad
+                  </button>
+                </div>
+              </div>
+
+              {/* Sabores */}
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
+                  {customPizzaForm.isHalf ? 'Sabores' : 'Sabor'}
+                </p>
+                <div className="space-y-2">
+                  <input
+                    value={customPizzaForm.flavorA}
+                    onChange={e => setCustomPizzaForm(f => ({ ...f, flavorA: e.target.value }))}
+                    placeholder={customPizzaForm.isHalf ? 'Mitad 1 — ej: Pepperoni' : 'Ej: Hawaiana, 4 quesos...'}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                  {customPizzaForm.isHalf && (
+                    <input
+                      value={customPizzaForm.flavorB}
+                      onChange={e => setCustomPizzaForm(f => ({ ...f, flavorB: e.target.value }))}
+                      placeholder="Mitad 2 — ej: Cucuteña"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-red-400 border-red-200"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Precio y cantidad */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase mb-2">Precio</p>
+                  <input
+                    type="number"
+                    min="0"
+                    value={customPizzaForm.price || ''}
+                    onChange={e => setCustomPizzaForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))}
+                    placeholder="Ej: 35000"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase mb-2">Cantidad</p>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setCustomPizzaForm(f => ({ ...f, quantity: Math.max(1, f.quantity - 1) }))}
+                      className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 font-bold text-lg flex items-center justify-center">−</button>
+                    <span className="flex-1 text-center font-black text-slate-800">{customPizzaForm.quantity}</span>
+                    <button onClick={() => setCustomPizzaForm(f => ({ ...f, quantity: f.quantity + 1 }))}
+                      className="w-9 h-9 rounded-lg bg-orange-100 hover:bg-orange-200 font-bold text-lg text-orange-700 flex items-center justify-center">+</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Nota */}
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
+                  <MessageSquare size={11} /> Nota para cocina
+                </p>
+                <textarea
+                  value={customPizzaForm.notes}
+                  onChange={e => setCustomPizzaForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Ej: borde relleno, sin cebolla, bien cocida..."
+                  rows={2}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none resize-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+
+              {/* Preview del nombre */}
+              {customPizzaForm.flavorA && (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-sm text-orange-700 font-semibold text-center">
+                  {customPizzaForm.isHalf
+                    ? `🍕 Pizza ${customPizzaForm.slices}p — ${customPizzaForm.flavorA} / ${customPizzaForm.flavorB || '...'}`
+                    : `🍕 Pizza ${customPizzaForm.slices}p — ${customPizzaForm.flavorA}`}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setShowCustomPizzaModal(false)}
+                className="flex-1 py-2.5 border border-slate-200 rounded-xl font-semibold text-slate-600 text-sm hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button onClick={handleAddCustomPizza}
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                <Plus size={14} /> Agregar al pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ════ MODAL: QR MESEROS ════ */}
       {showQrModal && (
