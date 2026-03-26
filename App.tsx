@@ -57,6 +57,7 @@ const GymClientPortal    = lazy(() => import('./GymClientPortal'));
 const GymClassesDisplay  = lazy(() => import('./GymClassesDisplay'));
 // ── NUEVA: Configuración de Integraciones (WhatsApp + Email por empresa) ──────
 const ConfiguracionIntegraciones = lazy(() => import('./pages/ConfiguracionIntegraciones'));
+const PromoCampaigns = lazy(() => import('./pages/PromoCampaigns'));
 
 const WHATSAPP_NUMBER  = import.meta.env.VITE_WHATSAPP_NUMBER  || '573204884943';
 const BOLD_PAYMENT_URL = import.meta.env.VITE_BOLD_PAYMENT_URL || 'https://checkout.bold.co/payment/LNK_U58X7N71NX';
@@ -431,6 +432,7 @@ const AppRoutes: React.FC = () => (
       <Route path="/panaderia"                 element={<Panaderia />} />
       {/* ── NUEVA ruta: Configuración de Integraciones ── */}
       <Route path="/configuracion/integraciones" element={<ConfiguracionIntegraciones />} />
+      <Route path="/promociones" element={<PromoCampaigns />} />
     </Routes>
   </Suspense>
 );

@@ -8,6 +8,7 @@ import {
   Scissors, Stethoscope, FlaskConical, PawPrint, Pill, UserRound,
   ChevronDown, ChevronRight, ChevronLeft, ExternalLink, Users2, Truck, RotateCcw, CreditCard, Dumbbell,
   RefreshCw, TrendingDown, Cpu, X, Droplets, Shirt, ShoppingBag,
+  Megaphone,  // ← agregado aquí
 } from 'lucide-react';
 import { useCurrency, CurrencyCode } from '../contexts/CurrencyContext';
 import OnboardingWizard from './OnboardingWizard';
@@ -69,6 +70,7 @@ const MODULE_PATHS: Record<string, string> = {
   reports:     '/reports',
   apartados:   '/apartados',
   b2b:         '/b2b',
+  promociones: '/promociones', // ← agregado
 };
 
 interface NavItem { label: string; path: string; icon: React.ElementType; }
@@ -148,6 +150,7 @@ function getNavItems(
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Cartera / CxC',    path: MODULE_PATHS.receivables, icon: FileText });
   if (p('can_view_reports'))    finanzasItems.push({ label: 'Cuentas x Pagar',  path: MODULE_PATHS.payables,    icon: CreditCard });
   if (isAdmin && hasFeature('op_expenses')) finanzasItems.push({ label: 'Gastos Operativos', path: MODULE_PATHS.expenses, icon: TrendingDown });
+  if (p('can_view_reports')) finanzasItems.push({ label: 'Promociones', path: MODULE_PATHS.promociones, icon: Megaphone }); // ← agregado
 
   const moduloItems: NavItem[] = [];
   if (['restaurante','restaurant','cocina','cafeteria'].includes(type)) {
