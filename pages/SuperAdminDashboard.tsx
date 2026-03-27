@@ -918,11 +918,31 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     const periodoLabel = mesActual.charAt(0).toUpperCase() + mesActual.slice(1);
 
     const [subPanel, setSubPanel] = React.useState<'cobros' | 'historial' | 'cotizaciones'>('cobros');
-    const [pagados, setPagados] = React.useState<Set<string>>(new Set());
+    // Persistir pagados en localStorage para no perderlos al re-render
+    const [pagados, setPagados] = React.useState<Set<string>>(() => {
+      try {
+        const saved = localStorage.getItem('billing_pagados');
+        return saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch { return new Set(); }
+    });
+
+    // Guardar pagados en localStorage cuando cambian
+    React.useEffect(() => {
+      localStorage.setItem('billing_pagados', JSON.stringify([...pagados]));
+    }, [pagados]);
     const [facturando, setFacturando] = React.useState<string | null>(null);
 
     // Descuentos por cliente: { [companyId]: { tipo: 'pct'|'val', valor: number, meses: number } }
-    const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>({});
+    const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>(() => {
+      try {
+        const saved = localStorage.getItem('billing_descuentos');
+        return saved ? JSON.parse(saved) : {};
+      } catch { return {}; }
+    });
+
+    React.useEffect(() => {
+      localStorage.setItem('billing_descuentos', JSON.stringify(descuentos));
+    }, [descuentos]);
 
     const [facturaConfig, setFacturaConfig] = React.useState<{
       factus_client_id: string;
@@ -932,14 +952,89 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       factus_env: string;
       mi_nit: string;
       mi_nombre: string;
+      numbering_range_id: number | null;
     }>({
       factus_client_id: '', factus_client_secret: '',
       factus_username: '', factus_password: '',
       factus_env: 'sandbox', mi_nit: '1130668482',
       mi_nombre: 'DIEGO FERNANDO VALDES RANGEL',
+      numbering_range_id: null,
     });
     const [showConfig, setShowConfig] = React.useState(false);
-    const [resultados, setResultados] = React.useState<Record<string, { cufe: string; pdf_url: string; numero: string; valor: number; fecha: string }>>({});
+    const [savingConfig, setSavingConfig] = React.useState(false);
+    const [resultados, setResultados] = React.useState<Record<string, { cufe: string; pdf_url: string; numero: string; valor: number; fecha: string }>>(() => {
+      try {
+        const saved = localStorage.getItem('billing_resultados');
+        return saved ? JSON.parse(saved) : {};
+      } catch { return {}; }
+    });
+
+    React.useEffect(() => {
+      localStorage.setItem('billing_resultados', JSON.stringify(resultados));
+    }, [resultados]);
+
+    // ── Cargar credenciales Factus desde la company del superadmin ────────────
+    React.useEffect(() => {
+      const loadFactusConfig = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase
+          .from('profiles').select('company_id').eq('id', user.id).single();
+        if (!profile?.company_id) return;
+        const { data: co } = await supabase
+          .from('companies').select('config').eq('id', profile.company_id).single();
+        const cfg = (co?.config as any) || {};
+        if (cfg.factus_client_id) {
+          setFacturaConfig(prev => ({
+            ...prev,
+            factus_client_id:     cfg.factus_client_id     || '',
+            factus_client_secret: cfg.factus_client_secret || '',
+            factus_username:      cfg.factus_username      || '',
+            factus_password:      cfg.factus_password      || '',
+            factus_env:           cfg.factus_env           || 'sandbox',
+            mi_nit:               cfg.mi_nit               || prev.mi_nit,
+            numbering_range_id:   cfg.numbering_range_id   || null,
+          }));
+        }
+      };
+      loadFactusConfig();
+    }, []);
+
+    // ── Guardar credenciales Factus en Supabase ───────────────────────────────
+    const guardarFactusConfig = async () => {
+      setSavingConfig(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { toast.error('No autenticado'); return; }
+        const { data: profile } = await supabase
+          .from('profiles').select('company_id').eq('id', user.id).single();
+        if (!profile?.company_id) { toast.error('No se encontró tu empresa'); return; }
+        const { data: co } = await supabase
+          .from('companies').select('config').eq('id', profile.company_id).single();
+        const configActual = (co?.config as object) || {};
+        await supabase.from('companies').update({
+          config: {
+            ...configActual,
+            factus_client_id:     facturaConfig.factus_client_id.trim(),
+            factus_client_secret: facturaConfig.factus_client_secret.trim(),
+            factus_username:      facturaConfig.factus_username.trim(),
+            factus_password:      facturaConfig.factus_password.trim(),
+            factus_env:           facturaConfig.factus_env,
+            mi_nit:               facturaConfig.mi_nit.trim(),
+            // Limpiar token cacheado al cambiar credenciales
+            numbering_range_id:   facturaConfig.numbering_range_id || null,
+            factus_token:         null,
+            factus_token_expiry:  null,
+          },
+        }).eq('id', profile.company_id);
+        toast.success('✅ Credenciales Factus guardadas');
+        setShowConfig(false);
+      } catch (err: any) {
+        toast.error('Error al guardar: ' + err.message);
+      } finally {
+        setSavingConfig(false);
+      }
+    };
 
     // Historial desde audit_logs
     const [historial, setHistorial] = React.useState<any[]>([]);
@@ -978,11 +1073,13 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       });
     };
 
-    const facturar = async (company: any) => {
+    const facturar = async (company: any, precioFinal?: number, mesesFacturar?: number) => {
       if (!facturaConfig.factus_client_id || !facturaConfig.factus_username) {
         toast.error('Configura tus credenciales de Factus primero'); setShowConfig(true); return;
       }
-      const precio = PLAN_PRICES[company.subscription_plan] || 62000;
+      const d = descuentos[company.id] || { tipo: 'pct', valor: 0, meses: 1 };
+      const precio = precioFinal ?? calcPrecio(company, d.meses);
+      const meses = mesesFacturar ?? d.meses;
       if (precio === 0) { toast.error('Plan sin precio configurado'); return; }
 
       setFacturando(company.id);
@@ -1007,59 +1104,87 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         const { access_token } = await tokenRes.json();
 
         // 2. Obtener rango de numeración activo
-        const rangosRes = await fetch(`${base}/v1/numbering-ranges?state=1`, {
+        const rangosRes = await fetch(`${base}/v1/numbering-ranges`, {
           headers: { 'Authorization': `Bearer ${access_token}`, 'Accept': 'application/json' },
         });
         const rangosData = await rangosRes.json();
-        const rangos = rangosData.data || rangosData || [];
-        const rango = rangos[0];
-        if (!rango?.id) { toast.error('No hay rango de numeración activo en Factus'); return; }
+        console.log('[Factus] rangosData raw:', JSON.stringify(rangosData).substring(0, 500));
+
+        // Factus puede devolver la lista en varias estructuras
+        let rangos: any[] = [];
+        if (Array.isArray(rangosData)) rangos = rangosData;
+        else if (Array.isArray(rangosData?.data)) rangos = rangosData.data;
+        else if (Array.isArray(rangosData?.data?.data)) rangos = rangosData.data.data;
+        else if (rangosData?.data && typeof rangosData.data === 'object') {
+          // A veces devuelve un objeto paginado con items dentro
+          const vals = Object.values(rangosData.data);
+          const arr = vals.find((v) => Array.isArray(v));
+          if (arr) rangos = arr as any[];
+        }
+        console.log('[Factus] rangos parseados:', rangos.length, JSON.stringify(rangos.map((r:any)=>({id:r.id,prefix:r.prefix,expired:r.is_expired}))));
+
+        // Tomar el primero no expirado; si todos expirados tomar el primero
+        const rango = rangos.find((r: any) => r.is_expired === false) ?? rangos.find((r: any) => !r.is_expired) ?? rangos[0];
+        if (!rango?.id) {
+          console.error('[Factus] No rango encontrado. Respuesta completa:', JSON.stringify(rangosData));
+          toast.error('No hay rango de numeración en Factus. Revisa la consola (F12) para ver el detalle.');
+          return;
+        }
+        console.log('[Factus] Rango seleccionado:', rango.id, rango.prefix);
+        // Si hay un numbering_range_id guardado en config, usarlo directamente
+        const rangoIdFinal: number = facturaConfig.numbering_range_id || rango.id;
+        console.log('[Factus] Rango ID final a usar:', rangoIdFinal);
 
         // 3. Armar payload de factura
-        const tieneNit = company.nit && company.nit.trim() !== '';
-        const docNum = tieneNit
-          ? company.nit.replace(/[^0-9]/g, '')
-          : '222222222222';
+                const nitLimpio = (company.nit || '').replace(/[^0-9]/g, '').replace(/^0+$/, '');
+        const tieneNit = nitLimpio.length > 3 && nitLimpio !== '0';
+        // Si no tiene NIT, generar un número basado en el ID de la empresa (consistente)
+        const idNumerico = tieneNit
+          ? nitLimpio
+          : (company.id || '').replace(/[^0-9]/g, '').slice(0, 10).padStart(10, '1') || '2222222222';
+        const docNum = idNumerico;
 
+        // Persona natural NO responsable de IVA — tributo ZZ, tarifa 0
         const payload = {
-          document: '01',
-          numbering_range_id: rango.id,
-          reference_code: `PM-${company.id.slice(0,8).toUpperCase()}`,
-          observation: `Mensualidad POSmaster - ${periodoLabel}`,
+          numbering_range_id: rangoIdFinal,
+          reference_code: `PM-${company.id.slice(0,6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+          observation: `Suscripcion POSmaster ${meses > 1 ? meses + ' meses' : 'mensual'} - ${periodoLabel}`,
           payment_form: '1',
           payment_due_date: new Date().toISOString().split('T')[0],
           payment_method_code: '10',
+          operation_type: '10',
+          send_email: false,
           customer: {
             identification: docNum,
-            dv: null,
-            company: tieneNit ? company.name : null,
-            trade_name: tieneNit ? company.name : null,
-            names: company.name,
+            dv: tieneNit ? '0' : null,
+            company: tieneNit ? company.name : '',
+            trade_name: tieneNit ? company.name : '',
+            names: company.name || 'Consumidor Final',
             address: company.address || 'Colombia',
             email: company.email || 'sin-email@posmaster.org',
-            mobile: company.phone || null,
-            phone: company.phone || null,
-            type_document_identification_id: tieneNit ? 31 : 13,
-            type_organization_id: tieneNit ? 1 : 2,
-            municipality_id: 149,
-            type_regime_id: 2,
-            type_liability_id: 117,
-            type_currency_id: 35,
+            phone: company.phone || '3000000000',
+            legal_organization_id: '2',    // Siempre persona natural para clientes sin NIT
+            tribute_id: '21',
+            identification_document_id: tieneNit ? '6' : '3',
+            municipality_id: '149',
           },
           items: [{
+            scheme_id: '1',
+            note: '',
             code_reference: `POSMASTER-${company.subscription_plan}`,
-            name: `Suscripción POSmaster Plan ${company.subscription_plan} - ${periodoLabel}`,
+            name: `Suscripcion POSmaster Plan ${company.subscription_plan}${meses > 1 ? ' x' + meses + ' meses' : ''} - ${periodoLabel}`,
             quantity: 1,
-            discount_rate: '0.00',
-            price: (precio / 1.19).toFixed(6),
-            tax_rate: '19.00',
+            discount_rate: 0,
+            price: precio,          // Precio total — no responsable de IVA
+            tax_rate: '0.00',       // No responsable IVA (persona natural régimen simple)
             unit_measure_id: 70,
             standard_code_id: 1,
-            is_excluded: 0,
-            taxes: [{ tax_rate_code: '19.00' }],
+            is_excluded: 1,         // Excluido de IVA
+            tribute_id: 1,          // Debe ser 1 (IVA) incluso cuando is_excluded=1
+            withholding_taxes: [],
           }],
-          withholding_taxes: [],
         };
+        console.log('[Factus] payload:', JSON.stringify(payload, null, 2));
 
         // 4. Enviar a Factus
         const factRes = await fetch(`${base}/v1/bills/validate`, {
@@ -1074,8 +1199,10 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         const factData = await factRes.json();
 
         if (!factRes.ok || factData.status === 'error') {
+          const errDetail = factData.data?.errors ? JSON.stringify(factData.data.errors) : '';
           const errMsg = factData.message || factData.errors?.join(', ') || `Error ${factRes.status}`;
-          toast.error(`Error Factus: ${errMsg}`); return;
+          console.error('[Factus] Error 422:', JSON.stringify(factData, null, 2));
+          toast.error(`Error Factus: ${errMsg} ${errDetail}`); return;
         }
 
         const bill = factData.data?.bill || factData.bill || factData.data || {};
@@ -1083,16 +1210,18 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         const pdf_url = bill.public_url || bill.pdf_url || '';
         const numero = bill.number || bill.bill_number || '';
 
-        setResultados(prev => ({ ...prev, [company.id]: { cufe, pdf_url, numero } }));
+        setResultados(prev => ({ ...prev, [company.id]: { cufe, pdf_url, numero, valor: precio, fecha: new Date().toLocaleDateString('es-CO') } }));
         toast.success(`✅ Factura ${numero} emitida para ${company.name}`);
 
         // 5. Registrar en audit_logs
-        await supabase.from('audit_logs').insert({
-          company_id: company.id,
-          action: 'FACTURA_MENSUALIDAD',
-          table_name: 'billing',
-          new_data: { cufe, pdf_url, numero, periodo: periodoLabel, plan: company.subscription_plan, valor: precio },
-        }).catch(() => {});
+        try {
+          await supabase.from('audit_logs').insert({
+            company_id: company.id,
+            action: 'FACTURA_MENSUALIDAD',
+            table_name: 'billing',
+            new_data: { cufe, pdf_url, numero, periodo: periodoLabel, plan: company.subscription_plan, valor: precio },
+          });
+        } catch (_) { /* tabla opcional */ }
 
       } catch (err: any) {
         toast.error('Error de conexión: ' + err.message);
@@ -1161,7 +1290,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
             { label: 'Clientes activos', value: clientesActivos.length, color: '#3b82f6' },
             { label: 'Marcados pagados', value: pagados.size, color: '#10b981' },
             { label: 'Facturados hoy', value: Object.keys(resultados).length, color: '#8b5cf6' },
-            { label: 'Total a facturar', value: fmt(clientesActivos.filter(c => pagados.has(c.id)).reduce((s, c) => s + calcPrecio(c), 0)), color: '#f59e0b', isText: true },
+            { label: 'Total a facturar', value: fmt(clientesActivos.filter(c => pagados.has(c.id)).reduce((s, c) => { const d = descuentos[c.id] || { tipo: 'pct', valor: 0, meses: 1 }; return s + calcPrecio(c, d.meses); }, 0)), color: '#f59e0b', isText: true },
           ].map(({ label, value, color, isText }) => (
             <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
               <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' as const }}>{label}</p>
@@ -1196,6 +1325,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                   { k: 'factus_username', label: 'Email Factus' },
                   { k: 'factus_password', label: 'Contraseña Factus' },
                   { k: 'mi_nit', label: 'Tu Cédula / NIT' },
+                  { k: 'numbering_range_id', label: 'ID Rango Numeración (ej: 8)' },
                 ].map(({ k, label }) => (
                   <div key={k}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>{label}</label>
@@ -1212,6 +1342,17 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                     <option value="production">Producción (real)</option>
                   </select>
                 </div>
+              </div>
+              {/* Botón guardar */}
+              <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                <button onClick={guardarFactusConfig} disabled={savingConfig}
+                  style={{ ...btn('purple'), padding: '9px 20px', fontSize: 13, opacity: savingConfig ? 0.6 : 1 }}>
+                  {savingConfig ? <><RefreshCw size={13} style={{ display:'inline', marginRight:5 }}/> Guardando...</> : '💾 Guardar credenciales'}
+                </button>
+                <button onClick={() => setShowConfig(false)}
+                  style={{ ...btn('gray'), padding: '9px 16px', fontSize: 13 }}>
+                  Cerrar
+                </button>
               </div>
             </div>
           )}
@@ -1306,9 +1447,18 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                         <td style={col}>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
                             {marcado && !resultado && (
-                              <button onClick={() => facturar(c)} disabled={!!estFacturando}
+                              <button onClick={() => facturar(c, precioFinal, d.meses)} disabled={!!estFacturando}
                                 style={{ ...btn('purple'), opacity: estFacturando ? 0.6 : 1 }}>
                                 {estFacturando ? '...' : <><Send size={11} /> Facturar</>}
+                              </button>
+                            )}
+                            {marcado && resultado && (
+                              <button onClick={() => {
+                                if (window.confirm('¿Emitir una factura adicional para este cliente?')) {
+                                  setResultados(prev => { const n = {...prev}; delete n[c.id]; return n; });
+                                }
+                              }} style={{ ...btn('gray'), fontSize: 10 }} title="Re-facturar">
+                                + Nueva
                               </button>
                             )}
                             {resultado?.pdf_url && (
