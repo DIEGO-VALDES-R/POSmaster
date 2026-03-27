@@ -18,6 +18,12 @@ type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'
 type OrderType   = 'MESA' | 'DOMICILIO' | 'PARA_LLEVAR' | 'DRIVE_THRU';
 type PayMethod   = 'CASH' | 'CARD' | 'TRANSFER' | 'NEQUI' | 'DAVIPLATA';
 
+// ── Adicional con precio opcional ────────────────────────────────────────────
+interface OrderItemExtra {
+  note:  string;   // descripción del adicional
+  price: number;   // precio adicional (0 = solo nota sin costo)
+}
+
 interface RestaurantTable {
   id: string; company_id: string; branch_id?: string;
   name: string; seats: number; zone: string;
@@ -35,6 +41,7 @@ interface TableOrder {
 interface OrderItem {
   id: string; product_id: string; product_name: string;
   quantity: number; price: number; notes?: string;
+  extras?: OrderItemExtra[];                              // ← NUEVO
   status: 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERED';
   sent_to_kitchen: boolean;
 }
@@ -105,10 +112,14 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
   table, order, company, companyId, branchId, session,
   onClose, onSuccess, navigate, formatCurrency,
 }) => {
-  const total = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
+  // Total incluyendo extras
+  const total = order.items.reduce((s, i) => {
+    const extrasTotal = (i.extras || []).reduce((ea, e) => ea + e.price, 0);
+    return s + i.price * i.quantity + extrasTotal;
+  }, 0);
 
-  const [orderType,   setOrderType]   = useState<OrderType>('MESA');
-  const [payMethod,   setPayMethod]   = useState<PayMethod>('CASH');
+  const [orderType,    setOrderType]    = useState<OrderType>('MESA');
+  const [payMethod,    setPayMethod]    = useState<PayMethod>('CASH');
   const [customerName, setCustomerName] = useState('');
   const [customerDoc,  setCustomerDoc]  = useState('');
   const [customerPhone,setCustomerPhone]= useState('');
@@ -152,14 +163,28 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
 
       if (invErr) throw invErr;
 
-      const itemsToInsert = order.items.map(i => ({
-        invoice_id:  invoice.id,
-        product_id:  null,
-        description: i.product_name,
-        quantity:    i.quantity,
-        price:       i.price,
-        tax_rate:    0,
-      }));
+      // Insertar ítems con extras desglosados
+      const itemsToInsert = order.items.flatMap(i => {
+        const rows = [{
+          invoice_id:  invoice.id,
+          product_id:  null,
+          description: i.product_name + (i.notes ? ` (${i.notes})` : ''),
+          quantity:    i.quantity,
+          price:       i.price,
+          tax_rate:    0,
+        }];
+        (i.extras || []).filter(e => e.price > 0).forEach(e => {
+          rows.push({
+            invoice_id:  invoice.id,
+            product_id:  null,
+            description: `  + ${e.note}`,
+            quantity:    1,
+            price:       e.price,
+            tax_rate:    0,
+          });
+        });
+        return rows;
+      });
       await supabase.from('invoice_items').insert(itemsToInsert);
 
       await supabase.from('table_orders')
@@ -222,18 +247,36 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
+          {/* Resumen del pedido con extras */}
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase mb-2">Resumen del pedido</p>
             <div className="bg-slate-50 rounded-xl border border-slate-200 divide-y divide-slate-100">
-              {order.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center px-4 py-2.5 text-sm">
-                  <span className="text-slate-700">
-                    <span className="font-bold text-slate-400 mr-2">x{item.quantity}</span>
-                    {item.product_name}
-                  </span>
-                  <span className="font-bold text-slate-800">{formatCurrency(item.price * item.quantity)}</span>
-                </div>
-              ))}
+              {order.items.map((item, idx) => {
+                const extrasTotal = (item.extras || []).reduce((s, e) => s + e.price, 0);
+                return (
+                  <div key={idx}>
+                    <div className="flex justify-between items-center px-4 py-2.5 text-sm">
+                      <span className="text-slate-700">
+                        <span className="font-bold text-slate-400 mr-2">x{item.quantity}</span>
+                        {item.product_name}
+                        {item.notes && <span className="text-slate-400 text-xs ml-1">({item.notes})</span>}
+                      </span>
+                      <span className="font-bold text-slate-800">{formatCurrency(item.price * item.quantity + extrasTotal)}</span>
+                    </div>
+                    {/* Sub-líneas de extras con precio */}
+                    {(item.extras || []).filter(e => e.price > 0).map((e, ei) => (
+                      <div key={ei} className="flex justify-between items-center px-4 pb-1.5 text-xs">
+                        <span className="text-emerald-600 pl-6">↳ + {e.note}</span>
+                        <span className="text-emerald-700 font-semibold">{formatCurrency(e.price)}</span>
+                      </div>
+                    ))}
+                    {/* Notas sin precio */}
+                    {(item.extras || []).filter(e => e.price === 0).map((e, ei) => (
+                      <div key={`n-${ei}`} className="px-4 pb-1.5 text-xs text-slate-400 pl-10">↳ {e.note}</div>
+                    ))}
+                  </div>
+                );
+              })}
               <div className="flex justify-between items-center px-4 py-3 bg-slate-100 rounded-b-xl">
                 <span className="font-black text-slate-800">TOTAL</span>
                 <span className="font-black text-xl text-slate-900">{formatCurrency(total)}</span>
@@ -341,52 +384,54 @@ const Tables: React.FC = () => {
   const navigate = useNavigate();
   const companyId = company?.id;
 
-  const [tables, setTables]   = useState<RestaurantTable[]>([]);
-  const [orders, setOrders]   = useState<TableOrder[]>([]);
+  const [tables,   setTables]   = useState<RestaurantTable[]>([]);
+  const [orders,   setOrders]   = useState<TableOrder[]>([]);
   const [products, setProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading,  setLoading]  = useState(true);
   const [selectedZone, setSelectedZone] = useState<string>('Todos');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode,     setViewMode]     = useState<'grid' | 'list'>('grid');
 
-  const [showTableModal, setShowTableModal]   = useState(false);
-  const [showOrderModal, setShowOrderModal]   = useState(false);
-  const [showPayModal,   setShowPayModal]     = useState(false);
-  const [editingTable,   setEditingTable]     = useState<RestaurantTable | null>(null);
-  const [activeTable,    setActiveTable]      = useState<RestaurantTable | null>(null);
-  const [activeOrder,    setActiveOrder]      = useState<TableOrder | null>(null);
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showPayModal,   setShowPayModal]   = useState(false);
+  const [editingTable,   setEditingTable]   = useState<RestaurantTable | null>(null);
+  const [activeTable,    setActiveTable]    = useState<RestaurantTable | null>(null);
+  const [activeOrder,    setActiveOrder]    = useState<TableOrder | null>(null);
 
   const [tableForm, setTableForm] = useState({ name: '', seats: 4, zone: 'Salón' });
 
-  const [orderItems,     setOrderItems]   = useState<OrderItem[]>([]);
-  const [orderNotes,     setOrderNotes]   = useState('');
-  const [orderGuests,    setOrderGuests]  = useState(1);
-  const [productSearch,  setProductSearch]= useState('');
-  const [savingOrder,    setSavingOrder]  = useState(false);
+  const [orderItems,    setOrderItems]    = useState<OrderItem[]>([]);
+  const [orderNotes,    setOrderNotes]    = useState('');
+  const [orderGuests,   setOrderGuests]   = useState(1);
+  const [productSearch, setProductSearch] = useState('');
+  const [savingOrder,   setSavingOrder]   = useState(false);
 
-  const [catalogTab,    setCatalogTab]    = useState<'platos' | 'bebidas' | 'pizzas'>('platos');
-  const [beverages,     setBeverages]     = useState<any[]>([]);
-  const [pizzaSummary,  setPizzaSummary]  = useState<any[]>([]);
+  const [catalogTab,   setCatalogTab]   = useState<'platos' | 'bebidas' | 'pizzas'>('platos');
+  const [beverages,    setBeverages]    = useState<any[]>([]);
+  const [pizzaSummary, setPizzaSummary] = useState<any[]>([]);
   const [selectedPizzaSlices, setSelectedPizzaSlices] = useState<Record<string, number[]>>({});
 
   const prevReadyTablesRef = useRef<Set<string>>(new Set());
 
   const [quickNotesByCategory, setQuickNotesByCategory] = useState<Record<string, string[]>>({});
   const [waiterColor, setWaiterColor] = useState<string>('#3b82f6');
-  const [waiterId, setWaiterId]       = useState<string | null>(null);
-  const [editingItemNote, setEditingItemNote] = useState<{ itemId: string; currentNote: string } | null>(null);
-  const [showQrModal, setShowQrModal] = useState(false);
+  const [waiterId,    setWaiterId]    = useState<string | null>(null);
+
+  // ── Estado del modal de nota — ahora incluye extraPrice ─────────────────────
+  const [editingItemNote, setEditingItemNote] = useState<{
+    itemId:       string;
+    currentNote:  string;
+    extraPrice:   number;   // ← NUEVO: precio del adicional
+  } | null>(null);
+
+  const [showQrModal,    setShowQrModal]    = useState(false);
   const [menuCategories, setMenuCategories] = useState<{id: string; name: string; quick_notes: string[]}[]>([]);
 
   // ── CUSTOM PIZZA STATE ───────────────────────────────────────────────────────
   const [showCustomPizzaModal, setShowCustomPizzaModal] = useState(false);
   const [customPizzaForm, setCustomPizzaForm] = useState({
-    slices: 8,
-    isHalf: false,
-    flavorA: '',
-    flavorB: '',
-    price: 0,
-    quantity: 1,
-    notes: '',
+    slices: 8, isHalf: false, flavorA: '', flavorB: '',
+    price: 0, quantity: 1, notes: '',
   });
 
   // ── LOAD DATA ────────────────────────────────────────────────────────────────
@@ -401,13 +446,10 @@ const Tables: React.FC = () => {
       );
       const prev = prevReadyTablesRef.current;
       const justReady = [...newReadyTables].filter(id => !prev.has(id));
-
       if (justReady.length > 0) {
         const tableNames = data
           .filter((t: RestaurantTable) => justReady.includes(t.id))
-          .map((t: RestaurantTable) => t.name)
-          .join(', ');
-
+          .map((t: RestaurantTable) => t.name).join(', ');
         playReadySound();
         vibrateDevice([200, 100, 200, 100, 400]);
         toast(
@@ -422,18 +464,9 @@ const Tables: React.FC = () => {
               </div>
             </div>
           ),
-          {
-            duration: 8000,
-            style: {
-              background: '#f5f3ff',
-              border: '2px solid #8b5cf6',
-              padding: '12px',
-              borderRadius: '16px',
-            },
-          }
+          { duration: 8000, style: { background: '#f5f3ff', border: '2px solid #8b5cf6', padding: '12px', borderRadius: '16px' } }
         );
       }
-
       prevReadyTablesRef.current = newReadyTables;
       setTables(data);
     }
@@ -460,10 +493,7 @@ const Tables: React.FC = () => {
     const { data } = await supabase
       .from('rest_menu_items').select('id, name, price, category_id, description')
       .eq('company_id', companyId).eq('is_active', true).eq('is_available', true).order('name');
-    if (data) setProducts(data.map((item: any) => ({
-      ...item,
-      category: catMap[item.category_id] || 'Menú',
-    })));
+    if (data) setProducts(data.map((item: any) => ({ ...item, category: catMap[item.category_id] || 'Menú' })));
 
     const { data: bevs } = await supabase
       .from('rest_beverages').select('id, name, category, presentation, price, stock')
@@ -475,9 +505,7 @@ const Tables: React.FC = () => {
         .from('pizza_stock_summary').select('*')
         .eq('company_id', companyId).gt('slices_available', 0);
       setPizzaSummary(pizzas || []);
-    } catch {
-      setPizzaSummary([]);
-    }
+    } catch { setPizzaSummary([]); }
   }, [companyId]);
 
   useEffect(() => {
@@ -492,14 +520,10 @@ const Tables: React.FC = () => {
   useEffect(() => {
     if (!companyId) return;
     supabase.from('rest_menu_categories')
-      .select('id, name, quick_notes')
-      .eq('company_id', companyId)
-      .eq('is_active', true)
+      .select('id, name, quick_notes').eq('company_id', companyId).eq('is_active', true)
       .then(({ data }) => {
         if (data) {
-          setMenuCategories(data.map((c: any) => ({
-            id: c.id, name: c.name, quick_notes: c.quick_notes || [],
-          })));
+          setMenuCategories(data.map((c: any) => ({ id: c.id, name: c.name, quick_notes: c.quick_notes || [] })));
           const map: Record<string, string[]> = {};
           data.forEach((c: any) => { map[c.id] = c.quick_notes || []; });
           setQuickNotesByCategory(map);
@@ -508,22 +532,16 @@ const Tables: React.FC = () => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       setWaiterId(user.id);
-      supabase.from('profiles').select('waiter_color')
-        .eq('id', user.id).maybeSingle()
-        .then(({ data }) => {
-          if (data?.waiter_color) setWaiterColor(data.waiter_color);
-        });
+      supabase.from('profiles').select('waiter_color').eq('id', user.id).maybeSingle()
+        .then(({ data }) => { if (data?.waiter_color) setWaiterColor(data.waiter_color); });
     });
   }, [companyId]);
 
   useEffect(() => {
     if (!companyId) return;
-    const channel = supabase
-      .channel('restaurant-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables', filter: `company_id=eq.${companyId}` },
-        () => loadTables())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'table_orders', filter: `company_id=eq.${companyId}` },
-        () => loadOrders())
+    const channel = supabase.channel('restaurant-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables', filter: `company_id=eq.${companyId}` }, () => loadTables())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'table_orders',      filter: `company_id=eq.${companyId}` }, () => loadOrders())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [companyId, loadTables, loadOrders]);
@@ -532,8 +550,14 @@ const Tables: React.FC = () => {
   const getTableOrder = (tableId: string) =>
     orders.find(o => o.table_id === tableId && ['PENDING','PREPARING','READY'].includes(o.status));
 
+  /**
+   * Total del pedido: precio base × cantidad + todos los extras con precio
+   */
   const getOrderTotal = (items: OrderItem[]) =>
-    items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    items.reduce((sum, i) => {
+      const extrasTotal = (i.extras || []).reduce((ea, e) => ea + e.price, 0);
+      return sum + i.price * i.quantity + extrasTotal;
+    }, 0);
 
   const getQuickNotesForProduct = (productId: string): string[] => {
     const product = products.find(p => p.id === productId);
@@ -541,9 +565,51 @@ const Tables: React.FC = () => {
     return quickNotesByCategory[product.category_id] || [];
   };
 
-  const setItemNote = (itemId: string, note: string) => {
-    setOrderItems(prev => prev.map(i => i.id === itemId ? { ...i, notes: note } : i));
+  /**
+   * Guarda la nota y el extra con precio en el ítem correspondiente.
+   * - Si extraPrice > 0 crea/actualiza el extra en item.extras[]
+   * - Mantiene el campo notes para notas sin precio (compatibilidad)
+   */
+  const setItemNoteAndExtra = (itemId: string, note: string, extraPrice: number) => {
+    setOrderItems(prev => prev.map(i => {
+      if (i.id !== itemId) return i;
+
+      // Separar extras previos que NO vienen del modal actual
+      // (en esta versión simple: un solo extra por sesión de edición)
+      const prevExtras = (i.extras || []);
+
+      let newExtras: OrderItemExtra[];
+      if (note.trim()) {
+        // Reemplazar o agregar el extra editado
+        // Si ya existía un extra con exactamente este texto, lo actualizamos;
+        // si no, lo añadimos (permite múltiples extras en el futuro).
+        // Por simplicidad: el modal crea UN extra por edición.
+        newExtras = [
+          ...prevExtras.filter(e => e.note !== note.trim() && e.price !== extraPrice),
+          { note: note.trim(), price: extraPrice > 0 ? extraPrice : 0 },
+        ];
+      } else {
+        newExtras = prevExtras;
+      }
+
+      return {
+        ...i,
+        notes:  note.trim() || i.notes,   // mantener compatibilidad con notes
+        extras: newExtras,
+      };
+    }));
     setEditingItemNote(null);
+  };
+
+  /**
+   * Elimina un extra específico de un ítem
+   */
+  const removeExtra = (itemId: string, extraNote: string) => {
+    setOrderItems(prev => prev.map(i =>
+      i.id === itemId
+        ? { ...i, extras: (i.extras || []).filter(e => e.note !== extraNote) }
+        : i
+    ));
   };
 
   const waiterQrUrl = companyId
@@ -571,41 +637,27 @@ const Tables: React.FC = () => {
   };
 
   // ── PIZZA STOCK HELPERS ──────────────────────────────────────────────────────
-  /**
-   * Extrae el pizza_type_id de un product_id de pizza.
-   * Formato: "pizza-{typeId}-slice" o "pizza-{typeId}-whole"
-   */
   const extractPizzaTypeId = (productId: string): string | null => {
     if (!productId.startsWith('pizza-')) return null;
-    const withoutPrefix = productId.slice('pizza-'.length); // "{typeId}-slice" o "{typeId}-whole"
+    const withoutPrefix = productId.slice('pizza-'.length);
     if (withoutPrefix.endsWith('-slice')) return withoutPrefix.slice(0, -'-slice'.length);
     if (withoutPrefix.endsWith('-whole')) return withoutPrefix.slice(0, -'-whole'.length);
     return null;
   };
 
-  /**
-   * Devuelve N porciones al stock de pizza cuando se cancela/elimina un ítem.
-   * Solo actúa si el producto_id termina en "-slice".
-   */
   const returnPizzaSlicesToStock = useCallback(async (item: OrderItem) => {
     if (!item.product_id.startsWith('pizza-') || !item.product_id.endsWith('-slice')) return;
     const typeId = extractPizzaTypeId(item.product_id);
     if (!typeId) return;
-
     const qty = item.quantity;
     const { data: openRows } = await supabase
       .from('pizza_stock').select('id, slices_sold')
       .eq('pizza_type_id', typeId).eq('status', 'OPEN')
       .order('opened_at').limit(1);
-
     if (openRows?.[0]) {
       const newSold = Math.max(0, openRows[0].slices_sold - qty);
-      await supabase.from('pizza_stock')
-        .update({ slices_sold: newSold })
-        .eq('id', openRows[0].id);
+      await supabase.from('pizza_stock').update({ slices_sold: newSold }).eq('id', openRows[0].id);
     }
-
-    // Refrescar resumen visual
     try {
       const { data: updated } = await supabase
         .from('pizza_stock_summary').select('*')
@@ -619,22 +671,15 @@ const Tables: React.FC = () => {
     const { slices, isHalf, flavorA, flavorB, price, quantity, notes } = customPizzaForm;
     if (!flavorA.trim()) { toast.error('Escribe el sabor de la pizza'); return; }
     if (price <= 0) { toast.error('Ingresa el precio'); return; }
-
     const name = isHalf
       ? `🍕 Pizza ${slices}p — ${flavorA.trim()} / ${flavorB.trim() || '?'}`
       : `🍕 Pizza ${slices}p — ${flavorA.trim()}`;
-
     const newItem: OrderItem = {
-      id: crypto.randomUUID(),
-      product_id: `custom-pizza-${Date.now()}`,
-      product_name: name,
-      quantity,
-      price,
-      notes: notes.trim() || undefined,
-      status: 'PENDING',
-      sent_to_kitchen: false,
+      id: crypto.randomUUID(), product_id: `custom-pizza-${Date.now()}`,
+      product_name: name, quantity, price,
+      notes: notes.trim() || undefined, extras: [],
+      status: 'PENDING', sent_to_kitchen: false,
     };
-
     setOrderItems(prev => [...prev, newItem]);
     setShowCustomPizzaModal(false);
     setCustomPizzaForm({ slices: 8, isHalf: false, flavorA: '', flavorB: '', price: 0, quantity: 1, notes: '' });
@@ -689,7 +734,7 @@ const Tables: React.FC = () => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.product_id === product.id);
       if (existing) return prev.map(i => i.product_id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { id: crypto.randomUUID(), product_id: product.id, product_name: product.name, quantity: 1, price: product.price, notes: '', status: 'PENDING', sent_to_kitchen: false }];
+      return [...prev, { id: crypto.randomUUID(), product_id: product.id, product_name: product.name, quantity: 1, price: product.price, notes: '', extras: [], status: 'PENDING', sent_to_kitchen: false }];
     });
   };
 
@@ -698,7 +743,7 @@ const Tables: React.FC = () => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.product_id === id);
       if (existing) return prev.map(i => i.product_id === id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: `🥤 ${bev.name} (${bev.presentation})`, quantity: 1, price: bev.price, notes: '', status: 'PENDING', sent_to_kitchen: false }];
+      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: `🥤 ${bev.name} (${bev.presentation})`, quantity: 1, price: bev.price, notes: '', extras: [], status: 'PENDING', sent_to_kitchen: false }];
     });
   };
 
@@ -711,10 +756,8 @@ const Tables: React.FC = () => {
     setOrderItems(prev => {
       const existing = prev.find(i => i.product_id === id);
       if (existing) return prev.map(i => i.product_id === id ? { ...i, quantity: i.quantity + (type === 'whole' ? 1 : qty) } : i);
-      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: name, quantity: type === 'whole' ? 1 : qty, price: unitPrice, notes: '', status: 'PENDING', sent_to_kitchen: false }];
+      return [...prev, { id: crypto.randomUUID(), product_id: id, product_name: name, quantity: type === 'whole' ? 1 : qty, price: unitPrice, notes: '', extras: [], status: 'PENDING', sent_to_kitchen: false }];
     });
-
-    // Descontar stock en pizza_stock (solo para porciones)
     if (type === 'slice') {
       const { data: openRows } = await supabase
         .from('pizza_stock').select('id, slices_sold')
@@ -726,10 +769,7 @@ const Tables: React.FC = () => {
           .eq('id', openRows[0].id);
       }
     }
-
     setSelectedPizzaSlices(prev => ({ ...prev, [pizza.pizza_type_id]: [] }));
-
-    // Refrescar resumen de pizzas
     const { data: updated } = await supabase
       .from('pizza_stock_summary').select('*')
       .eq('company_id', companyId).gt('slices_available', 0);
@@ -737,74 +777,47 @@ const Tables: React.FC = () => {
     toast.success(name);
   };
 
-  // ── REMOVE / UPDATE ITEM (con devolución de stock de pizza) ──────────────────
+  // ── REMOVE / UPDATE ITEM ─────────────────────────────────────────────────────
   const removeItem = async (id: string) => {
     const item = orderItems.find(i => i.id === id);
-    if (item) {
-      // Si es una porción de pizza, devolver stock antes de eliminar
-      await returnPizzaSlicesToStock(item);
-    }
+    if (item) await returnPizzaSlicesToStock(item);
     setOrderItems(prev => prev.filter(i => i.id !== id));
   };
 
   const updateQty = async (id: string, delta: number) => {
     const item = orderItems.find(i => i.id === id);
-
-    // Si la cantidad va a llegar a 0, eliminar con devolución de stock
-    if (item && item.quantity + delta <= 0) {
-      await removeItem(id);
-      return;
-    }
-
-    // Si es porción de pizza y se reduce cantidad, devolver las porciones quitadas
+    if (item && item.quantity + delta <= 0) { await removeItem(id); return; }
     if (item && delta < 0 && item.product_id?.startsWith('pizza-') && item.product_id.endsWith('-slice')) {
       const typeId = extractPizzaTypeId(item.product_id);
       if (typeId) {
         const { data: openRows } = await supabase
           .from('pizza_stock').select('id, slices_sold')
-          .eq('pizza_type_id', typeId).eq('status', 'OPEN')
-          .order('opened_at').limit(1);
+          .eq('pizza_type_id', typeId).eq('status', 'OPEN').order('opened_at').limit(1);
         if (openRows?.[0]) {
-          const newSold = Math.max(0, openRows[0].slices_sold + delta); // delta es negativo
-          await supabase.from('pizza_stock')
-            .update({ slices_sold: newSold })
-            .eq('id', openRows[0].id);
-          // Refrescar resumen
+          await supabase.from('pizza_stock').update({ slices_sold: Math.max(0, openRows[0].slices_sold + delta) }).eq('id', openRows[0].id);
           try {
-            const { data: updated } = await supabase
-              .from('pizza_stock_summary').select('*')
-              .eq('company_id', companyId).gt('slices_available', 0);
-            setPizzaSummary(updated || []);
+            const { data: upd } = await supabase.from('pizza_stock_summary').select('*').eq('company_id', companyId).gt('slices_available', 0);
+            setPizzaSummary(upd || []);
           } catch { /* ok */ }
         }
       }
     }
-
-    // Si es porción de pizza y se aumenta cantidad, descontar la porción adicional
     if (item && delta > 0 && item.product_id?.startsWith('pizza-') && item.product_id.endsWith('-slice')) {
       const typeId = extractPizzaTypeId(item.product_id);
       if (typeId) {
         const { data: openRows } = await supabase
           .from('pizza_stock').select('id, slices_sold')
-          .eq('pizza_type_id', typeId).eq('status', 'OPEN')
-          .order('opened_at').limit(1);
+          .eq('pizza_type_id', typeId).eq('status', 'OPEN').order('opened_at').limit(1);
         if (openRows?.[0]) {
-          await supabase.from('pizza_stock')
-            .update({ slices_sold: openRows[0].slices_sold + delta })
-            .eq('id', openRows[0].id);
+          await supabase.from('pizza_stock').update({ slices_sold: openRows[0].slices_sold + delta }).eq('id', openRows[0].id);
           try {
-            const { data: updated } = await supabase
-              .from('pizza_stock_summary').select('*')
-              .eq('company_id', companyId).gt('slices_available', 0);
-            setPizzaSummary(updated || []);
+            const { data: upd } = await supabase.from('pizza_stock_summary').select('*').eq('company_id', companyId).gt('slices_available', 0);
+            setPizzaSummary(upd || []);
           } catch { /* ok */ }
         }
       }
     }
-
-    setOrderItems(prev =>
-      prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)
-    );
+    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i));
   };
 
   // ── SAVE ORDER ───────────────────────────────────────────────────────────────
@@ -816,21 +829,19 @@ const Tables: React.FC = () => {
       const itemsToSave = sendToKitchen
         ? orderItems.map(i => ({ ...i, sent_to_kitchen: true, status: 'PREPARING' as const }))
         : orderItems;
-
       if (activeOrder) {
         await supabase.from('table_orders').update({
           items: itemsToSave, notes: orderNotes, guests: orderGuests,
           status: sendToKitchen ? 'PREPARING' : activeOrder.status,
           updated_at: new Date().toISOString(),
         }).eq('id', activeOrder.id);
-        await supabase.from('restaurant_tables').update({
-          status: sendToKitchen ? 'OCCUPIED' : 'ORDERING',
-        }).eq('id', activeTable.id);
+        await supabase.from('restaurant_tables').update({ status: sendToKitchen ? 'OCCUPIED' : 'ORDERING' }).eq('id', activeTable.id);
         toast.success(sendToKitchen ? '🍽️ Enviado a cocina' : 'Pedido guardado');
       } else {
         const { data: newOrder } = await supabase.from('table_orders').insert({
           company_id: companyId, table_id: activeTable.id, table_name: activeTable.name,
-          waiter_id: user?.id, waiter_color: waiterColor, status: sendToKitchen ? 'PREPARING' : 'PENDING',
+          waiter_id: user?.id, waiter_color: waiterColor,
+          status: sendToKitchen ? 'PREPARING' : 'PENDING',
           items: itemsToSave, notes: orderNotes, guests: orderGuests,
           created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         }).select().single();
@@ -840,14 +851,12 @@ const Tables: React.FC = () => {
         }).eq('id', activeTable.id);
         toast.success(sendToKitchen ? '🍽️ Pedido enviado a cocina' : 'Pedido creado');
       }
-
       setShowOrderModal(false);
       await Promise.all([loadTables(), loadOrders()]);
     } catch (e: any) { toast.error('Error: ' + e.message); }
     finally { setSavingOrder(false); }
   };
 
-  // ── FREE TABLE ───────────────────────────────────────────────────────────────
   const handleFreeTable = async (tableId: string, orderId?: string) => {
     if (!confirm('¿Liberar esta mesa? El pedido activo quedará como entregado.')) return;
     if (orderId) await supabase.from('table_orders').update({ status: 'DELIVERED', updated_at: new Date().toISOString() }).eq('id', orderId);
@@ -870,12 +879,10 @@ const Tables: React.FC = () => {
     toast.success('Mesa marcada para cobro');
   };
 
-  const filteredProducts     = products.filter(p =>
-    !productSearch ||
-    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-    (p.category || '').toLowerCase().includes(productSearch.toLowerCase())
+  const filteredProducts = products.filter(p =>
+    !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || (p.category || '').toLowerCase().includes(productSearch.toLowerCase())
   );
-  const productsByCategory   = filteredProducts.reduce((acc: Record<string, any[]>, p) => {
+  const productsByCategory = filteredProducts.reduce((acc: Record<string, any[]>, p) => {
     const cat = p.category || 'Menú';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(p);
@@ -960,7 +967,7 @@ const Tables: React.FC = () => {
         </div>
       )}
 
-      {/* ── GRID / LIST DE MESAS ── */}
+      {/* ── GRID / LIST ── */}
       {filteredTables.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
           <Utensils size={40} className="mx-auto mb-3 text-slate-300" />
@@ -973,31 +980,21 @@ const Tables: React.FC = () => {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {filteredTables.map(table => {
-            const status = TABLE_STATUS[table.status];
-            const order  = getTableOrder(table.id);
-            const total  = order ? getOrderTotal(order.items) : 0;
+            const status  = TABLE_STATUS[table.status];
+            const order   = getTableOrder(table.id);
+            const total   = order ? getOrderTotal(order.items) : 0;
             const isReady = table.status === 'READY';
             return (
               <div key={table.id}
                 onClick={() => openTable(table)}
                 className={`relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none ${isReady ? 'ring-2 ring-purple-400 ring-offset-1' : ''}`}
                 style={{ borderColor: status.border, background: status.bg }}>
-
                 <div className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full ${isReady ? 'animate-ping' : 'animate-pulse'}`} style={{ background: status.dot }} />
                 {isReady && <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full" style={{ background: status.dot }} />}
-
-                {isReady && (
-                  <div className="absolute top-2 left-2">
-                    <Bell size={14} className="text-purple-600" />
-                  </div>
-                )}
-
+                {isReady && <div className="absolute top-2 left-2"><Bell size={14} className="text-purple-600" /></div>}
                 {order?.waiter_color && order.waiter_color !== '#3b82f6' && (
-                  <div className="absolute bottom-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-sm"
-                    style={{ background: order.waiter_color }}
-                    title={`Mesero: ${order.waiter_name || 'asignado'}`} />
+                  <div className="absolute bottom-2 right-2 w-3 h-3 rounded-full border-2 border-white shadow-sm" style={{ background: order.waiter_color }} />
                 )}
-
                 <div className="absolute top-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100" onClick={e => e.stopPropagation()}>
                   {!isReady && (
                     <button onClick={e => { e.stopPropagation(); setEditingTable(table); setTableForm({ name: table.name, seats: table.seats, zone: table.zone }); setShowTableModal(true); }}
@@ -1012,16 +1009,13 @@ const Tables: React.FC = () => {
                     </button>
                   )}
                 </div>
-
                 <div className="mt-1">
                   <p className="font-black text-slate-800 text-base leading-tight">{table.name}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{table.zone}</p>
                 </div>
-
                 <div className="flex items-center gap-1 mt-2 text-xs text-slate-500">
                   <Users size={11} /> {table.seats} personas
                 </div>
-
                 <div className="mt-3 pt-2 border-t" style={{ borderColor: status.border }}>
                   <p className="text-xs font-bold" style={{ color: status.color }}>{status.label}</p>
                   {order && (
@@ -1155,15 +1149,15 @@ const Tables: React.FC = () => {
 
             {/* Body */}
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-              {/* LEFT: Product catalog */}
-              <div className="flex-1 flex flex-col overflow-hidden border-r border-slate-100">
 
+              {/* LEFT: Catálogo */}
+              <div className="flex-1 flex flex-col overflow-hidden border-r border-slate-100">
                 {/* Tabs */}
                 <div className="flex gap-1 p-2 border-b border-slate-100 bg-slate-50">
                   {([
                     { id: 'platos',  label: 'Platos',  icon: <Utensils size={12}/> },
                     { id: 'bebidas', label: 'Bebidas', icon: <Beer size={12}/> },
-                    { id: 'pizzas',  label: 'Pizzas',  icon: <Pizza size={12}/>,  hide: pizzaSummary.length === 0 },
+                    { id: 'pizzas',  label: 'Pizzas',  icon: <Pizza size={12}/>, hide: pizzaSummary.length === 0 },
                   ] as const).filter(t => !('hide' in t && t.hide)).map(t => (
                     <button key={t.id} onClick={() => { setCatalogTab(t.id); setProductSearch(''); }}
                       className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -1181,10 +1175,8 @@ const Tables: React.FC = () => {
 
                 {/* Botón Pizza Personalizada */}
                 <div className="px-3 py-2 border-b border-slate-100">
-                  <button
-                    onClick={() => setShowCustomPizzaModal(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 rounded-xl text-sm font-bold transition-all"
-                  >
+                  <button onClick={() => setShowCustomPizzaModal(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 rounded-xl text-sm font-bold transition-all">
                     <Pizza size={14} /> Pizza personalizada (sabor libre)
                   </button>
                 </div>
@@ -1198,14 +1190,13 @@ const Tables: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── TAB PLATOS ── */}
+                {/* TAB PLATOS */}
                 {catalogTab === 'platos' && (
                   <div className="flex-1 overflow-y-auto p-3 space-y-4">
                     {Object.keys(productsByCategory).length === 0 ? (
                       <div className="text-center py-8 text-slate-400">
                         <Coffee size={32} className="mx-auto mb-2 opacity-40" />
                         <p className="text-sm">No hay platos disponibles hoy.</p>
-                        <p className="text-xs mt-1 text-slate-300">Actívalos en Display de Cocina → Menú</p>
                       </div>
                     ) : (
                       Object.entries(productsByCategory).map(([cat, prods]) => (
@@ -1226,7 +1217,7 @@ const Tables: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── TAB BEBIDAS ── */}
+                {/* TAB BEBIDAS */}
                 {catalogTab === 'bebidas' && (() => {
                   const filteredBevs = beverages.filter(b =>
                     !productSearch || b.name.toLowerCase().includes(productSearch.toLowerCase())
@@ -1243,7 +1234,6 @@ const Tables: React.FC = () => {
                         <div className="text-center py-8 text-slate-400">
                           <Beer size={32} className="mx-auto mb-2 opacity-40" />
                           <p className="text-sm">No hay bebidas con stock disponible.</p>
-                          <p className="text-xs mt-1 text-slate-300">Agrégalas en Display de Cocina → Bebidas</p>
                         </div>
                       ) : (
                         Object.entries(bevsByCategory).map(([cat, bevs]) => (
@@ -1269,14 +1259,13 @@ const Tables: React.FC = () => {
                   );
                 })()}
 
-                {/* ── TAB PIZZAS ── */}
+                {/* TAB PIZZAS */}
                 {catalogTab === 'pizzas' && (
                   <div className="flex-1 overflow-y-auto p-3">
                     {pizzaSummary.length === 0 ? (
                       <div className="text-center py-8 text-slate-400">
                         <Pizza size={32} className="mx-auto mb-2 opacity-40" />
                         <p className="text-sm">No hay pizzas disponibles en este momento.</p>
-                        <p className="text-xs mt-1 text-slate-300">Ábrelas en Display de Cocina → Pizzas</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-4">
@@ -1289,24 +1278,16 @@ const Tables: React.FC = () => {
                           const cx = 70; const cy = 70; const r = 58; const innerR = 13;
                           const slicePaths = Array.from({ length: pizza.slices }, (_, i) => {
                             const step = (2 * Math.PI) / pizza.slices;
-                            const start = -Math.PI / 2 + i * step;
-                            const end   = -Math.PI / 2 + (i + 1) * step;
-                            const mid   = (start + end) / 2;
-                            const la = step > Math.PI ? 1 : 0;
+                            const start = -Math.PI / 2 + i * step; const end = -Math.PI / 2 + (i + 1) * step;
+                            const mid = (start + end) / 2; const la = step > Math.PI ? 1 : 0;
                             const x1 = cx + r * Math.cos(start); const y1 = cy + r * Math.sin(start);
                             const x2 = cx + r * Math.cos(end);   const y2 = cy + r * Math.sin(end);
                             const ix1 = cx + innerR * Math.cos(start); const iy1 = cy + innerR * Math.sin(start);
                             const ix2 = cx + innerR * Math.cos(end);   const iy2 = cy + innerR * Math.sin(end);
                             const lx = cx + r * 0.62 * Math.cos(mid);  const ly = cy + r * 0.62 * Math.sin(mid);
-                            const d = `M${ix1} ${iy1} L${x1} ${y1} A${r} ${r} 0 ${la} 1 ${x2} ${y2} L${ix2} ${iy2} A${innerR} ${innerR} 0 ${la} 0 ${ix1} ${iy1}Z`;
-                            return { d, i, lx, ly };
+                            return { d: `M${ix1} ${iy1} L${x1} ${y1} A${r} ${r} 0 ${la} 1 ${x2} ${y2} L${ix2} ${iy2} A${innerR} ${innerR} 0 ${la} 0 ${ix1} ${iy1}Z`, i, lx, ly };
                           });
-                          const getColor = (i: number) => {
-                            if (soldSet.has(i)) return '#e2e8f0';
-                            if (selectedSet.has(i)) return '#22c55e';
-                            if (pizza.is_combined && i >= pizza.slices / 2) return '#dc2626';
-                            return '#f97316';
-                          };
+                          const getColor = (i: number) => soldSet.has(i) ? '#e2e8f0' : selectedSet.has(i) ? '#22c55e' : pizza.is_combined && i >= pizza.slices / 2 ? '#dc2626' : '#f97316';
                           const toggleSlice = (i: number) => {
                             if (soldSet.has(i)) return;
                             setSelectedPizzaSlices(prev => {
@@ -1320,11 +1301,7 @@ const Tables: React.FC = () => {
                                 <div>
                                   <p className="font-bold text-slate-800">{pizza.name}</p>
                                   <p className="text-xs text-slate-500">{pizza.size_label} · {pizza.slices} porciones</p>
-                                  {pizza.is_combined && (
-                                    <p className="text-[11px] text-orange-600 font-semibold mt-0.5">
-                                      🔀 {pizza.flavor_a} / {pizza.flavor_b}
-                                    </p>
-                                  )}
+                                  {pizza.is_combined && <p className="text-[11px] text-orange-600 font-semibold mt-0.5">🔀 {pizza.flavor_a} / {pizza.flavor_b}</p>}
                                 </div>
                                 <div className="text-right">
                                   <p className="text-xs text-slate-400">por porción</p>
@@ -1336,9 +1313,7 @@ const Tables: React.FC = () => {
                                   <circle cx={cx} cy={cy} r={r + 4} fill="#92400e" />
                                   {slicePaths.map(({ d, i, lx, ly }) => (
                                     <g key={i} onClick={() => toggleSlice(i)}>
-                                      <path d={d} fill={getColor(i)} stroke="white" strokeWidth={2}
-                                        opacity={soldSet.has(i) ? 0.4 : 1}
-                                        style={{ cursor: soldSet.has(i) ? 'default' : 'pointer', transition: 'fill 0.15s' }} />
+                                      <path d={d} fill={getColor(i)} stroke="white" strokeWidth={2} opacity={soldSet.has(i) ? 0.4 : 1} style={{ cursor: soldSet.has(i) ? 'default' : 'pointer', transition: 'fill 0.15s' }} />
                                       {soldSet.has(i) && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#94a3b8">✓</text>}
                                       {selectedSet.has(i) && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fontSize={12} fill="white" fontWeight="bold">●</text>}
                                     </g>
@@ -1359,17 +1334,9 @@ const Tables: React.FC = () => {
                                     className="w-full py-2 border border-orange-300 text-orange-700 hover:bg-orange-50 rounded-xl font-semibold text-sm">
                                     Pizza completa — {formatCurrency(pizza.price)}
                                   </button>
-                                  {selected.length === 0 && (
-                                    <p className="text-[10px] text-slate-400 text-center">Toca las porciones naranjas</p>
-                                  )}
+                                  {selected.length === 0 && <p className="text-[10px] text-slate-400 text-center">Toca las porciones naranjas</p>}
                                 </div>
                               </div>
-                              {pizza.is_combined && (
-                                <div className="flex items-center gap-3 mt-2 justify-center text-xs">
-                                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"/>  {pizza.flavor_a}</span>
-                                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block"/> {pizza.flavor_b}</span>
-                                </div>
-                              )}
                             </div>
                           );
                         })}
@@ -1379,9 +1346,9 @@ const Tables: React.FC = () => {
                 )}
               </div>
 
-              {/* RIGHT: Order summary */}
+              {/* RIGHT: Resumen del pedido */}
               <div className="w-full md:w-72 flex flex-col bg-slate-50/50">
-                {/* Guests */}
+                {/* Comensales */}
                 <div className="p-3 border-b border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <Users size={14} /> Comensales
@@ -1395,7 +1362,7 @@ const Tables: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Items */}
+                {/* Ítems */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {orderItems.length === 0 ? (
                     <div className="text-center py-10 text-slate-400">
@@ -1403,51 +1370,70 @@ const Tables: React.FC = () => {
                       <p className="text-xs">Selecciona productos del menú</p>
                     </div>
                   ) : (
-                    orderItems.map(item => (
-                      <div key={item.id} className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-slate-800 leading-tight flex-1">{item.product_name}</p>
-                          {/* ── BOTÓN ELIMINAR: llama removeItem con devolución de stock ── */}
-                          <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-500 mt-0.5"><X size={14} /></button>
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center gap-1.5">
-                            {/* ── BOTONES +/- : llaman updateQty con devolución de stock ── */}
-                            <button onClick={() => updateQty(item.id, -1)}
-                              className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm flex items-center justify-center">−</button>
-                            <span className="w-6 text-center font-black text-slate-700 text-sm">{item.quantity}</span>
-                            <button onClick={() => updateQty(item.id, 1)}
-                              className="w-6 h-6 rounded-md bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold text-sm flex items-center justify-center">+</button>
+                    orderItems.map(item => {
+                      const extrasTotal = (item.extras || []).reduce((s, e) => s + e.price, 0);
+                      const lineTotal   = item.price * item.quantity + extrasTotal;
+                      return (
+                        <div key={item.id} className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-800 leading-tight flex-1">{item.product_name}</p>
+                            <button onClick={() => removeItem(item.id)} className="text-slate-300 hover:text-red-500 mt-0.5"><X size={14} /></button>
                           </div>
-                          <p className="font-black text-slate-700 text-sm">{formatCurrency(item.price * item.quantity)}</p>
-                        </div>
-                        {/* Nota del ítem */}
-                        <div className="mt-1.5 flex items-center gap-1">
-                          {item.notes ? (
+
+                          {/* Controles de cantidad y precio de línea */}
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => updateQty(item.id, -1)}
+                                className="w-6 h-6 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm flex items-center justify-center">−</button>
+                              <span className="w-6 text-center font-black text-slate-700 text-sm">{item.quantity}</span>
+                              <button onClick={() => updateQty(item.id, 1)}
+                                className="w-6 h-6 rounded-md bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold text-sm flex items-center justify-center">+</button>
+                            </div>
+                            <p className="font-black text-slate-700 text-sm">{formatCurrency(lineTotal)}</p>
+                          </div>
+
+                          {/* ── EXTRAS CON PRECIO (sub-líneas) ─────────────────────── */}
+                          {(item.extras || []).length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {(item.extras || []).map((extra, ei) => (
+                                <div key={ei} className="flex items-center justify-between gap-1 group">
+                                  <span className={`text-[11px] flex-1 leading-tight ${extra.price > 0 ? 'text-emerald-700 font-semibold' : 'text-slate-400'}`}>
+                                    {extra.price > 0 ? '💚' : '📝'} {extra.note}
+                                    {extra.price > 0 && <span className="ml-1 font-black">+{formatCurrency(extra.price)}</span>}
+                                  </span>
+                                  <button
+                                    onClick={() => removeExtra(item.id, extra.note)}
+                                    className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-opacity"
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Botón para agregar nota / adicional */}
+                          <div className="mt-2">
                             <button
-                              onClick={() => setEditingItemNote({ itemId: item.id, currentNote: item.notes || '' })}
-                              className="flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded-lg font-semibold w-full text-left">
-                              <MessageSquare size={9} /> {item.notes}
+                              onClick={() => setEditingItemNote({ itemId: item.id, currentNote: '', extraPrice: 0 })}
+                              className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-blue-500 transition-colors"
+                            >
+                              <Plus size={9} /> adicional o nota
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => setEditingItemNote({ itemId: item.id, currentNote: '' })}
-                              className="text-[10px] text-slate-400 hover:text-blue-500 flex items-center gap-0.5">
-                              <MessageSquare size={9} /> + nota
-                            </button>
+                          </div>
+
+                          {item.sent_to_kitchen && (
+                            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-orange-600 font-semibold">
+                              <ChefHat size={9} /> En cocina
+                            </span>
                           )}
                         </div>
-                        {item.sent_to_kitchen && (
-                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-orange-600 font-semibold">
-                            <ChefHat size={9} /> En cocina
-                          </span>
-                        )}
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 
-                {/* Notes */}
+                {/* Notas generales */}
                 <div className="p-3 border-t border-slate-100">
                   <textarea value={orderNotes} onChange={e => setOrderNotes(e.target.value)}
                     placeholder="Notas para cocina..." rows={2}
@@ -1464,7 +1450,7 @@ const Tables: React.FC = () => {
                   </div>
                 )}
 
-                {/* Actions */}
+                {/* Acciones */}
                 <div className="p-3 space-y-2 border-t border-slate-100">
                   <button onClick={() => handleSaveOrder(true)} disabled={savingOrder || orderItems.length === 0}
                     className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
@@ -1477,7 +1463,7 @@ const Tables: React.FC = () => {
                   {activeOrder && (
                     <div className="grid grid-cols-2 gap-2">
                       <button onClick={handleOpenPayment}
-                        className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1 transition-all">
+                        className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-1">
                         <Receipt size={13} /> Cobrar
                       </button>
                       <button onClick={() => handleFreeTable(activeTable.id, activeOrder?.id)}
@@ -1493,7 +1479,7 @@ const Tables: React.FC = () => {
         </div>
       )}
 
-      {/* ════ MODAL: NOTA POR ÍTEM ════ */}
+      {/* ════ MODAL: ADICIONAL / NOTA CON PRECIO OPCIONAL ════ */}
       {editingItemNote && (() => {
         const item = orderItems.find(i => i.id === editingItemNote.itemId);
         const product = products.find(p => p.id === item?.product_id);
@@ -1507,60 +1493,138 @@ const Tables: React.FC = () => {
         } else if (isPizza) {
           quickNotes = ['Bien cocida', 'Poco cocida', 'Sin picante', 'Extra queso', 'Para llevar'];
         }
+
+        const hasPrice   = editingItemNote.extraPrice > 0;
+        const canConfirm = editingItemNote.currentNote.trim().length > 0;
+
         return (
           <div className="fixed inset-0 bg-black/60 z-[60] flex items-end sm:items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+
+              {/* Header */}
               <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
                 <div>
-                  <h3 className="font-bold text-slate-800">Nota para este ítem</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">{item?.product_name}</p>
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Plus size={15} className="text-blue-500" /> Adicional o nota
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[220px]">{item?.product_name}</p>
                 </div>
-                <button onClick={() => setEditingItemNote(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+                <button onClick={() => setEditingItemNote(null)} className="text-slate-400 hover:text-slate-600">
+                  <X size={18} />
+                </button>
               </div>
-              <div className="p-4 space-y-3">
+
+              <div className="p-4 space-y-4">
+
+                {/* Notas rápidas */}
                 {quickNotes.length > 0 && (
                   <div>
                     <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
-                      <Zap size={11} /> Notas rápidas
+                      <Zap size={11} /> Notas rápidas (sin costo)
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {quickNotes.map((qn, i) => (
                         <button key={i}
                           onClick={() => {
-                            const cur = editingItemNote.currentNote;
-                            const next = cur ? `${cur}, ${qn}` : qn;
-                            setEditingItemNote({ ...editingItemNote, currentNote: next });
+                            // Las notas rápidas se guardan directamente sin precio
+                            setOrderItems(prev => prev.map(it =>
+                              it.id === editingItemNote.itemId
+                                ? { ...it, extras: [...(it.extras || []), { note: qn, price: 0 }] }
+                                : it
+                            ));
+                            // No cerrar el modal para poder agregar más
+                            toast.success(`Nota "${qn}" agregada`);
                           }}
-                          className="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors">
+                          className="px-3 py-1.5 bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-colors">
                           {qn}
                         </button>
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Separador */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-slate-100" />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Adicional personalizado</span>
+                  <div className="flex-1 h-px bg-slate-100" />
+                </div>
+
+                {/* Descripción del adicional */}
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase mb-1">Nota personalizada</p>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                    Descripción *
+                  </label>
                   <textarea
                     value={editingItemNote.currentNote}
                     onChange={e => setEditingItemNote({ ...editingItemNote, currentNote: e.target.value })}
-                    placeholder="Ej: sin sal, término medio, sin cebolla..."
-                    rows={3}
-                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                    placeholder="Ej: extra queso, sin cebolla, salsa especial, porción doble..."
+                    rows={2}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none"
                     autoFocus
                   />
                 </div>
+
+                {/* Precio adicional */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 flex items-center gap-1">
+                    <DollarSign size={11} /> Precio adicional
+                    <span className="text-slate-300 font-normal normal-case ml-1">(opcional — déjalo en 0 si es solo una nota)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={editingItemNote.extraPrice || ''}
+                      onChange={e => setEditingItemNote({ ...editingItemNote, extraPrice: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                      className={`w-full pl-7 pr-3 py-2.5 border rounded-xl text-sm outline-none font-bold transition-all ${
+                        hasPrice
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-700 focus:ring-2 focus:ring-emerald-400'
+                          : 'border-slate-200 focus:ring-2 focus:ring-blue-400'
+                      }`}
+                    />
+                  </div>
+                  {/* Indicador visual del impacto en precio */}
+                  {hasPrice && editingItemNote.currentNote.trim() && (
+                    <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                      <Check size={13} className="text-emerald-600 flex-shrink-0" />
+                      <p className="text-xs text-emerald-700 font-semibold">
+                        Se sumará <span className="font-black">{formatCurrency(editingItemNote.extraPrice)}</span> al total del pedido
+                      </p>
+                    </div>
+                  )}
+                  {!hasPrice && editingItemNote.currentNote.trim() && (
+                    <p className="mt-1.5 text-[10px] text-slate-400 text-center">
+                      Solo nota de instrucción · sin cargo extra
+                    </p>
+                  )}
+                </div>
               </div>
+
+              {/* Footer */}
               <div className="px-4 pb-4 flex gap-2">
-                {editingItemNote.currentNote && (
-                  <button onClick={() => setItemNote(editingItemNote.itemId, '')}
-                    className="px-3 py-2 border border-red-200 text-red-500 rounded-xl text-sm font-semibold hover:bg-red-50">
-                    Quitar nota
-                  </button>
-                )}
+                <button onClick={() => setEditingItemNote(null)}
+                  className="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50">
+                  Cancelar
+                </button>
                 <button
-                  onClick={() => setItemNote(editingItemNote.itemId, editingItemNote.currentNote)}
-                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">
-                  Guardar nota
+                  disabled={!canConfirm}
+                  onClick={() => setItemNoteAndExtra(editingItemNote.itemId, editingItemNote.currentNote, editingItemNote.extraPrice)}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                    canConfirm
+                      ? hasPrice
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  <Check size={14} />
+                  {hasPrice
+                    ? `Agregar · +${formatCurrency(editingItemNote.extraPrice)}`
+                    : 'Agregar nota'}
                 </button>
               </div>
             </div>
@@ -1583,96 +1647,56 @@ const Tables: React.FC = () => {
                 <X size={18} />
               </button>
             </div>
-
             <div className="p-5 space-y-4">
-
               {/* Tamaño */}
               <div>
                 <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tamaño</p>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { slices: 4,  label: '4p', sub: 'Personal' },
-                    { slices: 6,  label: '6p', sub: 'Mediana' },
-                    { slices: 8,  label: '8p', sub: 'Grande' },
-                    { slices: 12, label: '12p', sub: 'Familiar' },
-                  ].map(s => (
-                    <button key={s.slices}
-                      onClick={() => setCustomPizzaForm(f => ({ ...f, slices: s.slices }))}
-                      className={`py-2 rounded-xl border-2 text-center transition-all ${
-                        customPizzaForm.slices === s.slices
-                          ? 'border-orange-500 bg-orange-50 text-orange-700'
-                          : 'border-slate-200 text-slate-500 hover:border-slate-300'
-                      }`}
-                    >
+                  {[{ slices: 4, label: '4p', sub: 'Personal' }, { slices: 6, label: '6p', sub: 'Mediana' }, { slices: 8, label: '8p', sub: 'Grande' }, { slices: 12, label: '12p', sub: 'Familiar' }].map(s => (
+                    <button key={s.slices} onClick={() => setCustomPizzaForm(f => ({ ...f, slices: s.slices }))}
+                      className={`py-2 rounded-xl border-2 text-center transition-all ${customPizzaForm.slices === s.slices ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
                       <p className="font-black text-sm">{s.label}</p>
                       <p className="text-[10px]">{s.sub}</p>
                     </button>
                   ))}
                 </div>
               </div>
-
               {/* Tipo */}
               <div>
                 <p className="text-xs font-bold text-slate-500 uppercase mb-2">Tipo</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: false }))}
-                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
-                      !customPizzaForm.isHalf
-                        ? 'border-orange-500 bg-orange-50 text-orange-700'
-                        : 'border-slate-200 text-slate-500'
-                    }`}
-                  >
+                  <button onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: false }))}
+                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${!customPizzaForm.isHalf ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-500'}`}>
                     🍕 Un sabor
                   </button>
-                  <button
-                    onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: true }))}
-                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${
-                      customPizzaForm.isHalf
-                        ? 'border-red-500 bg-red-50 text-red-700'
-                        : 'border-slate-200 text-slate-500'
-                    }`}
-                  >
+                  <button onClick={() => setCustomPizzaForm(f => ({ ...f, isHalf: true }))}
+                    className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${customPizzaForm.isHalf ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-200 text-slate-500'}`}>
                     🔀 Mitad y mitad
                   </button>
                 </div>
               </div>
-
               {/* Sabores */}
               <div>
-                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
-                  {customPizzaForm.isHalf ? 'Sabores' : 'Sabor'}
-                </p>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">{customPizzaForm.isHalf ? 'Sabores' : 'Sabor'}</p>
                 <div className="space-y-2">
-                  <input
-                    value={customPizzaForm.flavorA}
-                    onChange={e => setCustomPizzaForm(f => ({ ...f, flavorA: e.target.value }))}
+                  <input value={customPizzaForm.flavorA} onChange={e => setCustomPizzaForm(f => ({ ...f, flavorA: e.target.value }))}
                     placeholder={customPizzaForm.isHalf ? 'Mitad 1 — ej: Pepperoni' : 'Ej: Hawaiana, 4 quesos...'}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400"
-                  />
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400" />
                   {customPizzaForm.isHalf && (
-                    <input
-                      value={customPizzaForm.flavorB}
-                      onChange={e => setCustomPizzaForm(f => ({ ...f, flavorB: e.target.value }))}
+                    <input value={customPizzaForm.flavorB} onChange={e => setCustomPizzaForm(f => ({ ...f, flavorB: e.target.value }))}
                       placeholder="Mitad 2 — ej: Cucuteña"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-red-400 border-red-200"
-                    />
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-red-400 border-red-200" />
                   )}
                 </div>
               </div>
-
               {/* Precio y cantidad */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase mb-2">Precio</p>
-                  <input
-                    type="number"
-                    min="0"
-                    value={customPizzaForm.price || ''}
+                  <input type="number" min="0" value={customPizzaForm.price || ''}
                     onChange={e => setCustomPizzaForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))}
                     placeholder="Ej: 35000"
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400"
-                  />
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-400" />
                 </div>
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase mb-2">Cantidad</p>
@@ -1685,22 +1709,15 @@ const Tables: React.FC = () => {
                   </div>
                 </div>
               </div>
-
               {/* Nota */}
               <div>
                 <p className="text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1">
                   <MessageSquare size={11} /> Nota para cocina
                 </p>
-                <textarea
-                  value={customPizzaForm.notes}
-                  onChange={e => setCustomPizzaForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Ej: borde relleno, sin cebolla, bien cocida..."
-                  rows={2}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none resize-none focus:ring-2 focus:ring-orange-400"
-                />
+                <textarea value={customPizzaForm.notes} onChange={e => setCustomPizzaForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Ej: borde relleno, sin cebolla, bien cocida..." rows={2}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none resize-none focus:ring-2 focus:ring-orange-400" />
               </div>
-
-              {/* Preview del nombre */}
               {customPizzaForm.flavorA && (
                 <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-sm text-orange-700 font-semibold text-center">
                   {customPizzaForm.isHalf
@@ -1709,7 +1726,6 @@ const Tables: React.FC = () => {
                 </div>
               )}
             </div>
-
             <div className="px-5 pb-5 flex gap-2">
               <button onClick={() => setShowCustomPizzaModal(false)}
                 className="flex-1 py-2.5 border border-slate-200 rounded-xl font-semibold text-slate-600 text-sm hover:bg-slate-50">
@@ -1736,13 +1752,9 @@ const Tables: React.FC = () => {
               <div className="bg-slate-50 rounded-xl p-4 text-center space-y-3">
                 <img
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(waiterQrUrl)}`}
-                  alt="QR Mesero"
-                  className="mx-auto rounded-xl border-4 border-white shadow-lg"
-                  style={{ width: 200, height: 200 }}
-                />
-                <p className="text-xs text-slate-500 break-all font-mono bg-white rounded-lg p-2 border border-slate-200">
-                  {waiterQrUrl}
-                </p>
+                  alt="QR Mesero" className="mx-auto rounded-xl border-4 border-white shadow-lg"
+                  style={{ width: 200, height: 200 }} />
+                <p className="text-xs text-slate-500 break-all font-mono bg-white rounded-lg p-2 border border-slate-200">{waiterQrUrl}</p>
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
                 <p className="font-bold">¿Cómo usar?</p>
@@ -1752,22 +1764,14 @@ const Tables: React.FC = () => {
                 <p>4. Ya puede tomar pedidos desde su celular</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => {
-                    navigator.clipboard.writeText(waiterQrUrl);
-                    toast.success('Link copiado');
-                  }}
+                <button onClick={() => { navigator.clipboard.writeText(waiterQrUrl); toast.success('Link copiado'); }}
                   className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50">
                   Copiar link
                 </button>
                 <button onClick={() => {
                     const w = window.open('', '_blank', 'width=400,height=500');
                     if (!w) return;
-                    w.document.write(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;gap:16px">
-                      <h2 style="margin:0">Acceso Meseros</h2>
-                      <img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterQrUrl)}" style="border-radius:12px" />
-                      <p style="font-size:12px;color:#64748b;text-align:center">Escanea para tomar pedidos desde tu celular</p>
-                      <script>window.onload=()=>window.print()</script>
-                    </body></html>`);
+                    w.document.write(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;gap:16px"><h2>Acceso Meseros</h2><img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterQrUrl)}" style="border-radius:12px"/><p style="font-size:12px;color:#64748b;text-align:center">Escanea para tomar pedidos desde tu celular</p><script>window.onload=()=>window.print()</script></body></html>`);
                     w.document.close();
                   }}
                   className="flex-1 py-2.5 bg-violet-600 text-white rounded-xl font-bold text-sm hover:bg-violet-700 flex items-center justify-center gap-1">
@@ -1779,10 +1783,8 @@ const Tables: React.FC = () => {
                   <User size={11} /> Tu color de mesero
                 </p>
                 <div className="flex items-center gap-3">
-                  <input type="color" value={waiterColor}
-                    onChange={e => setWaiterColor(e.target.value)}
-                    className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
-                  />
+                  <input type="color" value={waiterColor} onChange={e => setWaiterColor(e.target.value)}
+                    className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer" />
                   <div>
                     <p className="text-sm font-semibold text-slate-700">Color identificador</p>
                     <p className="text-xs text-slate-400">Las mesas que atiendes se marcan con este color</p>

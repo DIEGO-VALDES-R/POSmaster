@@ -9,6 +9,7 @@ import { ContractSign } from './ContractSign';
 import AcceptInvitation from './AcceptInvitation';
 import { Toaster } from 'react-hot-toast';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
+import ConfiguracionFactus from './pages/ConfiguracionFactus';
 
 
 // ── CODE SPLITTING ────────────────────────────────────────────────────────────
@@ -433,6 +434,7 @@ const AppRoutes: React.FC = () => (
       {/* ── NUEVA ruta: Configuración de Integraciones ── */}
       <Route path="/configuracion/integraciones" element={<ConfiguracionIntegraciones />} />
       <Route path="/promociones" element={<PromoCampaigns />} />
+      <Route path="/configuracion/facturacion" element={<ConfiguracionFactus />} />
     </Routes>
   </Suspense>
 );
