@@ -11,6 +11,7 @@ import {
 import { supabase } from '../supabaseClient';
 import { useDatabase } from '../contexts/DatabaseContext';
 import toast from 'react-hot-toast';
+import InvoiceModal from '../components/InvoiceModal';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 type TableStatus = 'FREE' | 'OCCUPIED' | 'ORDERING' | 'READY' | 'BILLING';
@@ -103,7 +104,7 @@ interface PaymentModalProps {
   branchId: string | null;
   session: any;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (invoice: any, items: any[]) => void;
   navigate: (path: string) => void;
   formatCurrency: (v: number) => string;
 }
@@ -163,29 +164,28 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
 
       if (invErr) throw invErr;
 
-      // Insertar ítems con extras desglosados
-      const itemsToInsert = order.items.flatMap(i => {
-        const rows = [{
-          invoice_id:  invoice.id,
-          product_id:  null,
-          description: i.product_name + (i.notes ? ` (${i.notes})` : ''),
-          quantity:    i.quantity,
-          price:       i.price,
-          tax_rate:    0,
+      // Los ítems del restaurante no tienen product_id real, por lo que no se
+      // pueden insertar en invoice_items (trigger inventory_movements exige product_id).
+      // Se guardan como virtual_items dentro del payment_method de la factura.
+      const virtualItems = order.items.flatMap(i => {
+        const rows: any[] = [{
+          name:     i.product_name + (i.notes ? ` (${i.notes})` : ''),
+          quantity: i.quantity,
+          price:    i.price,
         }];
         (i.extras || []).filter(e => e.price > 0).forEach(e => {
-          rows.push({
-            invoice_id:  invoice.id,
-            product_id:  null,
-            description: `  + ${e.note}`,
-            quantity:    1,
-            price:       e.price,
-            tax_rate:    0,
-          });
+          rows.push({ name: `+ ${e.note}`, quantity: 1, price: e.price });
         });
         return rows;
       });
-      await supabase.from('invoice_items').insert(itemsToInsert);
+      await supabase.from('invoices')
+        .update({
+          payment_method: {
+            ...invoice.payment_method,
+            virtual_items: virtualItems,
+          },
+        })
+        .eq('id', invoice.id);
 
       await supabase.from('table_orders')
         .update({ status: 'DELIVERED', invoice_id: invoice.id, updated_at: new Date().toISOString() })
@@ -203,7 +203,7 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
       }
 
       toast.success(`✅ Factura ${invNum} generada — Mesa liberada`);
-      onSuccess();
+      onSuccess(invoice, virtualItems);
 
     } catch (err: any) {
       toast.error('Error: ' + err.message);
@@ -394,6 +394,8 @@ const Tables: React.FC = () => {
   const [showTableModal, setShowTableModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showPayModal,   setShowPayModal]   = useState(false);
+  const [showInvoice,    setShowInvoice]    = useState(false);
+  const [lastInvoice,    setLastInvoice]    = useState<any>(null);
   const [editingTable,   setEditingTable]   = useState<RestaurantTable | null>(null);
   const [activeTable,    setActiveTable]    = useState<RestaurantTable | null>(null);
   const [activeOrder,    setActiveOrder]    = useState<TableOrder | null>(null);
@@ -1804,6 +1806,14 @@ const Tables: React.FC = () => {
         </div>
       )}
 
+      {/* ════ MODAL: FACTURA GENERADA ════ */}
+      <InvoiceModal
+        isOpen={showInvoice}
+        onClose={() => setShowInvoice(false)}
+        sale={lastInvoice}
+        company={company}
+      />
+
       {/* ════ MODAL: PAGO ════ */}
       {showPayModal && activeTable && activeOrder && (
         <TablePaymentModal
@@ -1816,8 +1826,29 @@ const Tables: React.FC = () => {
           formatCurrency={formatCurrency}
           navigate={navigate}
           onClose={() => { setShowPayModal(false); }}
-          onSuccess={async () => {
+          onSuccess={async (invoice, items) => {
             setShowPayModal(false);
+            // Construir objeto compatible con InvoiceModal
+            const saleForModal = {
+              ...invoice,
+              // invoice_items en este formato lo entiende normalizeItems() de InvoiceModal
+              invoice_items: items.map((it: any) => ({
+                description: it.name,
+                quantity:    it.quantity,
+                price:       it.price,
+                tax_rate:    0,
+              })),
+              payment_method: {
+                ...(invoice.payment_method || {}),
+                virtual_items: items.map((it: any) => ({
+                  name:     it.name,
+                  quantity: it.quantity,
+                  price:    it.price,
+                })),
+              },
+            };
+            setLastInvoice(saleForModal);
+            setShowInvoice(true);
             await Promise.all([loadTables(), loadOrders()]);
           }}
         />

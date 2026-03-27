@@ -1543,7 +1543,7 @@ const Inventory: React.FC = () => {
           <div className="w-full h-full flex items-center justify-center"><Package size={32} className="text-slate-300" /></div>
         )}
         <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold ${(p.stock_quantity||0) <= (p.stock_min||5) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-          Stock: {p.stock_quantity ?? 0}
+          {(p as any).type === 'WEIGHABLE' ? `Stock: ${((p as any).unit_type === 'g' ? (p.stock_quantity ?? 0) + ' g' : (p as any).unit_type === 'lb' ? ((( p.stock_quantity ?? 0) / 453.592).toFixed(2)) + ' lb' : (((p.stock_quantity ?? 0) / 1000).toFixed(2)) + ' kg')}` : `Stock: ${p.stock_quantity ?? 0}`}
         </div>
         {(p as any).has_variants && (
           <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[10px] font-bold flex items-center gap-0.5">
