@@ -242,6 +242,24 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
             <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-slate-300">
               <span>TOTAL A PAGAR:</span><span>{formatMoney(invoice.total_amount)}</span>
             </div>
+            {(() => {
+              const pm = (invoice as any).payment_method || {};
+              const paid = pm.amount;
+              const change = pm.change_due;
+              if (!paid || paid <= invoice.total_amount) return null;
+              return (
+                <div className="mt-2 pt-2 border-t border-dashed border-slate-300 space-y-1">
+                  <div className="flex justify-between text-sm font-semibold text-slate-700">
+                    <span>CANCELÓ:</span><span>{formatMoney(paid)}</span>
+                  </div>
+                  {change > 0 && (
+                    <div className="flex justify-between text-sm font-bold text-green-700">
+                      <span>CAMBIO:</span><span>{formatMoney(change)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {invoice.dian_cufe ? (
