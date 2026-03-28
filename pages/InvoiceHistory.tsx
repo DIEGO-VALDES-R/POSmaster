@@ -234,15 +234,34 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
           </table>
 
           <div className="space-y-1 mb-6 border-t border-black pt-2 text-xs">
-            <div className="flex justify-between"><span>Subtotal:</span><span>{formatMoney(invoice.subtotal)}</span></div>
-            {showIva
-              ? <div className="flex justify-between text-slate-600"><span>IVA:</span><span>{formatMoney(invoice.tax_amount)}</span></div>
-              : <div className="flex justify-between text-slate-400"><span>IVA:</span><span>No aplica</span></div>
-            }
-            <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-slate-300">
-              <span>TOTAL A PAGAR:</span><span>{formatMoney(invoice.total_amount)}</span>
-            </div>
+  <div className="flex justify-between"><span>Subtotal:</span><span>{formatMoney(invoice.subtotal)}</span></div>
+  {showIva
+    ? <div className="flex justify-between text-slate-600"><span>IVA:</span><span>{formatMoney(invoice.tax_amount)}</span></div>
+    : <div className="flex justify-between text-slate-400"><span>IVA:</span><span>No aplica</span></div>
+  }
+  <div className="flex justify-between font-bold text-base mt-2 pt-2 border-t border-slate-300">
+    <span>TOTAL A PAGAR:</span><span>{formatMoney(invoice.total_amount)}</span>
+  </div>
+  {/* ── CANCELÓ / CAMBIO ── */}
+  {(() => {
+    const pm = (invoice as any).payment_method || {};
+    const paid = pm.amount;
+    const change = pm.change_due;
+    if (!paid || paid <= invoice.total_amount) return null;
+    return (
+      <div className="mt-2 pt-2 border-t border-dashed border-slate-300 space-y-1">
+        <div className="flex justify-between text-sm font-semibold text-slate-700">
+          <span>CANCELÓ:</span><span>{formatMoney(paid)}</span>
+        </div>
+        {change > 0 && (
+          <div className="flex justify-between text-sm font-bold text-green-700">
+            <span>CAMBIO:</span><span>{formatMoney(change)}</span>
           </div>
+        )}
+      </div>
+    );
+  })()}
+</div>
 
           {invoice.dian_cufe ? (
             <div className="text-center space-y-3">
@@ -258,7 +277,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
           ) : null}
 
           {/* ── BOTÓN DIAN dentro del modal ── */}
-          {dianEnabled && !isApartado && invoice.status === 'PENDING_ELECTRONIC' && (
+          {dianEnabled && !isApartado && ['PENDING_ELECTRONIC', 'COMPLETED', 'PAID'].includes(invoice.status) && invoice.status !== 'ACCEPTED' && (
             <div className="mt-4 print:hidden">
               <BotonFacturaDian
                 invoiceId={invoice.id}
@@ -638,7 +657,7 @@ const InvoiceHistory: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {invoices.map(inv => {
                   const isExpanded  = expandedId === inv.id;
-                  const isPending   = inv.status === 'PENDING_ELECTRONIC';
+                  const isPending   = ['PENDING_ELECTRONIC', 'COMPLETED', 'PAID'].includes(inv.status);
                   const isApartado  = (inv as any).business_type === 'apartado';
                   return (
                     <React.Fragment key={inv.id}>
@@ -671,7 +690,7 @@ const InvoiceHistory: React.FC = () => {
                         {/* ── COLUMNA DIAN — solo para ventas normales ── */}
                         {dianEnabled && (
                           <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                            {!isApartado && isPending ? (
+                            {!isApartado && (isPending || inv.status === 'COMPLETED' || inv.status === 'PAID') && inv.status !== 'ACCEPTED' ? (
                               <button
                                 onClick={() => setSelectedInvoice(inv)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"

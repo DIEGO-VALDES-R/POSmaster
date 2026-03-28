@@ -50,12 +50,19 @@ const BotonFacturaDian: React.FC<Props> = ({
         <div className="text-[10px] text-slate-400 break-all bg-slate-50 p-2 rounded-lg font-mono">
           <span className="font-bold text-slate-500">CUFE: </span>{theCufe}
         </div>
-        {pdfUrl && (
+        {pdfUrl ? (
           <a href={pdfUrl} target="_blank" rel="noreferrer"
             className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline">
             <ExternalLink size={12} /> Ver factura en Factus
           </a>
-        )}
+        ) : theCufe ? (
+          <p className="text-[10px] text-slate-400">
+            Busca el CUFE en{' '}
+            <a href="https://app-sandbox.factus.com.co" target="_blank" rel="noreferrer" className="underline text-blue-500">
+              Factus
+            </a>
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -95,7 +102,13 @@ const BotonFacturaDian: React.FC<Props> = ({
         if (res.pdf_url) window.open(res.pdf_url, '_blank');
         onSuccess?.(res.cufe, res.pdf_url || '');
       } else {
-        toast.error(`Error DIAN: ${res.error || 'Error desconocido'}`);
+        // Mostrar error detallado si hay campos específicos
+        const detail = res.detail as any;
+        const fieldErrors = detail?.data?.errors
+          ? Object.entries(detail.data.errors).map(([k, v]: any) => `${k}: ${Array.isArray(v) ? v[0] : v}`).join(' | ')
+          : '';
+        const msg = fieldErrors || res.error || 'Error desconocido';
+        toast.error(`Error DIAN: ${msg}`, { duration: 8000 });
         console.error('[BotonFacturaDian]', res.detail);
       }
     } catch (err: any) {

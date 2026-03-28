@@ -123,19 +123,32 @@ async function getFactusToken(supabase: any, companyId: string, cfg: any, base: 
 }
 
 // ── Obtener numbering_range_id activo ────────────────────────────────────────
-async function getNumberingRangeId(base: string, token: string, prefix: string): Promise<number | null> {
+async function getNumberingRangeId(base: string, token: string, prefix: string, savedRangeId?: number | null): Promise<number | null> {
+  // Si ya hay un rango guardado en config, usarlo directamente
+  if (savedRangeId) {
+    console.log('[Factus] Usando rango guardado en config:', savedRangeId);
+    return savedRangeId;
+  }
   try {
-    const res = await fetch(`${base}/v1/numbering-ranges?state=1`, {
+    const res = await fetch(`${base}/v1/numbering-ranges`, {
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     });
     if (!res.ok) { console.error('[Factus] Error al consultar rangos:', res.status); return null; }
     const data = await res.json();
-    const ranges: any[] = data.data || data || [];
+
+    // Factus puede devolver la lista en varias estructuras
+    let ranges: any[] = [];
+    if (Array.isArray(data)) ranges = data;
+    else if (Array.isArray(data?.data)) ranges = data.data;
+    else if (Array.isArray(data?.data?.data)) ranges = data.data.data;
+
+    console.log('[Factus] Rangos encontrados:', ranges.length);
 
     // Buscar por prefijo exacto primero
-    let range = ranges.find((r: any) => r.prefix?.toUpperCase() === prefix?.toUpperCase());
-    // Si no, tomar el primero activo
-    if (!range) range = ranges.find((r: any) => r.is_active || r.state === 1);
+    let range = ranges.find((r: any) => r.prefix?.toUpperCase() === prefix?.toUpperCase() && !r.is_expired);
+    // Si no, tomar el primero no expirado
+    if (!range) range = ranges.find((r: any) => !r.is_expired);
+    // Si todos expirados, tomar el primero
     if (!range) range = ranges[0];
 
     console.log('[Factus] Rango seleccionado:', range?.id, range?.prefix);
@@ -224,7 +237,8 @@ serve(async (req) => {
 
     // ── 6. Obtener numbering_range_id ───────────────────────────────────────
     const prefix = cfg.dian_prefix || 'SETP';
-    const numberingRangeId = await getNumberingRangeId(FACTUS_BASE, factusToken, prefix);
+    const savedRangeId = cfg.numbering_range_id || null;
+    const numberingRangeId = await getNumberingRangeId(FACTUS_BASE, factusToken, prefix, savedRangeId);
     if (!numberingRangeId) {
       console.warn('[Factus] No se encontró rango de numeración, se enviará null');
     }
