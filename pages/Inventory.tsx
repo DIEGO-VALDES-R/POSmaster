@@ -27,7 +27,7 @@ const numVal = (val: number | undefined | null, fallback = 0): string => {
 // MODAL IMPORTAR EXCEL
 // ─────────────────────────────────────────────
 interface ImportRow {
-  name: string; sku: string; barcode?: string; category?: string; brand?: string;
+  name: string; sku: string; barcode?: string; imei?: string; category?: string; brand?: string;
   description?: string; price: number; cost: number; stock_quantity?: number;
   stock_min?: number; tax_rate?: number; type?: string;
   supplier_name?: string;
@@ -69,6 +69,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
       const fieldMap: Record<string, string[]> = {
         name: ['name', 'nombre'], sku: ['sku', 'código', 'codigo'],
         barcode: ['barcode', 'código de barras', 'codigo de barras', 'ean'],
+        imei: ['imei', 'número imei', 'numero imei', 'imei/serial'],
         category: ['category', 'categoría', 'categoria'], brand: ['brand', 'marca'],
         description: ['description', 'descripción', 'descripcion'],
         price: ['price', 'precio venta', 'precio', 'precio de venta'], cost: ['cost', 'costo'],
@@ -100,6 +101,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
         const item: ImportRow = {
           name: nameStr, sku: String(skuVal).trim(),
           barcode: get('barcode') ? String(get('barcode')).trim() : undefined,
+          imei: get('imei') ? String(get('imei')).trim() : undefined,
           category: get('category') ? String(get('category')).trim() : undefined,
           brand: get('brand') ? String(get('brand')).trim() : undefined,
           description: get('description') ? String(get('description')).trim() : undefined,
@@ -175,7 +177,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               const { error: e } = await supabase.from('products').insert({
                 company_id: companyId, branch_id: branchId || null,
                 name: row.name, sku: newSku,
-                barcode: null, category: row.category || null,
+                barcode: null, imei: null, category: row.category || null,
                 brand: row.brand || null, description: row.description || null,
                 price: row.price, cost: row.cost,
                 stock_quantity: row.stock_quantity ?? 0, stock_min: row.stock_min ?? 0,
@@ -197,6 +199,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             brand: row.brand || null,
             description: row.description || null,
             barcode: row.barcode || null,
+            imei: row.imei || null,
           };
           if (updatePrices) {
             updatePayload.price = row.price;
@@ -231,7 +234,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
         } else {
           const { data: inserted, error: e } = await supabase.from('products').insert({
             company_id: companyId, branch_id: branchId || null, name: row.name, sku: row.sku,
-            barcode: row.barcode || null, category: row.category || null,
+            barcode: row.barcode || null, imei: row.imei || null, category: row.category || null,
             brand: row.brand || null, description: row.description || null,
             price: row.price, cost: row.cost,
             stock_quantity: row.stock_quantity ?? 0, stock_min: row.stock_min ?? 0,
@@ -290,17 +293,19 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
             </div>
             <button onClick={() => {
               const wb = XLSX.utils.book_new();
-              const headers = ['Nombre *','SKU *','Código de Barras','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede','Fecha Creación'];
+              const headers = ['Nombre *','SKU *','Código de Barras','IMEI','Categoría','Marca','Descripción','Precio Venta *','Costo *','Stock Inicial','Stock Mínimo','IVA (%)','Tipo','Proveedor','Sede','Fecha Creación'];
               const branchNames = branches.map(b => b.name).join(' | ') || 'Sede Principal';
               const examples = [
-                ['Camiseta Azul M','CAM-AZ-M','','CAMISETAS','BRAND','Camiseta algodón talla M','35000','18000','10','2','19','STANDARD','Distribuidora XYZ','Sede Principal'],
-                ['Pantalla Samsung A11','SKU-001','7890123456789','PANTALLAS','SAMSUNG','Pantalla original','45000','30000','4','1','19','STANDARD','Samsung Colombia','Sede Principal'],
-                ['Servicio Técnico','SERV-01','','SERVICIOS','','Diagnóstico y reparación','50000','0','0','0','0','SERVICE','','Sede Principal'],
+                ['Camiseta Azul M','CAM-AZ-M','','','CAMISETAS','BRAND','Camiseta algodón talla M','35000','18000','10','2','19','STANDARD','Distribuidora XYZ','Sede Principal'],
+                ['Pantalla Samsung A11','SKU-001','7890123456789','351234567890123','PANTALLAS','SAMSUNG','Pantalla original','45000','30000','4','1','19','STANDARD','Samsung Colombia','Sede Principal'],
+                ['Servicio Técnico','SERV-01','','','SERVICIOS','','Diagnóstico y reparación','50000','0','0','0','0','SERVICE','','Sede Principal'],
               ];
               const notes = [
                 ['💡 INSTRUCCIONES:'],
                 ['• Campos con * son obligatorios'],
                 ['• Tipo: STANDARD (normal) o SERVICE (servicio sin stock)'],
+                ['• Código de Barras: EAN/UPC del producto (se puede leer con pistola de barras)'],
+                ['• IMEI: número IMEI del equipo (solo para celulares/tablets serializados)'],
                 ['• Proveedor: escribe el nombre exactamente — se crea automáticamente si no existe'],
                 ['• IVA: escribe solo el número (19, 5, 0)'],
                 ['• Stock Inicial: cantidad en bodega al importar'],
@@ -308,7 +313,7 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
               ];
               const wsData = [headers, ...examples, [], ...notes];
               const ws = XLSX.utils.aoa_to_sheet(wsData);
-              ws['!cols'] = headers.map((h, i) => ({ wch: [28,14,18,16,14,28,14,10,13,13,8,10,22,20][i] || 16 }));
+              ws['!cols'] = headers.map((_h, i) => ({ wch: [28,14,18,16,16,14,28,14,10,13,13,8,10,22,20,16][i] || 16 }));
               XLSX.utils.book_append_sheet(wb, ws, 'Productos');
               const supHeaders = ['Nombre del Proveedor','NIT','Teléfono','Email'];
               const supExamples = [
@@ -1210,11 +1215,16 @@ const Inventory: React.FC = () => {
   }, [loading, products]);
 
   const { isScanning } = useBarcodeScanner((barcode) => {
-    const product = products.find(p => p.sku.toLowerCase() === barcode.toLowerCase());
+    const q = barcode.toLowerCase();
+    const product = products.find(p =>
+      p.sku.toLowerCase() === q ||
+      ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
+      ((p as any).imei && (p as any).imei.toLowerCase() === q)
+    );
     if (product) {
       setScannedProduct(product); setShowBarcodeNotification(true);
       openEdit(product); setTimeout(() => setShowBarcodeNotification(false), 3000);
-    } else { toast.error(`Producto con SKU "${barcode}" no encontrado`); }
+    } else { toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`); }
   });
 
   const load = async () => {
@@ -1407,7 +1417,9 @@ const Inventory: React.FC = () => {
     return (
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku.toLowerCase().includes(search.toLowerCase()) ||
-      (p.category || '').toLowerCase().includes(search.toLowerCase())
+      (p.category || '').toLowerCase().includes(search.toLowerCase()) ||
+      ((p as any).barcode || '').toLowerCase().includes(search.toLowerCase()) ||
+      ((p as any).imei || '').toLowerCase().includes(search.toLowerCase())
     );
   });
 
@@ -1457,6 +1469,8 @@ const Inventory: React.FC = () => {
           </div>
         </td>
         <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku}</td>
+        <td className="px-4 py-3 text-slate-400 font-mono text-xs">{(p as any).barcode || <span className="text-slate-200">—</span>}</td>
+        <td className="px-4 py-3 text-slate-400 font-mono text-xs">{(p as any).imei || <span className="text-slate-200">—</span>}</td>
         <td className="px-4 py-3 text-slate-500">{p.category || '—'}</td>
         <td className="px-4 py-3 font-semibold text-slate-800">{formatMoney(p.price)}</td>
         <td className="px-4 py-3 text-slate-500">{formatMoney(p.cost)}</td>
@@ -1794,7 +1808,7 @@ const Inventory: React.FC = () => {
                       onChange={toggleSelectAll}
                       className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
                   </th>
-                  {['Foto','Producto','SKU','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
+                  {['Foto','Producto','SKU','Cód. Barras','IMEI','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
                     <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
                   ))}
                 </tr>
@@ -1902,6 +1916,14 @@ const Inventory: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">SKU *</label>
                   <input value={form.sku} onChange={f('sku')} className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Código de Barras</label>
+                  <input value={(form as any).barcode || ''} onChange={f('barcode')} placeholder="EAN / UPC" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">IMEI <span className="text-slate-400 font-normal text-xs">(celulares/tablets)</span></label>
+                  <input value={(form as any).imei || ''} onChange={f('imei')} placeholder="351234567890123" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>

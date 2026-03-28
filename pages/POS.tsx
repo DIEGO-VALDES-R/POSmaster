@@ -407,9 +407,14 @@ const clearCartWithStockReturn = useCallback(async () => {
 
   // ── Escáner de barras ─────────────────────────────────────────────────────
   const { isScanning } = useBarcodeScanner((barcode) => {
-    const product = products.find((p) => p.sku.toLowerCase() === barcode.toLowerCase());
+    const q = barcode.toLowerCase();
+    const product = products.find((p) =>
+      p.sku.toLowerCase() === q ||
+      ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
+      ((p as any).imei && (p as any).imei.toLowerCase() === q)
+    );
     if (product) { addToCart(product); setSearchTerm(''); }
-    else toast.error(`Producto con SKU "${barcode}" no encontrado`);
+    else toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`);
   });
 
   useEffect(() => {

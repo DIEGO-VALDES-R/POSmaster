@@ -132,6 +132,8 @@ export interface Product {
   company_id: string;
   name: string;
   sku: string;
+  barcode?: string;
+  imei?: string;
   description?: string;
   price: number;          // precio por kg/lb/unidad según unit_type
   cost: number;

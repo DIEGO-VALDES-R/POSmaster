@@ -246,7 +246,7 @@ const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, compan
   {(() => {
     const pm = (invoice as any).payment_method || {};
     const paid = pm.amount;
-    const change = pm.change_due;
+    const change = pm.change_due ?? pm.change ?? (paid - invoice.total_amount);
     if (!paid || paid <= invoice.total_amount) return null;
     return (
       <div className="mt-2 pt-2 border-t border-dashed border-slate-300 space-y-1">
