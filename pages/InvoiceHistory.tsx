@@ -85,7 +85,7 @@ interface InvoiceDetailModalProps {
 const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({ invoice, company, onClose, formatMoney, onDianSuccess }) => {
   const companyName = company?.name ?? 'IPHONESHOP USA';
   const showIva = (invoice.tax_amount ?? 0) > 0;
-  const dianEnabled = company?.dian_settings?.is_active || !!(company?.config as any)?.factus_client_id || false;
+  const dianEnabled = company?.dian_settings?.is_active || !!(company?.config as any)?.factus_client_id || !!(company?.config as any)?.siigo_username || !!(company?.config as any)?.alegra_email || false;
   const isApartado = (invoice as any).business_type === 'apartado';
 
   const handlePrint = () => setTimeout(() => window.print(), 200);
@@ -353,7 +353,7 @@ const InvoiceHistory: React.FC = () => {
   const [pinError, setPinError] = useState('');
   const [pinAttempts, setPinAttempts] = useState(0);
 
-  const dianEnabled = (company as any)?.dian_settings?.is_active || !!((company as any)?.config?.factus_client_id) || false;
+  const dianEnabled = (company as any)?.dian_settings?.is_active || !!((company as any)?.config?.factus_client_id) || !!((company as any)?.config?.siigo_username) || !!((company as any)?.config?.alegra_email) || false;
 
   const enrichInvoice = (inv: any): Invoice => {
     const pm = inv.payment_method || {};

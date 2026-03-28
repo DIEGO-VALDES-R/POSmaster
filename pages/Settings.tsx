@@ -13,7 +13,7 @@ import { DianEnvironment, DianSettings } from '../types';
 import { useCurrency, CURRENCY_INFO, CurrencyCode } from '../contexts/CurrencyContext';
 
 const PLANS = [
-  { id: 'BASIC', name: 'Plan Basic', price: '$65.000 / mes', features: ['1 sucursal', '1 usuario admin', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Servicio técnico', 'Cartera / CxC', 'Soporte WhatsApp'], color: 'border-slate-200', accentClass: 'bg-slate-600' },
+  { id: 'BASIC', name: 'Plan Basic', price: '$65.000 / mes', features: ['1 sucursal', '1 usuario admin', 'POS y ventas', 'Inventario ilimitado', 'Control de caja', 'Cartera / CxC', 'Soporte WhatsApp'], color: 'border-slate-200', accentClass: 'bg-slate-600' },
   { id: 'PRO', name: 'Plan Pro', price: '$120.000 / mes', features: ['Hasta 3 sucursales', 'Hasta 5 usuarios', 'Todo lo del Basic', 'Roles y permisos', 'PIN de acceso rápido', 'Dashboard multi-sucursal', 'Soporte Prioritario'], color: 'border-blue-500 ring-2 ring-blue-500/20', accentClass: 'bg-blue-600', popular: true },
   { id: 'ENTERPRISE', name: 'Plan Enterprise', price: '$249.900 / mes', features: ['Sucursales ilimitadas', 'Usuarios ilimitados', 'Todo lo del Pro', 'Facturación DIAN', 'API + Webhooks', 'Gerente de cuenta dedicado', 'SLA 99.9% uptime', 'Soporte Dedicado'], color: 'border-purple-500 ring-2 ring-purple-500/20', accentClass: 'bg-purple-600', enterprise: true }
 ];
@@ -62,7 +62,6 @@ const MASTER_KEY = 'admin123';
 const Settings: React.FC = () => {
   const { company, updateCompanyConfig, saveDianSettings, refreshCompany } = useDatabase();
 
-  // Mantenemos el ID que aparece en tu captura de Supabase
   const safeCompany = company || {
     id: 'b44f2b8c-e792-4d15-a661-ecadc111fbcd', 
     name: 'iPhone Shop Usa', 
@@ -91,33 +90,32 @@ const Settings: React.FC = () => {
   const [formData, setFormData] = useState(safeCompany);
   const [activeTab, setActiveTab] = useState<'GENERAL' | 'DIAN' | 'BRANDING' | 'PAGOS' | 'CATALOGO' | 'HARDWARE' | 'INTEGRACIONES'>('GENERAL');
 
-  // Abrir tab según parámetro URL (?tab=hardware)
   const location = useLocation();
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab')?.toUpperCase();
     if (tab === 'HARDWARE') setActiveTab('HARDWARE');
   }, [location.search]);
+  
   const [taxRate, setTaxRate] = useState<number>(safeCompany.config?.tax_rate ?? 0);
   const { currency, setCurrency, exchangeRates, setExchangeRate, loadingRates } = useCurrency();
   const [vesRate, setVesRate] = useState<string>(
-  String(((safeCompany.config as any)?.exchange_rate_ves) || '0.097')
-);
-const [usdRate, setUsdRate] = useState<string>(
-  String(((safeCompany.config as any)?.exchange_rate_usd) || '0.00024')
-);
-// ✅ AGREGAR ESTO:
-const [eurRate, setEurRate] = useState<string>(
-  String(((safeCompany.config as any)?.exchange_rate_eur) || '0.00022')
-);
+    String(((safeCompany.config as any)?.exchange_rate_ves) || '0.097')
+  );
+  const [usdRate, setUsdRate] = useState<string>(
+    String(((safeCompany.config as any)?.exchange_rate_usd) || '0.00024')
+  );
+  const [eurRate, setEurRate] = useState<string>(
+    String(((safeCompany.config as any)?.exchange_rate_eur) || '0.00022')
+  );
+  
   const handleSaveRates = async () => {
-  await setExchangeRate('VES', parseFloat(vesRate) || 0.097);
-  await setExchangeRate('USD', parseFloat(usdRate) || 0.00024);
-  await setExchangeRate('EUR', parseFloat(eurRate) || 0.00022);  // ✅ Cambiar usdRate por eurRate
-  toast.success('✅ Tasas de cambio actualizadas');
-};
+    await setExchangeRate('VES', parseFloat(vesRate) || 0.097);
+    await setExchangeRate('USD', parseFloat(usdRate) || 0.00024);
+    await setExchangeRate('EUR', parseFloat(eurRate) || 0.00022);
+    toast.success('✅ Tasas de cambio actualizadas');
+  };
 
-  // ── Hardware: cajón registradora ──────────────────────────────────────────
   type DrawerProtocol = 'escpos-usb' | 'escpos-network' | 'windows-print';
   interface DrawerConfig { protocol: DrawerProtocol; networkIp?: string; networkPort?: number; windowsPrinter?: string; }
   const [drawerConfig, setDrawerConfig] = useState<DrawerConfig>(() => {
@@ -130,15 +128,16 @@ const [eurRate, setEurRate] = useState<string>(
     setDrawerSaved(true);
     setTimeout(() => setDrawerSaved(false), 2500);
   };
+  
   const [deleteInvoicePin, setDeleteInvoicePin] = useState<string>(
     (safeCompany.config as any)?.delete_invoice_pin || ''
   );
-  // ── PIN auth: requiere contraseña del propietario para editar el PIN de facturas
   const [pinAuthOpen, setPinAuthOpen] = useState(false);
   const [pinAuthPassword, setPinAuthPassword] = useState('');
   const [pinAuthShowPw, setPinAuthShowPw] = useState(false);
   const [pinAuthLoading, setPinAuthLoading] = useState(false);
-  const [pinUnlocked, setPinUnlocked] = useState(false); // true = edición desbloqueada
+  const [pinUnlocked, setPinUnlocked] = useState(false);
+  
   const [primaryColor, setPrimaryColor] = useState(
     safeCompany.primary_color || (safeCompany.config as any)?.primary_color || '#3b82f6'
   );
@@ -148,26 +147,24 @@ const [eurRate, setEurRate] = useState<string>(
   const [fontColor, setFontColor] = useState(
     (safeCompany.config as any)?.font_color || '#ffffff'
   );
-  // businessTypes es ahora un array — BASIC: 1, PRO: hasta 3, ENTERPRISE: ilimitado
-  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1; // BASIC y TRIAL = 1
+  
+  const maxBusinessTypes = plan === 'ENTERPRISE' ? 99 : plan === 'PRO' ? 3 : 1;
   const parseBusinessTypes = (cfg: any): string[] => {
     if (Array.isArray(cfg?.business_types)) return cfg.business_types;
-    if (cfg?.business_type) return [cfg.business_type]; // migración de dato antiguo
+    if (cfg?.business_type) return [cfg.business_type];
     return ['general'];
   };
   const [businessTypes, setBusinessTypes] = useState<string[]>(
     parseBusinessTypes((safeCompany.config as any))
   );
+  
   const toggleBusinessType = (id: string) => {
     setBusinessTypes(prev => {
-      // Si ya está seleccionado, deseleccionar (pero nunca dejar vacío)
       if (prev.includes(id)) {
         if (prev.length === 1) return prev;
         return prev.filter(t => t !== id);
       }
-      // BASIC y TRIAL: swap directo — reemplaza el único seleccionado
       if (plan === 'BASIC' || plan === 'TRIAL') return [id];
-      // PRO: hasta 3
       if (prev.length >= maxBusinessTypes) {
         toast.error('El plan PRO permite hasta 3 tipos. Actualiza a ENTERPRISE para tener todos.');
         return prev;
@@ -178,31 +175,28 @@ const [eurRate, setEurRate] = useState<string>(
 
   const [savingBranding, setSavingBranding] = useState(false);
   const [invoiceTerms, setInvoiceTerms] = useState<string>('');
-  // ── Catálogo WhatsApp ────────────────────────────────────────────────────
   const [catalogEnabled, setCatalogEnabled] = useState<boolean>((safeCompany as any).catalog_enabled || false);
   const [catalogWhatsapp, setCatalogWhatsapp] = useState<string>((safeCompany as any).catalog_whatsapp || '');
   const [catalogMessage, setCatalogMessage] = useState<string>((safeCompany as any).catalog_message || '¡Hola! Me interesa este producto:');
   const [catalogLinkCopied, setCatalogLinkCopied] = useState(false);
 
-  // Sincronizar TODOS los estados cuando el contexto carga/actualiza company
-  // Resuelve el caso donde company llega null en el primer render (async)
   useEffect(() => {
     if (!company) return;
     const cfg = (company.config as any) || {};
     setFormData(company as any);
     setTaxRate(cfg.tax_rate ?? 0);
     setDeleteInvoicePin(cfg.delete_invoice_pin || '');
-    setPinUnlocked(false); // re-lock whenever company reloads
+    setPinUnlocked(false);
     setPrimaryColor(cfg.primary_color || '#3b82f6');
     setSecondaryColor(cfg.secondary_color || '#6366f1');
     setFontColor(cfg.font_color || '#ffffff');
-    // Resuelve el bug donde Odontologia (y otros tipos) no aparecian seleccionados
     setBusinessTypes(parseBusinessTypes(cfg));
     setInvoiceTerms(cfg.invoice_terms || '');
-  if (cfg.exchange_rate_ves) setVesRate(String(cfg.exchange_rate_ves));
-if (cfg.exchange_rate_usd) setUsdRate(String(cfg.exchange_rate_usd));
-if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGREGAR
-}, [company]);
+    if (cfg.exchange_rate_ves) setVesRate(String(cfg.exchange_rate_ves));
+    if (cfg.exchange_rate_usd) setUsdRate(String(cfg.exchange_rate_usd));
+    if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur));
+  }, [company]);
+  
   const [paymentProviders, setPaymentProviders] = useState<Record<string, any>>({
     cash:      { enabled: true,  label: 'Efectivo',             icon: '💵' },
     dataphone: { enabled: false, label: 'Datáfono físico',      icon: '📟', acquirer: 'redeban', note: '' },
@@ -228,7 +222,17 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
     nit_digit:       (safeCompany.config as any)?.dian_nit_digit || '0',
     software_id: '', software_pin: '', technical_key: '',
     environment: DianEnvironment.TEST,
-    is_active: !!(safeCompany.config as any)?.factus_token || !!(safeCompany.config as any)?.factus_client_id,
+    is_active: !!(safeCompany.config as any)?.factus_token || !!(safeCompany.config as any)?.factus_client_id || !!(safeCompany.config as any)?.siigo_username || !!(safeCompany.config as any)?.alegra_email,
+    proveedor:  (safeCompany.config as any)?.dian_proveedor || 'factus',
+    siigo_username:   (safeCompany.config as any)?.siigo_username   || '',
+    siigo_access_key: (safeCompany.config as any)?.siigo_access_key || '',
+    siigo_partner_id: (safeCompany.config as any)?.siigo_partner_id || '',
+    siigo_document_id:(safeCompany.config as any)?.siigo_document_id|| '',
+    siigo_payment_id: (safeCompany.config as any)?.siigo_payment_id || '',
+    siigo_tax_id:     (safeCompany.config as any)?.siigo_tax_id     || '',
+    alegra_email:     (safeCompany.config as any)?.alegra_email     || '',
+    alegra_token:     (safeCompany.config as any)?.alegra_token     || '',
+    alegra_tax_id:    (safeCompany.config as any)?.alegra_tax_id    || '',
   });
 
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
@@ -237,7 +241,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // LOGICA DE GUARDADO CORREGIDA PARA 'business_settings'
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -248,10 +251,9 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
           config: { ...(formData.config || {}), tax_rate: taxRate, delete_invoice_pin: deleteInvoicePin }
         });
         toast.success('Configuración General Guardada');
-        setPinUnlocked(false); // re-lock PIN after saving
+        setPinUnlocked(false);
       } 
       else if (activeTab === 'DIAN') {
-        // Guardar en company.config — cada campo Factus vive aquí
         const currentConfig = (safeCompany.config as any) || {};
         const newConfig = {
           ...currentConfig,
@@ -267,9 +269,19 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
           dian_range_from:      dianForm.range_from,
           dian_range_to:        dianForm.range_to,
           dian_nit_digit:       dianForm.nit_digit,
-          // Limpiar token cacheado para forzar re-autenticación al guardar nuevas credenciales
+          siigo_username:    (dianForm as any).siigo_username    || currentConfig.siigo_username,
+          siigo_access_key:  (dianForm as any).siigo_access_key  || currentConfig.siigo_access_key,
+          siigo_partner_id:  (dianForm as any).siigo_partner_id  || currentConfig.siigo_partner_id,
+          siigo_document_id: (dianForm as any).siigo_document_id || currentConfig.siigo_document_id,
+          siigo_payment_id:  (dianForm as any).siigo_payment_id  || currentConfig.siigo_payment_id,
+          siigo_tax_id:      (dianForm as any).siigo_tax_id      || currentConfig.siigo_tax_id,
+          alegra_email:      (dianForm as any).alegra_email      || currentConfig.alegra_email,
+          alegra_token:      (dianForm as any).alegra_token      || currentConfig.alegra_token,
+          alegra_tax_id:     (dianForm as any).alegra_tax_id     || currentConfig.alegra_tax_id,
           factus_token:         '',
           factus_token_expiry:  '',
+          siigo_token:          '',
+          siigo_token_expiry:   '',
         };
         const { error } = await supabase
           .from('companies')
@@ -291,14 +303,13 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
     if (!safeCompany.id) return;
     setSavingBranding(true);
     try {
-      // Merge colors into the config jsonb column (already exists in companies)
       const currentConfig = safeCompany.config || {};
       const newConfig = {
         ...currentConfig,
         primary_color: primaryColor,
         secondary_color: secondaryColor,
         font_color: fontColor,
-        business_type: businessTypes[0] || 'general',   // compatibilidad legacy
+        business_type: businessTypes[0] || 'general',
         business_types: businessTypes,
         invoice_terms: invoiceTerms,
       };
@@ -306,7 +317,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
         .update({ config: newConfig })
         .eq('id', safeCompany.id);
       if (error) throw error;
-      // Refrescar el company en contexto para que Layout refleje cambios al instante
       await refreshCompany();
       toast.success('¡Personalización guardada!');
     } catch (err: any) {
@@ -368,7 +378,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
     }
   };
 
-  // ── Verificar contraseña real del propietario antes de editar PIN de facturas
   const handlePinAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pinAuthPassword) return;
@@ -420,7 +429,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* HEADER CON TABS */}
       <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Configuracion</h2>
@@ -451,17 +459,16 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'HARDWARE' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
             <Cpu size={15} /> Hardware
           </button>
-<button type="button" onClick={() => setActiveTab('INTEGRACIONES')}
-  className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'INTEGRACIONES' ? 'bg-green-100 text-green-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-  🔗 Integraciones
-</button>
+          <button type="button" onClick={() => setActiveTab('INTEGRACIONES')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${activeTab === 'INTEGRACIONES' ? 'bg-green-100 text-green-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+            🔗 Integraciones
+          </button>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
           
-          {/* TAB GENERAL - COMPLETO */}
           {activeTab === 'GENERAL' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
@@ -514,7 +521,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                   <p className="text-[10px] text-slate-400 mt-1">Se aplica a productos nuevos por defecto</p>
                 </div>
 
-                {/* ── MONEDA Y TASAS DE CAMBIO ─────────────────────────── */}
                 <div className="md:col-span-2 border border-blue-200 bg-blue-50 rounded-xl p-4">
                   <div className="flex items-start gap-3 mb-4">
                     <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0">
@@ -536,52 +542,39 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       </button>
                     ))}
                   </div>
-                  {/* Tasas personalizables */}
-<div className="bg-white rounded-xl p-4 border border-blue-100 space-y-3">
-  <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Tasas de cambio (base: 1 COP)</p>
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-    {/* VES - Bolívar */}
-    <div>
-      <label className="block text-xs font-semibold text-slate-600 mb-1">
-        🇻🇪 1 COP = ? Bs.
-      </label>
-      <input type="number" step="0.001" min="0" value={vesRate}
-        onChange={e => setVesRate(e.target.value)}
-        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-      <p className="text-xs text-slate-400 mt-1">Bolívar venezolano</p>
-    </div>
-    {/* USD - Dólar */}
-    <div>
-      <label className="block text-xs font-semibold text-slate-600 mb-1">
-        🇺🇸 1 COP = ? USD
-      </label>
-      <input type="number" step="0.00001" min="0" value={usdRate}
-        onChange={e => setUsdRate(e.target.value)}
-        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-      <p className="text-xs text-slate-400 mt-1">Dólar americano</p>
-    </div>
-    {/* EUR - Euro */}
-    <div>
-      <label className="block text-xs font-semibold text-slate-600 mb-1">
-        🇪🇺 1 COP = ? EUR
-      </label>
-      <input type="number" step="0.00001" min="0" value={eurRate}
-        onChange={e => setEurRate(e.target.value)}
-        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-      <p className="text-xs text-slate-400 mt-1">Euro</p>
-    </div>
-  </div>
-    <button type="button" onClick={handleSaveRates} disabled={loadingRates}
-    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-    <RefreshCw size={14} className={loadingRates ? 'animate-spin' : ''} />
-    {loadingRates ? 'Guardando...' : 'Actualizar tasas'}
-  </button>
-</div>
+                  <div className="bg-white rounded-xl p-4 border border-blue-100 space-y-3">
+                    <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Tasas de cambio (base: 1 COP)</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">🇻🇪 1 COP = ? Bs.</label>
+                        <input type="number" step="0.001" min="0" value={vesRate}
+                          onChange={e => setVesRate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        <p className="text-xs text-slate-400 mt-1">Bolívar venezolano</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">🇺🇸 1 COP = ? USD</label>
+                        <input type="number" step="0.00001" min="0" value={usdRate}
+                          onChange={e => setUsdRate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        <p className="text-xs text-slate-400 mt-1">Dólar americano</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">🇪🇺 1 COP = ? EUR</label>
+                        <input type="number" step="0.00001" min="0" value={eurRate}
+                          onChange={e => setEurRate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        <p className="text-xs text-slate-400 mt-1">Euro</p>
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleSaveRates} disabled={loadingRates}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                      <RefreshCw size={14} className={loadingRates ? 'animate-spin' : ''} />
+                      {loadingRates ? 'Guardando...' : 'Actualizar tasas'}
+                    </button>
+                  </div>
                 </div>
 
-                {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
-
-                {/* ── PIN ELIMINACIÓN DE FACTURAS ────────────────────────── */}
                 <div className="md:col-span-2 border border-amber-200 bg-amber-50 rounded-xl p-4">
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-amber-100 rounded-lg flex-shrink-0">
@@ -597,7 +590,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       </p>
 
                       {!pinUnlocked ? (
-                        /* LOCKED STATE */
                         <div className="flex items-center gap-3">
                           <div className="flex gap-1.5">
                             {[0,1,2,3].map(i => (
@@ -624,7 +616,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                           )}
                         </div>
                       ) : (
-                        /* UNLOCKED STATE */
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-2">
                             <ShieldCheck size={14} />
@@ -681,7 +672,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
             </div>
           )}
 
-          {/* TAB BRANDING - COMPLETO */}
           {activeTab === 'BRANDING' && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-8">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
@@ -729,7 +719,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {BUSINESS_TYPES.map(bt => {
                     const isSelected = businessTypes.includes(bt.id);
-                    // Solo bloquear en PRO cuando ya tiene 3 y este no está seleccionado
                     const isLocked = plan === 'PRO' && !isSelected && businessTypes.length >= maxBusinessTypes;
                     return (
                       <button key={bt.id} type="button" onClick={() => toggleBusinessType(bt.id)}
@@ -787,7 +776,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                 </div>
               </div>
 
-              {/* Términos y condiciones de factura */}
               <div className="mt-2 p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                 <label className="block text-sm font-bold text-slate-700">
                   📄 Términos y Condiciones de la Factura
@@ -813,11 +801,8 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
             </div>
           )}
 
-          {/* ══ TAB DIAN / FACTUS ══════════════════════════════════════════════════ */}
           {activeTab === 'DIAN' && (
             <div className="space-y-5">
-
-              {/* ── Encabezado ─────────────────────────────────────────────── */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
@@ -833,7 +818,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                   </div>
                 </div>
 
-                {/* ── Selector de proveedor ── */}
                 <div className="mb-5">
                   <label className="block text-xs font-bold text-slate-600 mb-2">Proveedor tecnológico habilitado DIAN</label>
                   <div className="grid grid-cols-3 gap-3 mb-2">
@@ -843,11 +827,10 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       { id: 'alegra', label: 'Alegra',  icon: '💼', desc: 'Próximamente' },
                     ].map(p => {
                       const sel = ((dianForm as any).proveedor || 'factus') === p.id;
-                      const off = p.id !== 'factus';
                       return (
-                        <button key={p.id} type="button" disabled={off}
-                          onClick={() => !off && setDianForm((f: any) => ({ ...f, proveedor: p.id }))}
-                          className={`p-3 rounded-xl border-2 text-left transition-all ${sel ? 'border-blue-500 bg-blue-50' : 'border-slate-200'} ${off ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:border-blue-300'}`}>
+                        <button key={p.id} type="button"
+                          onClick={() => setDianForm((f: any) => ({ ...f, proveedor: p.id }))}
+                          className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${sel ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
                           <div className="text-lg mb-1">{p.icon}</div>
                           <p className={`text-xs font-bold ${sel ? 'text-blue-700' : 'text-slate-700'}`}>{p.label}</p>
                           <p className="text-[10px] text-slate-400">{p.desc}</p>
@@ -857,33 +840,25 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                   </div>
                 </div>
 
-                {/* Instrucción Factus */}
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-5 text-xs text-blue-700 space-y-1">
-                  <p className="font-bold text-blue-800">¿Cómo obtener tu token de Factus?</p>
-                  <p>1. Crea tu cuenta en <strong>factus.com.co</strong> (una cuenta por empresa).</p>
-                  <p>2. En Factus ve a <strong>Perfil → Aplicaciones OAuth</strong> y crea una aplicación para obtener <code>client_id</code> y <code>client_secret</code>.</p>
-                  <p>3. Ingresa las credenciales abajo. El token se renueva automáticamente cada hora.</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                  {/* ── Sección OAuth ── */}
-                  <div className="md:col-span-2">
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3">
-                      <p className="text-xs font-bold text-blue-700 mb-1">🔐 Credenciales OAuth2 (recomendado)</p>
-                      <p className="text-[11px] text-blue-600">El token se obtiene y renueva automáticamente. No necesitas pegarlo manualmente.</p>
+                {((dianForm as any).proveedor || 'factus') === 'factus' && (
+                  <>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-xs text-blue-700 space-y-1">
+                      <p className="font-bold text-blue-800">🧾 Factus — ¿Cómo configurar?</p>
+                      <p>1. Crea tu cuenta en <strong>factus.com.co</strong>.</p>
+                      <p>2. Ve a <strong>Perfil → Aplicaciones OAuth</strong> y crea una app para obtener <code>client_id</code> y <code>client_secret</code>.</p>
+                      <p>3. El token se renueva automáticamente. No necesitas pegarlo manualmente.</p>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Client ID <span className="text-red-500">*</span></label>
-                        <input type="text" placeholder="Tu Client ID de Factus"
+                        <input type="text" placeholder="a15ea63f-0a47-..."
                           className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-400"
                           value={(dianForm as any).factus_client_id || ''}
                           onChange={e => setDianForm((f: any) => ({ ...f, factus_client_id: e.target.value }))} />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Client Secret <span className="text-red-500">*</span></label>
-                        <input type="password" placeholder="Tu Client Secret de Factus"
+                        <input type="password" placeholder="GKBExF5j..."
                           className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-400"
                           value={(dianForm as any).factus_client_secret || ''}
                           onChange={e => setDianForm((f: any) => ({ ...f, factus_client_secret: e.target.value }))} />
@@ -897,37 +872,122 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Contraseña Factus <span className="text-red-500">*</span></label>
-                        <input type="password" placeholder="Contraseña de tu cuenta Factus"
+                        <input type="password" placeholder="Contraseña de Factus"
                           className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400"
                           value={(dianForm as any).factus_password || ''}
                           onChange={e => setDianForm((f: any) => ({ ...f, factus_password: e.target.value }))} />
                       </div>
                     </div>
-                  </div>
+                  </>
+                )}
 
-                  {/* Ambiente */}
+                {((dianForm as any).proveedor || 'factus') === 'siigo' && (
+                  <>
+                    <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 mb-4 text-xs text-purple-700 space-y-1">
+                      <p className="font-bold text-purple-800">📊 Siigo — ¿Cómo configurar?</p>
+                      <p>1. Ingresa a tu cuenta en <strong>siigo.com</strong>.</p>
+                      <p>2. Ve a <strong>Configuración → API</strong> y copia tu <strong>Access Key</strong>.</p>
+                      <p>3. El Partner-Id te lo asigna Siigo al registrarte como partner.</p>
+                      <p>4. El ID de documento e impuesto los encuentras en <strong>Tablas → Documentos de venta</strong>.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Usuario Siigo <span className="text-red-500">*</span></label>
+                        <input type="email" placeholder="usuario@tuempresa.com"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_username || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_username: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Access Key <span className="text-red-500">*</span></label>
+                        <input type="password" placeholder="Tu Access Key de Siigo"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_access_key || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_access_key: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Partner-Id</label>
+                        <input type="text" placeholder="Ej: TuEmpresaSAS (opcional)"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_partner_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_partner_id: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">ID Tipo de documento <span className="text-red-500">*</span></label>
+                        <input type="text" placeholder="Ej: 1 (Factura de venta)"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_document_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_document_id: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">ID Medio de pago <span className="text-red-500">*</span></label>
+                        <input type="text" placeholder="Ej: 1 (Contado)"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_payment_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_payment_id: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">ID Impuesto IVA</label>
+                        <input type="text" placeholder="Ej: 001"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-purple-400"
+                          value={(dianForm as any).siigo_tax_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, siigo_tax_id: e.target.value }))} />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {((dianForm as any).proveedor || 'factus') === 'alegra' && (
+                  <>
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-xs text-green-700 space-y-1">
+                      <p className="font-bold text-green-800">💼 Alegra — ¿Cómo configurar?</p>
+                      <p>1. Ingresa a <strong>app.alegra.com</strong> con tu cuenta.</p>
+                      <p>2. Ve a <strong>Mi perfil → API Token</strong> y copia el token.</p>
+                      <p>3. El ID de impuesto lo encuentras en <strong>Configuración → Impuestos</strong>.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">Email Alegra <span className="text-red-500">*</span></label>
+                        <input type="email" placeholder="tu@correo.com"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-green-400"
+                          value={(dianForm as any).alegra_email || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, alegra_email: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">API Token <span className="text-red-500">*</span></label>
+                        <input type="password" placeholder="Tu token de Alegra"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-green-400"
+                          value={(dianForm as any).alegra_token || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, alegra_token: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">ID Impuesto IVA</label>
+                        <input type="text" placeholder="Ej: 3"
+                          className="w-full px-3 py-2.5 border border-slate-300 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-green-400"
+                          value={(dianForm as any).alegra_tax_id || ''}
+                          onChange={e => setDianForm((f: any) => ({ ...f, alegra_tax_id: e.target.value }))} />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Ambiente</label>
-                    <select
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+                    <select className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm"
                       value={dianForm.factus_env || 'sandbox'}
                       onChange={e => setDianForm(f => ({ ...f, factus_env: e.target.value as any }))}>
                       <option value="sandbox">🧪 Sandbox / Pruebas (homologación)</option>
                       <option value="production">🏭 Producción (facturas reales)</option>
                     </select>
                   </div>
-
-                  {/* Prefijo resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Prefijo de resolución</label>
                     <input type="text" placeholder="SETP"
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-400 text-sm font-mono uppercase"
                       value={dianForm.prefix || ''}
                       onChange={e => setDianForm(f => ({ ...f, prefix: e.target.value.toUpperCase() }))} />
-                    <p className="text-[10px] text-slate-400 mt-0.5">Se usa para seleccionar la resolución activa en Factus automáticamente.</p>
                   </div>
-
-                  {/* Número resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Número de resolución DIAN</label>
                     <input type="text" placeholder="18764000001"
@@ -935,8 +995,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       value={dianForm.resolution_number || ''}
                       onChange={e => setDianForm(f => ({ ...f, resolution_number: e.target.value }))} />
                   </div>
-
-                  {/* Fecha resolución */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Fecha resolución</label>
                     <input type="date"
@@ -944,8 +1002,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       value={dianForm.resolution_date || ''}
                       onChange={e => setDianForm(f => ({ ...f, resolution_date: e.target.value }))} />
                   </div>
-
-                  {/* Rango desde */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Rango desde</label>
                     <input type="number" min="1" placeholder="1"
@@ -953,8 +1009,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       value={dianForm.range_from || ''}
                       onChange={e => setDianForm(f => ({ ...f, range_from: +e.target.value }))} />
                   </div>
-
-                  {/* Rango hasta */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Rango hasta</label>
                     <input type="number" min="1" placeholder="5000000"
@@ -962,8 +1016,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       value={dianForm.range_to || ''}
                       onChange={e => setDianForm(f => ({ ...f, range_to: +e.target.value }))} />
                   </div>
-
-                  {/* Dígito NIT */}
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Dígito verificación NIT</label>
                     <input type="text" maxLength={1} placeholder="0"
@@ -974,7 +1026,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                 </div>
               </div>
 
-              {/* ── Tipos de documento habilitados ──────────────────────── */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                 <h4 className="font-bold text-slate-700 text-sm mb-3">Documentos habilitados</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -999,7 +1050,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                 </div>
               </div>
 
-              {/* ── Alerta producción ───────────────────────────────────── */}
               {(dianForm.factus_env || 'sandbox') === 'production' && (
                 <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl flex gap-3">
                   <AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" size={18} />
@@ -1011,9 +1061,641 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
               )}
             </div>
           )}
+
+          {activeTab === 'PAGOS' && (
+            <div className="md:col-span-3 space-y-5">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
+                  <CreditCard size={20} className="text-purple-600" /> Métodos de pago del negocio
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Configura cómo tus clientes pagan en el punto de venta. Activa solo los métodos que usas y completa los datos de <strong>tu propio</strong> cuenta o terminal — el dinero siempre va directo a ti.
+                </p>
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex gap-2">
+                  <span>🔒</span>
+                  <span>Las credenciales se guardan cifradas en tu cuenta. POSmaster <strong>nunca</strong> procesa ni retiene ningún pago — somos solo la pantalla que conecta al cajero con tu pasarela.</span>
+                </div>
+                {plan !== 'ENTERPRISE' && (
+                  <div className="mt-3 p-3 rounded-lg border flex items-center justify-between gap-3"
+                    style={{ background: plan === 'PRO' ? '#faf5ff' : '#f0fdf4', borderColor: plan === 'PRO' ? '#d8b4fe' : '#86efac' }}>
+                    <div className="text-xs" style={{ color: plan === 'PRO' ? '#7c3aed' : '#15803d' }}>
+                      {plan === 'PRO'
+                        ? <><strong>Plan Pro:</strong> tienes Efectivo, Transferencia y Wompi. Actualiza a <strong>Enterprise</strong> para Bold, PayU y Datáfono físico.</>
+                        : <><strong>Plan Basic:</strong> tienes Efectivo y Transferencia. Actualiza a <strong>Pro</strong> para Wompi o <strong>Enterprise</strong> para todos los métodos.</>
+                      }
+                    </div>
+                    <button onClick={() => setIsSecurityCheckOpen(true)}
+                      className="whitespace-nowrap text-xs font-bold px-3 py-1.5 rounded-lg text-white"
+                      style={{ background: plan === 'PRO' ? '#8b5cf6' : '#16a34a' }}>
+                      Ver planes
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {allowedMethods.includes('cash') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.cash.enabled ? 'border-green-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">💵</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Efectivo</p>
+                        <p className="text-xs text-slate-500">Sin integración externa — el cajero registra manualmente el monto recibido y el cambio.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.cash.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, cash: { ...p.cash, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.cash.enabled && (
+                    <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700">
+                      ✅ El POS mostrará campo de monto recibido y calculará el cambio automáticamente.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('dataphone') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.dataphone.enabled ? 'border-blue-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">📟</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Datáfono físico</p>
+                        <p className="text-xs text-slate-500">Terminal propio con Redeban, Credibanco o Getnet. El cobro lo procesa tu banco — el POS solo guía al cajero.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.dataphone.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.dataphone.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Adquirente / Red</label>
+                          <select value={paymentProviders.dataphone.acquirer}
+                            onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, acquirer: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none">
+                            <option value="redeban">Redeban Multicolor</option>
+                            <option value="credibanco">Credibanco</option>
+                            <option value="getnet">Getnet (Bancolombia)</option>
+                            <option value="nequi">Nequi datafono</option>
+                            <option value="otro">Otro</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Nota para el cajero (opcional)</label>
+                          <input type="text" placeholder="Ej: Terminal caja 1, Visa/MC/Amex" value={paymentProviders.dataphone.note}
+                            onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, note: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none" />
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
+                        ℹ️ El POS mostrará al cajero: <em>"Cobrar ${'{total}'} en datáfono {paymentProviders.dataphone.acquirer} y confirmar"</em>. No hay integración automática — el aprobado lo verifica el cajero en el terminal.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('transfer') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.transfer.enabled ? 'border-indigo-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🏛️</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Transferencia bancaria / PSE</p>
+                        <p className="text-xs text-slate-500">El POS muestra tus datos bancarios al cliente para que transfiera. Tú verificas el recibo.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.transfer.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.transfer.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-xs font-semibold text-slate-500 mb-3">Datos bancarios que verá el cliente en pantalla y en el recibo:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Banco</label>
+                          <input type="text" placeholder="Ej: Bancolombia" value={paymentProviders.transfer.bank_name}
+                            onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, bank_name: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de cuenta</label>
+                          <select value={paymentProviders.transfer.account_type}
+                            onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, account_type: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
+                            <option value="ahorros">Ahorros</option>
+                            <option value="corriente">Corriente</option>
+                            <option value="nequi">Nequi</option>
+                            <option value="daviplata">Daviplata</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Número de cuenta / celular</label>
+                          <input type="text" placeholder="Ej: 0123456789" value={paymentProviders.transfer.account_number}
+                            onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, account_number: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo ID titular</label>
+                          <select value={paymentProviders.transfer.id_type}
+                            onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, id_type: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
+                            <option value="NIT">NIT</option>
+                            <option value="CC">Cédula (CC)</option>
+                          </select>
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Número de identificación del titular</label>
+                          <input type="text" placeholder="Ej: 900123456-7" value={paymentProviders.transfer.id_number}
+                            onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, id_number: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
+                        </div>
+                      </div>
+                      <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700">
+                        ℹ️ El cajero podrá marcar la venta como <strong>"pendiente de verificación"</strong> hasta confirmar que el dinero llegó a tu cuenta.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('wompi') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.wompi.enabled ? 'border-emerald-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🏦</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Wompi <span className="text-xs font-normal text-slate-400">(de Bancolombia)</span></p>
+                        <p className="text-xs text-slate-500">El POS genera un link de pago Wompi <strong>de tu cuenta</strong>. El dinero va a tu cuenta Bancolombia.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.wompi.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.wompi.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Llave pública de tu cuenta Wompi</label>
+                          <input type="text" placeholder="pub_prod_XXXXXXXX o pub_stagtest_XXXXXXXX"
+                            value={paymentProviders.wompi.pub_key}
+                            onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, pub_key: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 outline-none font-mono" />
+                          <p className="text-xs text-slate-400 mt-1">Solo la llave pública — nunca la privada. Se usa solo para crear el link de pago.</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Ambiente</label>
+                          <select value={paymentProviders.wompi.env}
+                            onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, env: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 outline-none">
+                            <option value="prod">Producción (real)</option>
+                            <option value="sandbox">Sandbox (pruebas)</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <a href="https://comercios.wompi.co" target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-emerald-600 hover:underline">🔗 Crear / ver mi cuenta Wompi</a>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-xs text-emerald-800">
+                        ✅ Al cobrar, el POS abrirá el checkout de Wompi con el monto exacto. El cliente paga con tarjeta o PSE y el dinero llega a tu cuenta Bancolombia. POSmaster no toca el pago.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('bold') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.bold.enabled ? 'border-yellow-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">⚡</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Bold</p>
+                        <p className="text-xs text-slate-500">Genera un link de pago Bold <strong>de tu cuenta</strong>. Compatible con terminal físico Bold y link QR. Dinero va a tu cuenta Bold.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.bold.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, bold: { ...p.bold, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.bold.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">API Key de tu cuenta Bold</label>
+                        <input type="password" placeholder="sk_prod_XXXXXXXX"
+                          value={paymentProviders.bold.api_key}
+                          onChange={e => setPaymentProviders(p => ({ ...p, bold: { ...p.bold, api_key: e.target.value } }))}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none font-mono" />
+                        <p className="text-xs text-slate-400 mt-1">Encuéntrala en tu Dashboard Bold → Desarrolladores → API Keys.</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <a href="https://bold.co" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-yellow-600 hover:underline">🔗 Ir a mi cuenta Bold</a>
+                        <a href="https://docs.bold.co" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-slate-400 hover:underline">📄 Documentación Bold</a>
+                      </div>
+                      <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-xs text-yellow-800">
+                        ✅ Al cobrar, el POS creará un link de pago Bold por el monto exacto y lo mostrará como QR o enlace. El cliente paga y el dinero llega a tu cuenta Bold. POSmaster no toca el pago.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('payu') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.payu.enabled ? 'border-orange-400' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">💳</span>
+                      <div>
+                        <p className="font-bold text-slate-800">PayU Latam</p>
+                        <p className="text-xs text-slate-500">Genera un link de pago PayU <strong>de tu cuenta</strong>. Acepta tarjetas, PSE, efectivo (Efecty). Dinero va a tu cuenta PayU.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.payu.enabled}
+                        onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.payu.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Merchant ID</label>
+                          <input type="text" placeholder="Tu Merchant ID" value={paymentProviders.payu.merchant_id}
+                            onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, merchant_id: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">API Key</label>
+                          <input type="password" placeholder="API Key PayU" value={paymentProviders.payu.api_key}
+                            onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, api_key: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">API Login</label>
+                          <input type="text" placeholder="API Login PayU" value={paymentProviders.payu.api_login}
+                            onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, api_login: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <a href="https://www.payu.com.co" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-orange-600 hover:underline">🔗 Ir a mi cuenta PayU</a>
+                        <a href="https://developers.payulatam.com" target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-slate-400 hover:underline">📄 Documentación PayU</a>
+                      </div>
+                      <div className="p-3 bg-orange-50 border border-orange-100 rounded-lg text-xs text-orange-800">
+                        ✅ Al cobrar, el POS redirigirá al checkout de PayU con el monto exacto. El cliente paga y el dinero llega a tu cuenta PayU. POSmaster no toca el pago.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {allowedMethods.includes('paypal') && (
+                <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.paypal?.enabled ? 'border-blue-500' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">🅿️</span>
+                      <div>
+                        <p className="font-bold text-slate-800">PayPal</p>
+                        <p className="text-xs text-slate-500">Acepta pagos internacionales con PayPal. El cliente paga en la ventana de PayPal y el dinero llega a tu cuenta PayPal Business.</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={paymentProviders.paypal?.enabled || false}
+                        onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), enabled: e.target.checked } }))} />
+                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                  </div>
+                  {paymentProviders.paypal?.enabled && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Client ID de tu cuenta PayPal Business</label>
+                          <input type="text" placeholder="AXxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            value={paymentProviders.paypal?.client_id || ''}
+                            onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), client_id: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none font-mono" />
+                          <p className="text-xs text-slate-400 mt-1">Solo el Client ID (público). Encuéntralo en <strong>developer.paypal.com → My Apps → tu app → Client ID</strong>.</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Ambiente</label>
+                          <select value={paymentProviders.paypal?.env || 'production'}
+                            onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), env: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none">
+                            <option value="production">Producción (dinero real)</option>
+                            <option value="sandbox">Sandbox (pruebas)</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline">🔗 Obtener mi Client ID en PayPal Developer</a>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
+                        ✅ Al cobrar con PayPal, el POS cargará el botón oficial de PayPal con el monto exacto. El cliente completa el pago en la ventana de PayPal. <strong>Solo necesitas el Client ID</strong> — no se requiere servidor ni webhooks para cobrar.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end pb-2">
+                <button onClick={handleSavePayments} disabled={savingPayments}
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-all shadow-md disabled:opacity-60">
+                  {savingPayments ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={18} />}
+                  Guardar configuración de pagos
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'CATALOGO' && (() => {
+            const catalogUrl = `${window.location.origin}${window.location.pathname}#/catalogo/${safeCompany.id}`;
+            const waShareUrl = `https://wa.me/?text=${encodeURIComponent('🛍️ Mira nuestro catálogo en línea:\n' + catalogUrl)}`;
+            return (
+              <div className="md:col-span-3 space-y-5">
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                  <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
+                    🛍️ Catálogo Digital por WhatsApp
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Comparte un enlace público con tus clientes para que vean tus productos y te escriban directamente por WhatsApp.
+                  </p>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-800">Habilitar catálogo público</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Cualquier persona con el link puede ver tus productos</p>
+                    </div>
+                    <button type="button" onClick={() => setCatalogEnabled(!catalogEnabled)}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${catalogEnabled ? 'bg-green-500' : 'bg-slate-200'}`}>
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${catalogEnabled ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  {catalogEnabled && (
+                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
+                      <p className="text-xs font-bold text-green-700 mb-2">🔗 Link de tu catálogo:</p>
+                      <div className="flex gap-2">
+                        <input readOnly value={catalogUrl}
+                          className="flex-1 text-xs bg-white border border-green-200 rounded-lg px-3 py-2 text-slate-600 font-mono" />
+                        <button type="button"
+                          onClick={() => { navigator.clipboard.writeText(catalogUrl); setCatalogLinkCopied(true); setTimeout(() => setCatalogLinkCopied(false), 2000); }}
+                          className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 whitespace-nowrap">
+                          {catalogLinkCopied ? '✓ Copiado' : 'Copiar'}
+                        </button>
+                        <a href={waShareUrl} target="_blank" rel="noopener noreferrer"
+                          className="px-3 py-2 bg-[#25D366] text-white rounded-lg text-xs font-bold hover:bg-[#1fba59] whitespace-nowrap flex items-center gap-1">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                          Compartir
+                        </a>
+                      </div>
+                      <a href={catalogUrl} target="_blank" rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
+                        👁️ Ver catálogo como cliente →
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                  <h4 className="font-semibold text-slate-700">Configuración de contacto</h4>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Número de WhatsApp
+                      <span className="ml-2 text-xs text-slate-400 font-normal">Con o sin código de país (ej: 3001234567 o 573001234567)</span>
+                    </label>
+                    <input value={catalogWhatsapp} onChange={e => setCatalogWhatsapp(e.target.value)}
+                      placeholder="3001234567"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400" />
+                    {catalogWhatsapp && (
+                      <a href={`https://wa.me/${catalogWhatsapp.replace(/\D/g,'').replace(/^(?!57)/,'57')}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
+                        ✓ Probar este número →
+                      </a>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Mensaje de apertura
+                      <span className="ml-2 text-xs text-slate-400 font-normal">Se envía antes del nombre del producto</span>
+                    </label>
+                    <textarea value={catalogMessage} onChange={e => setCatalogMessage(e.target.value)}
+                      rows={2} placeholder="¡Hola! Me interesa este producto:"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400 resize-none" />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Vista previa del mensaje que recibe tu WhatsApp: "<em>{catalogMessage} *Nombre del producto* Precio: $35.000</em>"
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
+                  <p className="font-semibold text-slate-600">¿Cómo funciona?</p>
+                  <p>• Comparte el link por WhatsApp, Instagram o donde quieras</p>
+                  <p>• Tus clientes ven todos tus productos con foto, precio y descripción</p>
+                  <p>• Cada producto tiene un botón "Pedir por WhatsApp" que abre el chat directo contigo</p>
+                  <p>• Para ocultar un producto del catálogo, desactívalo en Inventario</p>
+                </div>
+
+                <div className="flex justify-end">
+                  <button type="button" onClick={handleSaveCatalog} disabled={savingCatalog}
+                    className="px-6 py-2.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 text-sm">
+                    {savingCatalog ? 'Guardando...' : '💾 Guardar configuración'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {activeTab === 'HARDWARE' && (
+            <div className="md:col-span-3 space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <Printer size={18} className="text-slate-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">Cajón registradora</h3>
+                    <p className="text-xs text-slate-400">Cómo se abre el cajón al completar una venta</p>
+                  </div>
+                  {drawerSaved && <span className="ml-auto text-xs font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Guardado</span>}
+                </div>
+                <div className="p-6 space-y-5">
+                  <div className="space-y-2">
+                    {([
+                      { id: 'escpos-usb',     icon: '🖨️', label: 'USB (ESC/POS via WebUSB)',  desc: 'Impresora térmica por USB directo. Requiere Chrome / Edge.' },
+                      { id: 'escpos-network', icon: '🌐', label: 'Red / IP (ESC/POS)',           desc: 'Impresora térmica con IP en la red local.' },
+                      { id: 'windows-print',  icon: '🪟', label: 'Impresora Windows',            desc: 'Impresora instalada en el sistema operativo.' },
+                    ] as const).map(opt => (
+                      <label key={opt.id} className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${(drawerConfig.protocol || 'escpos-usb') === opt.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <input type="radio" name="drawer-proto" value={opt.id}
+                          checked={(drawerConfig.protocol || 'escpos-usb') === opt.id}
+                          onChange={() => setDrawerConfig((p: any) => ({ ...p, protocol: opt.id }))}
+                          className="mt-1" />
+                        <span className="text-lg mt-0.5">{opt.icon}</span>
+                        <div>
+                          <p className="font-semibold text-sm text-slate-800">{opt.label}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {(drawerConfig.protocol || 'escpos-usb') === 'escpos-network' && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">IP de la impresora</label>
+                        <input value={(drawerConfig as any).networkIp || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, networkIp: e.target.value }))}
+                          placeholder="192.168.1.100" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Puerto</label>
+                        <input type="number" value={(drawerConfig as any).networkPort || 9100}
+                          onChange={e => setDrawerConfig((p: any) => ({ ...p, networkPort: parseInt(e.target.value) || 9100 }))}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                    </div>
+                  )}
+
+                  {(drawerConfig.protocol || 'escpos-usb') === 'windows-print' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre de impresora (opcional)</label>
+                      <input value={(drawerConfig as any).windowsPrinter || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, windowsPrinter: e.target.value }))}
+                        placeholder="Ej: POS58 Thermal Printer" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
+                      <p className="text-xs text-slate-400 mt-1">Dejar vacío usa la impresora predeterminada</p>
+                    </div>
+                  )}
+
+                  <button onClick={() => saveDrawerConfig(drawerConfig)}
+                    className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 flex items-center justify-center gap-2">
+                    <Cpu size={15} /> Guardar configuración del cajón
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <Monitor size={18} className="text-slate-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">Lector de códigos de barras</h3>
+                    <p className="text-xs text-slate-400">Sin configuración — funciona automáticamente como teclado</p>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                    <p className="text-sm font-semibold text-blue-800 mb-1">✅ Sin configuración requerida</p>
+                    <p className="text-xs text-blue-600">Conecta el lector por USB. El POS detecta el código escaneado y busca el producto automáticamente. Compatible con cualquier lector HID estándar.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <Wifi size={18} className="text-slate-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">Balanza electrónica</h3>
+                    <p className="text-xs text-slate-400">Para negocios con productos pesables</p>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p className="text-sm font-semibold text-amber-800 mb-1">⚖️ Se configura en el POS</p>
+                    <p className="text-xs text-amber-700">Al agregar un producto pesable en el Punto de Venta aparece la opción de conectar la balanza. Protocolos: Serial (Web Serial API), código de barras y manual.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'INTEGRACIONES' && (
+            <div className="md:col-span-3 space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-6">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-2">
+                  🔗 Integraciones Externas
+                </h3>
+                <p className="text-sm text-slate-500 mb-6">
+                  Conecta WhatsApp Business (Meta) y Email (Resend) para enviar recordatorios
+                  automáticos desde el módulo de Salón de Belleza y otros módulos.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.whatsapp_token ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">💬</span>
+                      <div>
+                        <p className="font-bold text-slate-800">WhatsApp Business</p>
+                        <p className="text-xs text-slate-500">Meta Cloud API</p>
+                      </div>
+                      <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.whatsapp_token ? 'bg-green-200 text-green-800' : 'bg-slate-200 text-slate-500'}`}>
+                        {(safeCompany.config as any)?.whatsapp_token ? '✓ Activo' : 'Sin configurar'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">Envía recordatorios de citas al WhatsApp de tus clientes sin abrir la app.</p>
+                  </div>
+                  <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.resend_api_key ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">📧</span>
+                      <div>
+                        <p className="font-bold text-slate-800">Email — Resend</p>
+                        <p className="text-xs text-slate-500">100 emails/día gratis</p>
+                      </div>
+                      <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.resend_api_key ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-500'}`}>
+                        {(safeCompany.config as any)?.resend_api_key ? '✓ Activo' : 'Sin configurar'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">Envía confirmaciones y recordatorios desde tu propio email.</p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                  <span className="text-xl">⚙️</span>
+                  <div>
+                    <p className="font-bold text-amber-800 text-sm mb-1">Configurar credenciales</p>
+                    <p className="text-xs text-amber-700 mb-3">
+                      Para agregar o actualizar tokens y API keys, ve a la pantalla de Integraciones.
+                      Desde allí también puedes probar la conexión antes de guardar.
+                    </p>
+                    <a
+                      href="#/configuracion/integraciones"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition-colors"
+                    >
+                      Ir a Configuración de Integraciones →
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* SIDEBAR DERECHO */}
         <div className="space-y-6">
           {(() => {
               const PLAN_INFO: Record<string, { label: string; color: string; accent: string; icon: string; features: string[] }> = {
@@ -1057,669 +1739,8 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
             </button>
           )}
         </div>
-
-        {/* TAB PAGOS */}
-        {activeTab === 'PAGOS' && (
-          <div className="md:col-span-3 space-y-5">
-
-            {/* HEADER */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
-                <CreditCard size={20} className="text-purple-600" /> Métodos de pago del negocio
-              </h3>
-              <p className="text-sm text-slate-500">
-                Configura cómo tus clientes pagan en el punto de venta. Activa solo los métodos que usas y completa los datos de <strong>tu propio</strong> cuenta o terminal — el dinero siempre va directo a ti.
-              </p>
-              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex gap-2">
-                <span>🔒</span>
-                <span>Las credenciales se guardan cifradas en tu cuenta. POSmaster <strong>nunca</strong> procesa ni retiene ningún pago — somos solo la pantalla que conecta al cajero con tu pasarela.</span>
-              </div>
-              {plan !== 'ENTERPRISE' && (
-                <div className="mt-3 p-3 rounded-lg border flex items-center justify-between gap-3"
-                  style={{ background: plan === 'PRO' ? '#faf5ff' : '#f0fdf4', borderColor: plan === 'PRO' ? '#d8b4fe' : '#86efac' }}>
-                  <div className="text-xs" style={{ color: plan === 'PRO' ? '#7c3aed' : '#15803d' }}>
-                    {plan === 'PRO'
-                      ? <><strong>Plan Pro:</strong> tienes Efectivo, Transferencia y Wompi. Actualiza a <strong>Enterprise</strong> para Bold, PayU y Datáfono físico.</>
-                      : <><strong>Plan Basic:</strong> tienes Efectivo y Transferencia. Actualiza a <strong>Pro</strong> para Wompi o <strong>Enterprise</strong> para todos los métodos.</>
-                    }
-                  </div>
-                  <button onClick={() => setIsSecurityCheckOpen(true)}
-                    className="whitespace-nowrap text-xs font-bold px-3 py-1.5 rounded-lg text-white"
-                    style={{ background: plan === 'PRO' ? '#8b5cf6' : '#16a34a' }}>
-                    Ver planes
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {allowedMethods.includes('cash') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.cash.enabled ? 'border-green-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">💵</span>
-                    <div>
-                      <p className="font-bold text-slate-800">Efectivo</p>
-                      <p className="text-xs text-slate-500">Sin integración externa — el cajero registra manualmente el monto recibido y el cambio.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.cash.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, cash: { ...p.cash, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.cash.enabled && (
-                  <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700">
-                    ✅ El POS mostrará campo de monto recibido y calculará el cambio automáticamente.
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('dataphone') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.dataphone.enabled ? 'border-blue-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">📟</span>
-                    <div>
-                      <p className="font-bold text-slate-800">Datáfono físico</p>
-                      <p className="text-xs text-slate-500">Terminal propio con Redeban, Credibanco o Getnet. El cobro lo procesa tu banco — el POS solo guía al cajero.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.dataphone.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.dataphone.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Adquirente / Red</label>
-                        <select value={paymentProviders.dataphone.acquirer}
-                          onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, acquirer: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none">
-                          <option value="redeban">Redeban Multicolor</option>
-                          <option value="credibanco">Credibanco</option>
-                          <option value="getnet">Getnet (Bancolombia)</option>
-                          <option value="nequi">Nequi datafono</option>
-                          <option value="otro">Otro</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Nota para el cajero (opcional)</label>
-                        <input type="text" placeholder="Ej: Terminal caja 1, Visa/MC/Amex" value={paymentProviders.dataphone.note}
-                          onChange={e => setPaymentProviders(p => ({ ...p, dataphone: { ...p.dataphone, note: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none" />
-                      </div>
-                    </div>
-                    <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700">
-                      ℹ️ El POS mostrará al cajero: <em>"Cobrar ${'{total}'} en datáfono {paymentProviders.dataphone.acquirer} y confirmar"</em>. No hay integración automática — el aprobado lo verifica el cajero en el terminal.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('transfer') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.transfer.enabled ? 'border-indigo-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">🏛️</span>
-                    <div>
-                      <p className="font-bold text-slate-800">Transferencia bancaria / PSE</p>
-                      <p className="text-xs text-slate-500">El POS muestra tus datos bancarios al cliente para que transfiera. Tú verificas el recibo.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.transfer.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.transfer.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100">
-                    <p className="text-xs font-semibold text-slate-500 mb-3">Datos bancarios que verá el cliente en pantalla y en el recibo:</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Banco</label>
-                        <input type="text" placeholder="Ej: Bancolombia" value={paymentProviders.transfer.bank_name}
-                          onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, bank_name: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de cuenta</label>
-                        <select value={paymentProviders.transfer.account_type}
-                          onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, account_type: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
-                          <option value="ahorros">Ahorros</option>
-                          <option value="corriente">Corriente</option>
-                          <option value="nequi">Nequi</option>
-                          <option value="daviplata">Daviplata</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Número de cuenta / celular</label>
-                        <input type="text" placeholder="Ej: 0123456789" value={paymentProviders.transfer.account_number}
-                          onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, account_number: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo ID titular</label>
-                        <select value={paymentProviders.transfer.id_type}
-                          onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, id_type: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none">
-                          <option value="NIT">NIT</option>
-                          <option value="CC">Cédula (CC)</option>
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Número de identificación del titular</label>
-                        <input type="text" placeholder="Ej: 900123456-7" value={paymentProviders.transfer.id_number}
-                          onChange={e => setPaymentProviders(p => ({ ...p, transfer: { ...p.transfer, id_number: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 outline-none" />
-                      </div>
-                    </div>
-                    <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700">
-                      ℹ️ El cajero podrá marcar la venta como <strong>"pendiente de verificación"</strong> hasta confirmar que el dinero llegó a tu cuenta.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('wompi') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.wompi.enabled ? 'border-emerald-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">🏦</span>
-                    <div>
-                      <p className="font-bold text-slate-800">Wompi <span className="text-xs font-normal text-slate-400">(de Bancolombia)</span></p>
-                      <p className="text-xs text-slate-500">El POS genera un link de pago Wompi <strong>de tu cuenta</strong>. El dinero va a tu cuenta Bancolombia.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.wompi.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.wompi.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Llave pública de tu cuenta Wompi</label>
-                        <input type="text" placeholder="pub_prod_XXXXXXXX o pub_stagtest_XXXXXXXX"
-                          value={paymentProviders.wompi.pub_key}
-                          onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, pub_key: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 outline-none font-mono" />
-                        <p className="text-xs text-slate-400 mt-1">Solo la llave pública — nunca la privada. Se usa solo para crear el link de pago.</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Ambiente</label>
-                        <select value={paymentProviders.wompi.env}
-                          onChange={e => setPaymentProviders(p => ({ ...p, wompi: { ...p.wompi, env: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 outline-none">
-                          <option value="prod">Producción (real)</option>
-                          <option value="sandbox">Sandbox (pruebas)</option>
-                        </select>
-                      </div>
-                      <div className="flex items-end">
-                        <a href="https://comercios.wompi.co" target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-emerald-600 hover:underline">🔗 Crear / ver mi cuenta Wompi</a>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-xs text-emerald-800">
-                      ✅ Al cobrar, el POS abrirá el checkout de Wompi con el monto exacto. El cliente paga con tarjeta o PSE y el dinero llega a tu cuenta Bancolombia. POSmaster no toca el pago.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('bold') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.bold.enabled ? 'border-yellow-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">⚡</span>
-                    <div>
-                      <p className="font-bold text-slate-800">Bold</p>
-                      <p className="text-xs text-slate-500">Genera un link de pago Bold <strong>de tu cuenta</strong>. Compatible con terminal físico Bold y link QR. Dinero va a tu cuenta Bold.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.bold.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, bold: { ...p.bold, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.bold.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">API Key de tu cuenta Bold</label>
-                      <input type="password" placeholder="sk_prod_XXXXXXXX"
-                        value={paymentProviders.bold.api_key}
-                        onChange={e => setPaymentProviders(p => ({ ...p, bold: { ...p.bold, api_key: e.target.value } }))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none font-mono" />
-                      <p className="text-xs text-slate-400 mt-1">Encuéntrala en tu Dashboard Bold → Desarrolladores → API Keys.</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <a href="https://bold.co" target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-yellow-600 hover:underline">🔗 Ir a mi cuenta Bold</a>
-                      <a href="https://docs.bold.co" target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-slate-400 hover:underline">📄 Documentación Bold</a>
-                    </div>
-                    <div className="p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-xs text-yellow-800">
-                      ✅ Al cobrar, el POS creará un link de pago Bold por el monto exacto y lo mostrará como QR o enlace. El cliente paga y el dinero llega a tu cuenta Bold. POSmaster no toca el pago.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('payu') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.payu.enabled ? 'border-orange-400' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">💳</span>
-                    <div>
-                      <p className="font-bold text-slate-800">PayU Latam</p>
-                      <p className="text-xs text-slate-500">Genera un link de pago PayU <strong>de tu cuenta</strong>. Acepta tarjetas, PSE, efectivo (Efecty). Dinero va a tu cuenta PayU.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.payu.enabled}
-                      onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.payu.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Merchant ID</label>
-                        <input type="text" placeholder="Tu Merchant ID" value={paymentProviders.payu.merchant_id}
-                          onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, merchant_id: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">API Key</label>
-                        <input type="password" placeholder="API Key PayU" value={paymentProviders.payu.api_key}
-                          onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, api_key: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">API Login</label>
-                        <input type="text" placeholder="API Login PayU" value={paymentProviders.payu.api_login}
-                          onChange={e => setPaymentProviders(p => ({ ...p, payu: { ...p.payu, api_login: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono" />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <a href="https://www.payu.com.co" target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-orange-600 hover:underline">🔗 Ir a mi cuenta PayU</a>
-                      <a href="https://developers.payulatam.com" target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-slate-400 hover:underline">📄 Documentación PayU</a>
-                    </div>
-                    <div className="p-3 bg-orange-50 border border-orange-100 rounded-lg text-xs text-orange-800">
-                      ✅ Al cobrar, el POS redirigirá al checkout de PayU con el monto exacto. El cliente paga y el dinero llega a tu cuenta PayU. POSmaster no toca el pago.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-
-            )}
-            {allowedMethods.includes('paypal') && (
-              <div className={`bg-white p-5 rounded-xl shadow-sm border-2 ${paymentProviders.paypal?.enabled ? 'border-blue-500' : 'border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">🅿️</span>
-                    <div>
-                      <p className="font-bold text-slate-800">PayPal</p>
-                      <p className="text-xs text-slate-500">Acepta pagos internacionales con PayPal. El cliente paga en la ventana de PayPal y el dinero llega a tu cuenta PayPal Business.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={paymentProviders.paypal?.enabled || false}
-                      onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), enabled: e.target.checked } }))} />
-                    <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                  </label>
-                </div>
-                {paymentProviders.paypal?.enabled && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Client ID de tu cuenta PayPal Business</label>
-                        <input type="text" placeholder="AXxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                          value={paymentProviders.paypal?.client_id || ''}
-                          onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), client_id: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 outline-none font-mono" />
-                        <p className="text-xs text-slate-400 mt-1">Solo el Client ID (público). Encuéntralo en <strong>developer.paypal.com → My Apps → tu app → Client ID</strong>.</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Ambiente</label>
-                        <select value={paymentProviders.paypal?.env || 'production'}
-                          onChange={e => setPaymentProviders(p => ({ ...p, paypal: { ...(p.paypal || {}), env: e.target.value } }))}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none">
-                          <option value="production">Producción (dinero real)</option>
-                          <option value="sandbox">Sandbox (pruebas)</option>
-                        </select>
-                      </div>
-                      <div className="flex items-end">
-                        <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:underline">🔗 Obtener mi Client ID en PayPal Developer</a>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
-                      ✅ Al cobrar con PayPal, el POS cargará el botón oficial de PayPal con el monto exacto. El cliente completa el pago en la ventana de PayPal. <strong>Solo necesitas el Client ID</strong> — no se requiere servidor ni webhooks para cobrar.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-            )}
-            {/* BOTÓN GUARDAR */}
-            <div className="flex justify-end pb-2">
-              <button onClick={handleSavePayments} disabled={savingPayments}
-                className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-all shadow-md disabled:opacity-60">
-                {savingPayments ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={18} />}
-                Guardar configuración de pagos
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        {/* TAB CATÁLOGO WHATSAPP                                             */}
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 'CATALOGO' && (() => {
-          const catalogUrl = `${window.location.origin}${window.location.pathname}#/catalogo/${safeCompany.id}`;
-          const waShareUrl = `https://wa.me/?text=${encodeURIComponent('🛍️ Mira nuestro catálogo en línea:\n' + catalogUrl)}`;
-          return (
-            <div className="md:col-span-3 space-y-5">
-
-              {/* Header */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-1">
-                  🛍️ Catálogo Digital por WhatsApp
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Comparte un enlace público con tus clientes para que vean tus productos y te escriban directamente por WhatsApp.
-                </p>
-              </div>
-
-              {/* Toggle habilitar */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-slate-800">Habilitar catálogo público</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Cualquier persona con el link puede ver tus productos</p>
-                  </div>
-                  <button type="button" onClick={() => setCatalogEnabled(!catalogEnabled)}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${catalogEnabled ? 'bg-green-500' : 'bg-slate-200'}`}>
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${catalogEnabled ? 'left-7' : 'left-1'}`} />
-                  </button>
-                </div>
-
-                {catalogEnabled && (
-                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
-                    <p className="text-xs font-bold text-green-700 mb-2">🔗 Link de tu catálogo:</p>
-                    <div className="flex gap-2">
-                      <input readOnly value={catalogUrl}
-                        className="flex-1 text-xs bg-white border border-green-200 rounded-lg px-3 py-2 text-slate-600 font-mono" />
-                      <button type="button"
-                        onClick={() => { navigator.clipboard.writeText(catalogUrl); setCatalogLinkCopied(true); setTimeout(() => setCatalogLinkCopied(false), 2000); }}
-                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 whitespace-nowrap">
-                        {catalogLinkCopied ? '✓ Copiado' : 'Copiar'}
-                      </button>
-                      <a href={waShareUrl} target="_blank" rel="noopener noreferrer"
-                        className="px-3 py-2 bg-[#25D366] text-white rounded-lg text-xs font-bold hover:bg-[#1fba59] whitespace-nowrap flex items-center gap-1">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                        Compartir
-                      </a>
-                    </div>
-                    <a href={catalogUrl} target="_blank" rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
-                      👁️ Ver catálogo como cliente →
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {/* Configuración WhatsApp */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                <h4 className="font-semibold text-slate-700">Configuración de contacto</h4>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Número de WhatsApp
-                    <span className="ml-2 text-xs text-slate-400 font-normal">Con o sin código de país (ej: 3001234567 o 573001234567)</span>
-                  </label>
-                  <input value={catalogWhatsapp} onChange={e => setCatalogWhatsapp(e.target.value)}
-                    placeholder="3001234567"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400" />
-                  {catalogWhatsapp && (
-                    <a href={`https://wa.me/${catalogWhatsapp.replace(/\D/g,'').replace(/^(?!57)/,'57')}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
-                      ✓ Probar este número →
-                    </a>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Mensaje de apertura
-                    <span className="ml-2 text-xs text-slate-400 font-normal">Se envía antes del nombre del producto</span>
-                  </label>
-                  <textarea value={catalogMessage} onChange={e => setCatalogMessage(e.target.value)}
-                    rows={2} placeholder="¡Hola! Me interesa este producto:"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-green-400 resize-none" />
-                  <p className="text-xs text-slate-400 mt-1">
-                    Vista previa del mensaje que recibe tu WhatsApp: "<em>{catalogMessage} *Nombre del producto* Precio: $35.000</em>"
-                  </p>
-                </div>
-              </div>
-
-              {/* Info */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
-                <p className="font-semibold text-slate-600">¿Cómo funciona?</p>
-                <p>• Comparte el link por WhatsApp, Instagram o donde quieras</p>
-                <p>• Tus clientes ven todos tus productos con foto, precio y descripción</p>
-                <p>• Cada producto tiene un botón "Pedir por WhatsApp" que abre el chat directo contigo</p>
-                <p>• Para ocultar un producto del catálogo, desactívalo en Inventario</p>
-              </div>
-
-              {/* Botón guardar */}
-              <div className="flex justify-end">
-                <button type="button" onClick={handleSaveCatalog} disabled={savingCatalog}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 text-sm">
-                  {savingCatalog ? 'Guardando...' : '💾 Guardar configuración'}
-                </button>
-              </div>
-
-            </div>
-          );
-        })()}
-
-
-      {/* ── TAB: HARDWARE ─────────────────────────────────────────── */}
-      {activeTab === 'HARDWARE' && (
-        <div className="md:col-span-3 space-y-6">
-
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Printer size={18} className="text-slate-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800">Cajón registradora</h3>
-                <p className="text-xs text-slate-400">Cómo se abre el cajón al completar una venta</p>
-              </div>
-              {drawerSaved && <span className="ml-auto text-xs font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Guardado</span>}
-            </div>
-            <div className="p-6 space-y-5">
-              <div className="space-y-2">
-                {([
-                  { id: 'escpos-usb',     icon: '🖨️', label: 'USB (ESC/POS via WebUSB)',  desc: 'Impresora térmica por USB directo. Requiere Chrome / Edge.' },
-                  { id: 'escpos-network', icon: '🌐', label: 'Red / IP (ESC/POS)',           desc: 'Impresora térmica con IP en la red local.' },
-                  { id: 'windows-print',  icon: '🪟', label: 'Impresora Windows',            desc: 'Impresora instalada en el sistema operativo.' },
-                ] as const).map(opt => (
-                  <label key={opt.id} className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${(drawerConfig.protocol || 'escpos-usb') === opt.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                    <input type="radio" name="drawer-proto" value={opt.id}
-                      checked={(drawerConfig.protocol || 'escpos-usb') === opt.id}
-                      onChange={() => setDrawerConfig((p: any) => ({ ...p, protocol: opt.id }))}
-                      className="mt-1" />
-                    <span className="text-lg mt-0.5">{opt.icon}</span>
-                    <div>
-                      <p className="font-semibold text-sm text-slate-800">{opt.label}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{opt.desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-
-              {(drawerConfig.protocol || 'escpos-usb') === 'escpos-network' && (
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">IP de la impresora</label>
-                    <input value={(drawerConfig as any).networkIp || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, networkIp: e.target.value }))}
-                      placeholder="192.168.1.100" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Puerto</label>
-                    <input type="number" value={(drawerConfig as any).networkPort || 9100}
-                      onChange={e => setDrawerConfig((p: any) => ({ ...p, networkPort: parseInt(e.target.value) || 9100 }))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
-                  </div>
-                </div>
-              )}
-
-              {(drawerConfig.protocol || 'escpos-usb') === 'windows-print' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre de impresora (opcional)</label>
-                  <input value={(drawerConfig as any).windowsPrinter || ''} onChange={e => setDrawerConfig((p: any) => ({ ...p, windowsPrinter: e.target.value }))}
-                    placeholder="Ej: POS58 Thermal Printer" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-400" />
-                  <p className="text-xs text-slate-400 mt-1">Dejar vacío usa la impresora predeterminada</p>
-                </div>
-              )}
-
-              <button onClick={() => saveDrawerConfig(drawerConfig)}
-                className="w-full py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 flex items-center justify-center gap-2">
-                <Cpu size={15} /> Guardar configuración del cajón
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Monitor size={18} className="text-slate-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800">Lector de códigos de barras</h3>
-                <p className="text-xs text-slate-400">Sin configuración — funciona automáticamente como teclado</p>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <p className="text-sm font-semibold text-blue-800 mb-1">✅ Sin configuración requerida</p>
-                <p className="text-xs text-blue-600">Conecta el lector por USB. El POS detecta el código escaneado y busca el producto automáticamente. Compatible con cualquier lector HID estándar.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <Wifi size={18} className="text-slate-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800">Balanza electrónica</h3>
-                <p className="text-xs text-slate-400">Para negocios con productos pesables</p>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <p className="text-sm font-semibold text-amber-800 mb-1">⚖️ Se configura en el POS</p>
-                <p className="text-xs text-amber-700">Al agregar un producto pesable en el Punto de Venta aparece la opción de conectar la balanza. Protocolos: Serial (Web Serial API), código de barras y manual.</p>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      )}
       </form>
 
-{activeTab === 'INTEGRACIONES' && (
-  <div className="md:col-span-3 space-y-6">
-    <div className="bg-white rounded-xl border border-slate-200 p-6">
-      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-2">
-        🔗 Integraciones Externas
-      </h3>
-      <p className="text-sm text-slate-500 mb-6">
-        Conecta WhatsApp Business (Meta) y Email (Resend) para enviar recordatorios
-        automáticos desde el módulo de Salón de Belleza y otros módulos.
-      </p>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {/* WhatsApp card */}
-        <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.whatsapp_token ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">💬</span>
-            <div>
-              <p className="font-bold text-slate-800">WhatsApp Business</p>
-              <p className="text-xs text-slate-500">Meta Cloud API</p>
-            </div>
-            <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.whatsapp_token ? 'bg-green-200 text-green-800' : 'bg-slate-200 text-slate-500'}`}>
-              {(safeCompany.config as any)?.whatsapp_token ? '✓ Activo' : 'Sin configurar'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">Envía recordatorios de citas al WhatsApp de tus clientes sin abrir la app.</p>
-        </div>
-        {/* Email card */}
-        <div className={`border rounded-xl p-4 ${(safeCompany.config as any)?.resend_api_key ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">📧</span>
-            <div>
-              <p className="font-bold text-slate-800">Email — Resend</p>
-              <p className="text-xs text-slate-500">100 emails/día gratis</p>
-            </div>
-            <span className={`ml-auto text-xs font-bold px-2 py-1 rounded-full ${(safeCompany.config as any)?.resend_api_key ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-500'}`}>
-              {(safeCompany.config as any)?.resend_api_key ? '✓ Activo' : 'Sin configurar'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500">Envía confirmaciones y recordatorios desde tu propio email.</p>
-        </div>
-      </div>
-
-      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-        <span className="text-xl">⚙️</span>
-        <div>
-          <p className="font-bold text-amber-800 text-sm mb-1">Configurar credenciales</p>
-          <p className="text-xs text-amber-700 mb-3">
-            Para agregar o actualizar tokens y API keys, ve a la pantalla de Integraciones.
-            Desde allí también puedes probar la conexión antes de guardar.
-          </p>
-          <a
-            href="#/configuracion/integraciones"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition-colors"
-          >
-            Ir a Configuración de Integraciones →
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-      {/* MODAL DE SEGURIDAD (PASSWORD ADMIN) */}
       {isSecurityCheckOpen && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -1744,7 +1765,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
         </div>
       )}
 
-      {/* MODAL DE SUSCRIPCION (PLANES) */}
       {isSubscriptionModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
@@ -1795,11 +1815,9 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
         </div>
       )}
 
-      {/* ── MODAL: Verificar contraseña para editar PIN de facturas ── */}
       {pinAuthOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-            {/* Header */}
             <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-5 text-center">
               <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
                 <ShieldCheck size={28} className="text-white" />
@@ -1809,7 +1827,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                 Para modificar el PIN de facturas, confirma tu contraseña de acceso al sistema
               </p>
             </div>
-            {/* Body */}
             <form onSubmit={handlePinAuth} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
@@ -1859,7 +1876,6 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
           </div>
         </div>
       )}
-
     </div>
   );
 };
