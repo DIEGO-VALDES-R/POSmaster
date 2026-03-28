@@ -199,7 +199,10 @@ const POS: React.FC = () => {
 
   // Si estamos en modo escáner rápido, quitar también de la vista de escaneados
   if (!showCatalog && item.product) {
-    setScannedProducts((prev) => prev.filter((p) => p.id !== item.product.id));
+    // Los items virtuales (farmacia, etc.) tienen id con prefijo 'pharma-', 'menu-', etc.
+    // En scannedProducts el id es el original sin prefijo
+    const rawId = item.product.id.replace(/^(pharma|menu|bev|svc)-/, '');
+    setScannedProducts((prev) => prev.filter((p) => p.id !== item.product.id && p.id !== rawId));
   }
 
   removeFromCart(index);
@@ -416,21 +419,34 @@ const clearCartWithStockReturn = useCallback(async () => {
   // ── Escáner de barras ─────────────────────────────────────────────────────
   const { isScanning } = useBarcodeScanner((barcode) => {
     const q = barcode.toLowerCase();
-    const product = products.find((p) =>
-      p.sku.toLowerCase() === q ||
-      ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
-      ((p as any).imei && (p as any).imei.toLowerCase() === q)
-    );
-    if (product) {
-      addToCart(product);
+    // Buscar coincidencia exacta por IMEI (siempre único)
+    const byImei = products.find((p) => (p as any).imei && (p as any).imei.toLowerCase() === q);
+    if (byImei) {
+      if (isFarmacia) { addPharmaToCart(byImei as any); } else { addToCart(byImei); }
       setSearchTerm('');
-      if (!showCatalog) {
-        setScannedProducts((prev) => {
-          const exists = prev.find((p) => p.id === product.id);
-          return exists ? prev : [...prev, product];
-        });
-      }
-    } else toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`);
+      if (!showCatalog) setScannedProducts((prev) => prev.find((p) => p.id === byImei.id) ? prev : [...prev, byImei]);
+      return;
+    }
+    // Buscar por SKU o barcode — puede haber varios (mismo SKU, distinto IMEI)
+    const matches = products.filter((p) =>
+      p.sku.toLowerCase() === q ||
+      ((p as any).barcode && (p as any).barcode.toLowerCase() === q)
+    );
+    if (matches.length === 1) {
+      if (isFarmacia) { addPharmaToCart(matches[0] as any); } else { addToCart(matches[0]); }
+      setSearchTerm('');
+      if (!showCatalog) setScannedProducts((prev) => prev.find((p) => p.id === matches[0].id) ? prev : [...prev, matches[0]]);
+    } else if (matches.length > 1) {
+      // Múltiples productos con mismo SKU/barcode → mostrar para que el usuario elija
+      setSearchTerm(barcode);
+      if (!showCatalog) setScannedProducts((prev) => {
+        const newOnes = matches.filter((m) => !prev.find((p) => p.id === m.id));
+        return [...prev, ...newOnes];
+      });
+      toast(`${matches.length} productos con ese código — selecciona el correcto`, { icon: '🔍' });
+    } else {
+      toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`);
+    }
   });
 
   useEffect(() => {
@@ -541,28 +557,41 @@ const clearCartWithStockReturn = useCallback(async () => {
     if (e.key === 'Enter' && searchTerm) {
       if (handleWeighableSearch(searchTerm)) { setSearchTerm(''); return; }
       const q = searchTerm.toLowerCase();
-      const exactMatch = products.find((p) =>
-        p.sku.toLowerCase() === q ||
-        ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
-        ((p as any).imei && (p as any).imei.toLowerCase() === q)
+      const addFn = (p: any) => { if (isFarmacia) addPharmaToCart(p); else addToCart(p); };
+      const pool = isFarmacia ? pharmaMeds : products;
+
+      // 1. Coincidencia exacta por IMEI → único, agregar directo
+      const byImei = (pool as any[]).find((p) => (p as any).imei && (p as any).imei.toLowerCase() === q);
+      if (byImei) {
+        addFn(byImei); setSearchTerm('');
+        if (!showCatalog) setScannedProducts((prev) => prev.find((p) => p.id === byImei.id) ? prev : [...prev, byImei]);
+        return;
+      }
+
+      // 2. Coincidencia por SKU o barcode → puede ser múltiple
+      const byCode = (pool as any[]).filter((p) =>
+        (p.sku || '').toLowerCase() === q ||
+        ((p as any).barcode && (p as any).barcode.toLowerCase() === q)
       );
-      if (exactMatch) {
-        addToCart(exactMatch);
-        setSearchTerm('');
-        if (!showCatalog) {
-          setScannedProducts((prev) => {
-            const exists = prev.find((p) => p.id === exactMatch.id);
-            return exists ? prev : [...prev, exactMatch];
-          });
-        }
-      } else if (!showCatalog && filteredProducts.length === 1) {
-        addToCart(filteredProducts[0]);
-        setScannedProducts((prev) => {
-          const exists = prev.find((p) => p.id === filteredProducts[0].id);
-          return exists ? prev : [...prev, filteredProducts[0]];
+      if (byCode.length === 1) {
+        addFn(byCode[0]); setSearchTerm('');
+        if (!showCatalog) setScannedProducts((prev) => prev.find((p) => p.id === byCode[0].id) ? prev : [...prev, byCode[0]]);
+      } else if (byCode.length > 1) {
+        // Varios con mismo SKU/barcode → mostrar todos en pantalla para que elija
+        if (!showCatalog) setScannedProducts((prev) => {
+          const newOnes = byCode.filter((m) => !prev.find((p) => p.id === m.id));
+          return [...prev, ...newOnes];
         });
-        setSearchTerm('');
-      } else if (filteredProducts.length === 1) { addToCart(filteredProducts[0]); setSearchTerm(''); }
+        toast(`${byCode.length} productos con ese código — selecciona el correcto`, { icon: '🔍' });
+        // NO limpiar searchTerm para que el catálogo siga filtrado
+      } else {
+        // 3. Sin coincidencia exacta → si solo hay 1 en los filtrados, agregarlo
+        const filtered = isFarmacia ? filteredPharmaMeds : filteredProducts;
+        if ((filtered as any[]).length === 1) {
+          addFn((filtered as any[])[0]); setSearchTerm('');
+          if (!showCatalog) setScannedProducts((prev) => prev.find((p) => p.id === (filtered as any[])[0].id) ? prev : [...prev, (filtered as any[])[0]]);
+        }
+      }
     }
   };
 
@@ -638,7 +667,7 @@ const clearCartWithStockReturn = useCallback(async () => {
         <div className="p-4 border-b border-slate-200 bg-slate-50">
           <div className="flex gap-2 mb-2">
             <RefreshButton onRefresh={isRestaurante ? loadRestaurantMenu : isFarmacia ? loadPharmaMeds : isServiceBusiness ? loadSpecialtyServices : refreshAll} label="Actualizar" className="text-xs px-2 py-1.5" />
-            {!isRestaurante && !isFarmacia && !isServiceBusiness && (
+            {(!isRestaurante && !isServiceBusiness) && (
               <button
                 onClick={() => { setShowCatalog((v) => !v); setScannedProducts([]); setSearchTerm(''); }}
                 title={showCatalog ? 'Ocultar catálogo (modo escáner rápido)' : 'Mostrar catálogo completo'}
@@ -783,7 +812,46 @@ const clearCartWithStockReturn = useCallback(async () => {
           )}
 
           {/* Farmacia */}
-          {isFarmacia && (<>{pharmaLoading && <p className="text-slate-400 text-sm text-center py-8">Cargando medicamentos...</p>}{!pharmaLoading && filteredPharmaMeds.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-center text-slate-400"><span className="text-5xl mb-2 opacity-30">💊</span><p className="font-medium">No hay medicamentos con stock</p><p className="text-sm">Registra medicamentos en el módulo de Farmacia</p></div>)}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{filteredPharmaMeds.map((med) => (<button key={med.id} onClick={() => addPharmaToCart(med)} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-teal-500 hover:shadow-md transition-all bg-white group"><div className="w-full aspect-square bg-teal-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">💊</div><h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{med.name}</h4><p className="text-xs text-slate-400 mb-1">{med.category} · {med.presentation}</p>{med.laboratory && <p className="text-xs text-slate-400 mb-1">{med.laboratory}</p>}<div className="text-xs font-bold mb-2 text-green-600">Stock: {med.stock_total}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-teal-600">{formatMoney(med.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${med.requires_prescription ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{med.requires_prescription ? 'Con receta' : med.med_type === 'GENERIC' ? 'Genérico' : 'Comercial'}</span></div></button>))}</div></>)}
+          {/* Farmacia */}
+          {isFarmacia && (
+            <>
+              {pharmaLoading && <p className="text-slate-400 text-sm text-center py-8">Cargando medicamentos...</p>}
+              {/* ── MODO CATÁLOGO ACTIVO ── */}
+              {!pharmaLoading && showCatalog && (
+                <>
+                  {filteredPharmaMeds.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
+                      <span className="text-5xl mb-2 opacity-30">💊</span>
+                      <p className="font-medium">No hay medicamentos con stock</p>
+                      <p className="text-sm">Registra medicamentos en el módulo de Farmacia</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredPharmaMeds.map((med) => (<button key={med.id} onClick={() => addPharmaToCart(med)} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-teal-500 hover:shadow-md transition-all bg-white group"><div className="w-full aspect-square bg-teal-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">💊</div><h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{med.name}</h4><p className="text-xs text-slate-400 mb-1">{med.category} · {med.presentation}</p>{med.laboratory && <p className="text-xs text-slate-400 mb-1">{med.laboratory}</p>}<div className="text-xs font-bold mb-2 text-green-600">Stock: {med.stock_total}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-teal-600">{formatMoney(med.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${med.requires_prescription ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{med.requires_prescription ? 'Con receta' : med.med_type === 'GENERIC' ? 'Genérico' : 'Comercial'}</span></div></button>))}
+                  </div>
+                </>
+              )}
+              {/* ── MODO ESCÁNER RÁPIDO ── */}
+              {!pharmaLoading && !showCatalog && (
+                <>
+                  {scannedProducts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 gap-3">
+                      <Barcode size={56} className="opacity-20" />
+                      <p className="font-semibold text-lg text-slate-500">Modo escáner rápido</p>
+                      <p className="text-sm max-w-xs">Escanea un código de barras, escribe SKU o nombre y presiona Enter.<br/>El medicamento se agrega al ticket automáticamente.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400 mb-3 font-medium">{scannedProducts.length} medicamento{scannedProducts.length !== 1 ? 's' : ''} escaneado{scannedProducts.length !== 1 ? 's' : ''} en este ticket</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {scannedProducts.map((med) => (<button key={med.id} onClick={() => addPharmaToCart(med)} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-teal-500 hover:shadow-md transition-all bg-white group"><div className="w-full aspect-square bg-teal-50 rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">💊</div><h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{med.name}</h4><p className="text-xs text-slate-400 mb-1">{med.category} · {med.presentation}</p>{med.laboratory && <p className="text-xs text-slate-400 mb-1">{med.laboratory}</p>}<div className="text-xs font-bold mb-2 text-green-600">Stock: {med.stock_total}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-teal-600">{formatMoney(med.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${med.requires_prescription ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>{med.requires_prescription ? 'Con receta' : med.med_type === 'GENERIC' ? 'Genérico' : 'Comercial'}</span></div></button>))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
 
           {/* Veterinaria / Odontología / Salón / Lavadero */}
           {(isServiceBusiness || isLavadero) && !isFarmacia && (<>{filteredSpecialtyServices.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-center text-slate-400"><span className="text-5xl mb-2 opacity-30">{isVeterinaria ? '🐾' : isOdontologia ? '🦷' : isLavadero ? '🚿' : '✂️'}</span><p className="font-medium">No hay servicios registrados</p><p className="text-sm">Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : isLavadero ? 'Lavadero' : 'Salón de Belleza'}</p></div>)}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{filteredSpecialtyServices.map((svc) => (<button key={svc.id} onClick={() => addSpecialtyServiceToCart(svc)} className={`flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:shadow-md transition-all bg-white group ${isLavadero ? 'hover:border-blue-400' : 'hover:border-purple-400'}`}><div className={`w-full aspect-square rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform ${isLavadero ? 'bg-blue-50' : 'bg-purple-50'}`}>{isLavadero ? (svc.tipo_vehiculo === 'moto' ? '🏍️' : svc.tipo_vehiculo === 'camioneta' ? '🛻' : svc.tipo_vehiculo === 'bus' ? '🚌' : '🚗') : isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}</div><h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{svc.nombre}</h4>{isLavadero && svc.tipo_vehiculo && <p className="text-[10px] text-slate-400 mb-1 capitalize">{svc.tipo_vehiculo}</p>}{svc.descripcion && <p className="text-xs text-slate-400 line-clamp-2 mb-2">{svc.descripcion}</p>}<div className="mt-auto w-full"><span className={`font-bold ${isLavadero ? 'text-blue-600' : 'text-purple-600'}`}>{formatMoney(svc.precio)}</span></div></button>))}</div></>)}
