@@ -228,7 +228,7 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
     nit_digit:       (safeCompany.config as any)?.dian_nit_digit || '0',
     software_id: '', software_pin: '', technical_key: '',
     environment: DianEnvironment.TEST,
-    is_active: !!(safeCompany.config as any)?.factus_token,
+    is_active: !!(safeCompany.config as any)?.factus_token || !!(safeCompany.config as any)?.factus_client_id,
   });
 
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
@@ -255,6 +255,7 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
         const currentConfig = (safeCompany.config as any) || {};
         const newConfig = {
           ...currentConfig,
+          dian_proveedor:        (dianForm as any).proveedor            || currentConfig.dian_proveedor || 'factus',
           factus_client_id:     (dianForm as any).factus_client_id    || currentConfig.factus_client_id,
           factus_client_secret: (dianForm as any).factus_client_secret || currentConfig.factus_client_secret,
           factus_username:      (dianForm as any).factus_username      || currentConfig.factus_username,
@@ -829,6 +830,30 @@ if (cfg.exchange_rate_eur) setEurRate(String(cfg.exchange_rate_eur)); // ✅ AGR
                       className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${dianForm.is_active ? 'bg-green-500 justify-end' : 'bg-slate-300 justify-start'}`}>
                       <div className="bg-white w-4 h-4 rounded-full shadow-md" />
                     </button>
+                  </div>
+                </div>
+
+                {/* ── Selector de proveedor ── */}
+                <div className="mb-5">
+                  <label className="block text-xs font-bold text-slate-600 mb-2">Proveedor tecnológico habilitado DIAN</label>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
+                    {[
+                      { id: 'factus', label: 'Factus',  icon: '🧾', desc: 'API REST · OAuth2' },
+                      { id: 'siigo',  label: 'Siigo',   icon: '📊', desc: 'Próximamente' },
+                      { id: 'alegra', label: 'Alegra',  icon: '💼', desc: 'Próximamente' },
+                    ].map(p => {
+                      const sel = ((dianForm as any).proveedor || 'factus') === p.id;
+                      const off = p.id !== 'factus';
+                      return (
+                        <button key={p.id} type="button" disabled={off}
+                          onClick={() => !off && setDianForm((f: any) => ({ ...f, proveedor: p.id }))}
+                          className={`p-3 rounded-xl border-2 text-left transition-all ${sel ? 'border-blue-500 bg-blue-50' : 'border-slate-200'} ${off ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:border-blue-300'}`}>
+                          <div className="text-lg mb-1">{p.icon}</div>
+                          <p className={`text-xs font-bold ${sel ? 'text-blue-700' : 'text-slate-700'}`}>{p.label}</p>
+                          <p className="text-[10px] text-slate-400">{p.desc}</p>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
