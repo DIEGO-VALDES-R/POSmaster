@@ -202,10 +202,15 @@ const KitchenDisplay: React.FC = () => {
 
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     await supabase.from('table_orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
+    const order = orders.find(o => o.id === orderId);
     if (newStatus === 'READY') {
-      const order = orders.find(o => o.id === orderId);
-      if (order) await supabase.from('restaurant_tables').update({ status:'READY' }).eq('id', order.table_id);
+      if (order) await supabase.from('restaurant_tables').update({ status: 'READY' }).eq('id', order.table_id);
       toast.success('🍽️ Pedido marcado como listo');
+    }
+    if (newStatus === 'DELIVERED') {
+      // Al entregar, la mesa vuelve a OCCUPIED (pendiente de cobro), NO a FREE
+      if (order) await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', order.table_id);
+      toast.success('🛎️ Pedido entregado — mesa pendiente de cobro');
     }
     loadOrders();
   };

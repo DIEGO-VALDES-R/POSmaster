@@ -104,7 +104,7 @@ interface PaymentModalProps {
   branchId: string | null;
   session: any;
   onClose: () => void;
-  onSuccess: (invoice: any, items: any[]) => void;
+  onSuccess: (invoice: any, items: any[], paidAmount: number) => void;
   navigate: (path: string) => void;
   formatCurrency: (v: number) => string;
 }
@@ -150,6 +150,7 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
           payment_method: {
             method:            payMethod,
             amount:            parseFloat(amountPaid) || total,
+            change_due:        payMethod === 'CASH' ? Math.max(0, (parseFloat(amountPaid) || total) - total) : 0,
             customer_name:     customerName || `${ORDER_TYPE_CFG[orderType].label} — ${table.name}`,
             customer_document: customerDoc  || null,
             customer_phone:    customerPhone|| null,
@@ -157,7 +158,7 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
             order_type:        orderType,
             table_name:        table.name,
             delivery_address:  address || null,
-            balance_due:       0,
+            balance_due:       Math.max(0, total - (parseFloat(amountPaid) || total)),
           },
         })
         .select().single();
@@ -178,11 +179,22 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
         });
         return rows;
       });
+      // Reconstruir payment_method completo para no perder amount/change_due
       await supabase.from('invoices')
         .update({
           payment_method: {
-            ...invoice.payment_method,
-            virtual_items: virtualItems,
+            method:            payMethod,
+            amount:            parseFloat(amountPaid) || total,
+            change_due:        payMethod === 'CASH' ? Math.max(0, (parseFloat(amountPaid) || total) - total) : 0,
+            customer_name:     customerName || `${ORDER_TYPE_CFG[orderType].label} — ${table.name}`,
+            customer_document: customerDoc  || null,
+            customer_phone:    customerPhone|| null,
+            payment_status:    'PAID',
+            order_type:        orderType,
+            table_name:        table.name,
+            delivery_address:  address || null,
+            balance_due:       Math.max(0, total - (parseFloat(amountPaid) || total)),
+            virtual_items:     virtualItems,
           },
         })
         .eq('id', invoice.id);
@@ -203,7 +215,7 @@ const TablePaymentModal: React.FC<PaymentModalProps> = ({
       }
 
       toast.success(`✅ Factura ${invNum} generada — Mesa liberada`);
-      onSuccess(invoice, virtualItems);
+      onSuccess(invoice, virtualItems, parseFloat(amountPaid) || total);
 
     } catch (err: any) {
       toast.error('Error: ' + err.message);
@@ -549,8 +561,9 @@ const Tables: React.FC = () => {
   }, [companyId, loadTables, loadOrders]);
 
   // ── HELPERS ─────────────────────────────────────────────────────────────────
+  // DELIVERED se incluye porque cocina puede marcar entregado antes de cobrar
   const getTableOrder = (tableId: string) =>
-    orders.find(o => o.table_id === tableId && ['PENDING','PREPARING','READY'].includes(o.status));
+    orders.find(o => o.table_id === tableId && ['PENDING','PREPARING','READY','DELIVERED'].includes(o.status) && !o.invoice_id);
 
   /**
    * Total del pedido: precio base × cantidad + todos los extras con precio
@@ -707,8 +720,14 @@ const Tables: React.FC = () => {
 
   const handleDeleteTable = async (id: string) => {
     if (!confirm('¿Eliminar esta mesa?')) return;
-    await supabase.from('restaurant_tables').update({ is_active: false }).eq('id', id);
+    // Intentar borrado físico; si falla por FK u otra restricción, hacer soft-delete
+    const { error } = await supabase.from('restaurant_tables').delete().eq('id', id);
+    if (error) {
+      // Fallback: marcar como inactiva
+      await supabase.from('restaurant_tables').update({ is_active: false }).eq('id', id);
+    }
     loadTables();
+    toast.success('Mesa eliminada');
   };
 
   // ── OPEN ORDER MODAL ─────────────────────────────────────────────────────────
@@ -853,8 +872,19 @@ const Tables: React.FC = () => {
         }).eq('id', activeTable.id);
         toast.success(sendToKitchen ? '🍽️ Pedido enviado a cocina' : 'Pedido creado');
       }
-      setShowOrderModal(false);
       await Promise.all([loadTables(), loadOrders()]);
+      // Leer el pedido activo directo de BD para que "Cobrar" siga visible
+      if (activeTable) {
+        const { data: freshOrder } = await supabase
+          .from('table_orders').select('*')
+          .eq('table_id', activeTable.id)
+          .in('status', ['PENDING','PREPARING','READY','DELIVERED'])
+          .is('invoice_id', null)
+          .order('created_at', { ascending: false })
+          .limit(1).maybeSingle();
+        if (freshOrder) setActiveOrder(freshOrder);
+      }
+      setShowOrderModal(false);
     } catch (e: any) { toast.error('Error: ' + e.message); }
     finally { setSavingOrder(false); }
   };
@@ -989,7 +1019,7 @@ const Tables: React.FC = () => {
             return (
               <div key={table.id}
                 onClick={() => openTable(table)}
-                className={`relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none ${isReady ? 'ring-2 ring-purple-400 ring-offset-1' : ''}`}
+                className={`group relative bg-white rounded-2xl border-2 p-4 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 active:scale-95 select-none ${isReady ? 'ring-2 ring-purple-400 ring-offset-1' : ''}`}
                 style={{ borderColor: status.border, background: status.bg }}>
                 <div className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full ${isReady ? 'animate-ping' : 'animate-pulse'}`} style={{ background: status.dot }} />
                 {isReady && <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full" style={{ background: status.dot }} />}
@@ -1004,7 +1034,7 @@ const Tables: React.FC = () => {
                       <Edit2 size={11} />
                     </button>
                   )}
-                  {table.status === 'FREE' && (
+                  {(table.status === 'FREE' || !getTableOrder(table.id)) && (
                     <button onClick={e => { e.stopPropagation(); handleDeleteTable(table.id); }}
                       className="p-1 bg-white/80 rounded-md hover:bg-white shadow-sm text-slate-500 hover:text-red-500">
                       <Trash2 size={11} />
@@ -1826,11 +1856,13 @@ const Tables: React.FC = () => {
           formatCurrency={formatCurrency}
           navigate={navigate}
           onClose={() => { setShowPayModal(false); }}
-          onSuccess={async (invoice, items) => {
+          onSuccess={async (invoice, items, paidAmount) => {
             setShowPayModal(false);
             // Construir objeto compatible con InvoiceModal
+            // paidAmount viene como parámetro de onSuccess
             const saleForModal = {
               ...invoice,
+              amount_paid: paidAmount,
               // invoice_items en este formato lo entiende normalizeItems() de InvoiceModal
               invoice_items: items.map((it: any) => ({
                 description: it.name,
@@ -1840,6 +1872,7 @@ const Tables: React.FC = () => {
               })),
               payment_method: {
                 ...(invoice.payment_method || {}),
+                amount: paidAmount,
                 virtual_items: items.map((it: any) => ({
                   name:     it.name,
                   quantity: it.quantity,

@@ -801,6 +801,25 @@ const InvoiceHistory: React.FC = () => {
                                       {inv.payment_method?.method || 'CASH'}
                                     </span>
                                   </div>
+                                  {(() => {
+                                    const paid = inv.payment_method?.amount;
+                                    const change = inv.payment_method?.change_due;
+                                    if (!paid || paid <= inv.total_amount) return null;
+                                    return (
+                                      <>
+                                        <div className="flex justify-between text-slate-600 pt-1 border-t border-dashed border-slate-200">
+                                          <span>Canceló</span>
+                                          <span className="font-semibold">{formatMoney(paid)}</span>
+                                        </div>
+                                        {change > 0 && (
+                                          <div className="flex justify-between font-bold text-emerald-700">
+                                            <span>Cambio</span>
+                                            <span>{formatMoney(change)}</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                                 {!isApartado && (
                                   <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
