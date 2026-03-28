@@ -131,6 +131,8 @@ const POS: React.FC = () => {
   const [pizzaSummary, setPizzaSummary] = useState<any[]>([]);
   const [selectedPizzaSlices, setSelectedPizzaSlices] = useState<Record<string, number[]>>({});
   const [menuTab, setMenuTab]       = useState<'platos' | 'bebidas' | 'pizzas'>('platos');
+  const [showCatalog, setShowCatalog] = React.useState(true);
+  const [scannedProducts, setScannedProducts] = React.useState<any[]>([]);
   const [pharmaMeds, setPharmaMeds] = useState<any[]>([]);
   const [pharmaLoading, setPharmaLoading] = useState(false);
   const [specialtyServices, setSpecialtyServices] = useState<any[]>([]);
@@ -194,8 +196,14 @@ const POS: React.FC = () => {
   if (productId.startsWith('pizza-') && productId.endsWith('-slice')) {
     await returnPizzaSlicesToStock(productId, item.quantity);
   }
+
+  // Si estamos en modo escáner rápido, quitar también de la vista de escaneados
+  if (!showCatalog && item.product) {
+    setScannedProducts((prev) => prev.filter((p) => p.id !== item.product.id));
+  }
+
   removeFromCart(index);
-}, [cart, removeFromCart, returnPizzaSlicesToStock]);
+}, [cart, removeFromCart, returnPizzaSlicesToStock, showCatalog]);
 
 
 const updateQuantityWithStockSync = useCallback(async (index: number, newQty: number) => {
@@ -413,8 +421,16 @@ const clearCartWithStockReturn = useCallback(async () => {
       ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
       ((p as any).imei && (p as any).imei.toLowerCase() === q)
     );
-    if (product) { addToCart(product); setSearchTerm(''); }
-    else toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`);
+    if (product) {
+      addToCart(product);
+      setSearchTerm('');
+      if (!showCatalog) {
+        setScannedProducts((prev) => {
+          const exists = prev.find((p) => p.id === product.id);
+          return exists ? prev : [...prev, product];
+        });
+      }
+    } else toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`);
   });
 
   useEffect(() => {
@@ -524,9 +540,29 @@ const clearCartWithStockReturn = useCallback(async () => {
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchTerm) {
       if (handleWeighableSearch(searchTerm)) { setSearchTerm(''); return; }
-      const exactMatch = products.find((p) => p.sku.toLowerCase() === searchTerm.toLowerCase());
-      if (exactMatch) { addToCart(exactMatch); setSearchTerm(''); }
-      else if (filteredProducts.length === 1) { addToCart(filteredProducts[0]); setSearchTerm(''); }
+      const q = searchTerm.toLowerCase();
+      const exactMatch = products.find((p) =>
+        p.sku.toLowerCase() === q ||
+        ((p as any).barcode && (p as any).barcode.toLowerCase() === q) ||
+        ((p as any).imei && (p as any).imei.toLowerCase() === q)
+      );
+      if (exactMatch) {
+        addToCart(exactMatch);
+        setSearchTerm('');
+        if (!showCatalog) {
+          setScannedProducts((prev) => {
+            const exists = prev.find((p) => p.id === exactMatch.id);
+            return exists ? prev : [...prev, exactMatch];
+          });
+        }
+      } else if (!showCatalog && filteredProducts.length === 1) {
+        addToCart(filteredProducts[0]);
+        setScannedProducts((prev) => {
+          const exists = prev.find((p) => p.id === filteredProducts[0].id);
+          return exists ? prev : [...prev, filteredProducts[0]];
+        });
+        setSearchTerm('');
+      } else if (filteredProducts.length === 1) { addToCart(filteredProducts[0]); setSearchTerm(''); }
     }
   };
 
@@ -552,6 +588,7 @@ const clearCartWithStockReturn = useCallback(async () => {
       clearCart();
       resetPayments(); resetDiscount();
       setCustomerName(''); setCustomerDoc(''); setCustomerEmail(''); setCustomerPhone('');
+      setScannedProducts([]);
       setIsPaymentModalOpen(false);
 
       if (returnUrl) {
@@ -601,6 +638,15 @@ const clearCartWithStockReturn = useCallback(async () => {
         <div className="p-4 border-b border-slate-200 bg-slate-50">
           <div className="flex gap-2 mb-2">
             <RefreshButton onRefresh={isRestaurante ? loadRestaurantMenu : isFarmacia ? loadPharmaMeds : isServiceBusiness ? loadSpecialtyServices : refreshAll} label="Actualizar" className="text-xs px-2 py-1.5" />
+            {!isRestaurante && !isFarmacia && !isServiceBusiness && (
+              <button
+                onClick={() => { setShowCatalog((v) => !v); setScannedProducts([]); setSearchTerm(''); }}
+                title={showCatalog ? 'Ocultar catálogo (modo escáner rápido)' : 'Mostrar catálogo completo'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${showCatalog ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100' : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'}`}
+              >
+                {showCatalog ? <><Barcode size={14}/> Catálogo ON</> : <><Barcode size={14}/> Escáner rápido</>}
+              </button>
+            )}
             {isRestaurante && (
               <div className="flex gap-1 ml-auto bg-slate-200 rounded-lg p-0.5">
                 {(['platos', 'bebidas', 'pizzas'] as const).map((tab) => (
@@ -743,7 +789,45 @@ const clearCartWithStockReturn = useCallback(async () => {
           {(isServiceBusiness || isLavadero) && !isFarmacia && (<>{filteredSpecialtyServices.length === 0 && (<div className="flex flex-col items-center justify-center h-full text-center text-slate-400"><span className="text-5xl mb-2 opacity-30">{isVeterinaria ? '🐾' : isOdontologia ? '🦷' : isLavadero ? '🚿' : '✂️'}</span><p className="font-medium">No hay servicios registrados</p><p className="text-sm">Crea servicios en el módulo de {isVeterinaria ? 'Veterinaria' : isOdontologia ? 'Odontología' : isLavadero ? 'Lavadero' : 'Salón de Belleza'}</p></div>)}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{filteredSpecialtyServices.map((svc) => (<button key={svc.id} onClick={() => addSpecialtyServiceToCart(svc)} className={`flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:shadow-md transition-all bg-white group ${isLavadero ? 'hover:border-blue-400' : 'hover:border-purple-400'}`}><div className={`w-full aspect-square rounded-md mb-3 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform ${isLavadero ? 'bg-blue-50' : 'bg-purple-50'}`}>{isLavadero ? (svc.tipo_vehiculo === 'moto' ? '🏍️' : svc.tipo_vehiculo === 'camioneta' ? '🛻' : svc.tipo_vehiculo === 'bus' ? '🚌' : '🚗') : isVeterinaria ? '🐾' : isOdontologia ? '🦷' : '✂️'}</div><h4 className="font-semibold text-slate-800 line-clamp-2 text-sm">{svc.nombre}</h4>{isLavadero && svc.tipo_vehiculo && <p className="text-[10px] text-slate-400 mb-1 capitalize">{svc.tipo_vehiculo}</p>}{svc.descripcion && <p className="text-xs text-slate-400 line-clamp-2 mb-2">{svc.descripcion}</p>}<div className="mt-auto w-full"><span className={`font-bold ${isLavadero ? 'text-blue-600' : 'text-purple-600'}`}>{formatMoney(svc.precio)}</span></div></button>))}</div></>)}
 
           {/* General / retail */}
-          {!isRestaurante && !isFarmacia && !isServiceBusiness && (<>{filteredProducts.length === 0 && searchTerm && (<div className="flex flex-col items-center justify-center h-full text-center"><div className="text-slate-300 mb-4"><ShoppingCart size={48} /></div><p className="text-slate-500 font-medium">No hay productos disponibles</p><p className="text-slate-400 text-sm">Intenta con otro término de búsqueda o verifica el stock</p></div>)}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">{filteredProducts.map((product) => (<button key={product.id} onClick={() => addToCart(product)} disabled={product.stock_quantity === 0 && product.type !== ProductType.SERVICE} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white group disabled:opacity-50 disabled:bg-slate-50"><div className="w-full aspect-square bg-slate-100 rounded-md mb-3 flex items-center justify-center text-slate-300 group-hover:text-blue-400 overflow-hidden">{(product as any).image_url ? <img src={(product as any).image_url} alt={product.name} className="w-full h-full object-cover" /> : <Smartphone size={40} />}</div><h4 className="font-semibold text-slate-800 line-clamp-2">{product.name}</h4><p className="text-xs text-slate-500 mb-0.5">{product.sku}</p>{(product as any).barcode && <p className="text-xs text-slate-400 mb-0.5">🔲 {(product as any).barcode}</p>}{(product as any).imei && <p className="text-xs text-slate-400 mb-0.5">📱 {(product as any).imei}</p>}<div className={`text-xs font-bold mb-2 ${product.stock_quantity === 0 ? 'text-red-500' : 'text-green-600'}`}>{product.type === 'WEIGHABLE' ? `Stock: ${(product as any).unit_type === 'g' ? (product.stock_quantity) + ' g' : (product as any).unit_type === 'lb' ? ((product.stock_quantity / 453.592).toFixed(2)) + ' lb' : ((product.stock_quantity / 1000).toFixed(2)) + ' kg'}` : `Stock: ${product.stock_quantity}`}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-blue-600">{product.type === 'WEIGHABLE' ? `${formatMoney((product as any).price_per_unit || product.price)}/${(product as any).unit_type || 'kg'}` : formatMoney(product.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${product.type === ProductType.SERIALIZED ? 'bg-amber-100 text-amber-700' : product.type === 'WEIGHABLE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>{product.type === ProductType.SERIALIZED ? 'IMEI' : product.type === 'WEIGHABLE' ? '⚖️ KG' : 'STD'}</span></div></button>))}</div></>)}
+          {!isRestaurante && !isFarmacia && !isServiceBusiness && (
+            <>
+              {/* ── MODO CATÁLOGO ACTIVO ── */}
+              {showCatalog && (
+                <>
+                  {filteredProducts.length === 0 && searchTerm && (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <div className="text-slate-300 mb-4"><ShoppingCart size={48} /></div>
+                      <p className="text-slate-500 font-medium">No hay productos disponibles</p>
+                      <p className="text-slate-400 text-sm">Intenta con otro término de búsqueda o verifica el stock</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredProducts.map((product) => (<button key={product.id} onClick={() => addToCart(product)} disabled={product.stock_quantity === 0 && product.type !== ProductType.SERVICE} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white group disabled:opacity-50 disabled:bg-slate-50"><div className="w-full aspect-square bg-slate-100 rounded-md mb-3 flex items-center justify-center text-slate-300 group-hover:text-blue-400 overflow-hidden">{(product as any).image_url ? <img src={(product as any).image_url} alt={product.name} className="w-full h-full object-cover" /> : <Smartphone size={40} />}</div><h4 className="font-semibold text-slate-800 line-clamp-2">{product.name}</h4><p className="text-xs text-slate-500 mb-0.5">{product.sku}</p>{(product as any).barcode && <p className="text-xs text-slate-400 mb-0.5">🔲 {(product as any).barcode}</p>}{(product as any).imei && <p className="text-xs text-slate-400 mb-0.5">📱 {(product as any).imei}</p>}<div className={`text-xs font-bold mb-2 ${product.stock_quantity === 0 ? 'text-red-500' : 'text-green-600'}`}>{product.type === 'WEIGHABLE' ? `Stock: ${(product as any).unit_type === 'g' ? (product.stock_quantity) + ' g' : (product as any).unit_type === 'lb' ? ((product.stock_quantity / 453.592).toFixed(2)) + ' lb' : ((product.stock_quantity / 1000).toFixed(2)) + ' kg'}` : `Stock: ${product.stock_quantity}`}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-blue-600">{product.type === 'WEIGHABLE' ? `${formatMoney((product as any).price_per_unit || product.price)}/${(product as any).unit_type || 'kg'}` : formatMoney(product.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${product.type === ProductType.SERIALIZED ? 'bg-amber-100 text-amber-700' : product.type === 'WEIGHABLE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>{product.type === ProductType.SERIALIZED ? 'IMEI' : product.type === 'WEIGHABLE' ? '⚖️ KG' : 'STD'}</span></div></button>))}
+                  </div>
+                </>
+              )}
+
+              {/* ── MODO ESCÁNER RÁPIDO (catálogo oculto) ── */}
+              {!showCatalog && (
+                <>
+                  {scannedProducts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 gap-3">
+                      <Barcode size={56} className="opacity-20" />
+                      <p className="font-semibold text-lg text-slate-500">Modo escáner rápido</p>
+                      <p className="text-sm max-w-xs">Escanea un código de barras, escribe un SKU o IMEI y presiona Enter.<br/>El producto se agrega al ticket automáticamente.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400 mb-3 font-medium">{scannedProducts.length} producto{scannedProducts.length !== 1 ? 's' : ''} escaneado{scannedProducts.length !== 1 ? 's' : ''} en este ticket</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {scannedProducts.map((product) => (<button key={product.id} onClick={() => addToCart(product)} disabled={product.stock_quantity === 0 && product.type !== ProductType.SERVICE} className="flex flex-col items-start text-left p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all bg-white group disabled:opacity-50 disabled:bg-slate-50"><div className="w-full aspect-square bg-slate-100 rounded-md mb-3 flex items-center justify-center text-slate-300 group-hover:text-blue-400 overflow-hidden">{(product as any).image_url ? <img src={(product as any).image_url} alt={product.name} className="w-full h-full object-cover" /> : <Smartphone size={40} />}</div><h4 className="font-semibold text-slate-800 line-clamp-2">{product.name}</h4><p className="text-xs text-slate-500 mb-0.5">{product.sku}</p>{(product as any).barcode && <p className="text-xs text-slate-400 mb-0.5">🔲 {(product as any).barcode}</p>}{(product as any).imei && <p className="text-xs text-slate-400 mb-0.5">📱 {(product as any).imei}</p>}<div className={`text-xs font-bold mb-2 ${product.stock_quantity === 0 ? 'text-red-500' : 'text-green-600'}`}>{product.type === 'WEIGHABLE' ? `Stock: ${(product as any).unit_type === 'g' ? (product.stock_quantity) + ' g' : (product as any).unit_type === 'lb' ? ((product.stock_quantity / 453.592).toFixed(2)) + ' lb' : ((product.stock_quantity / 1000).toFixed(2)) + ' kg'}` : `Stock: ${product.stock_quantity}`}</div><div className="mt-auto w-full flex justify-between items-center"><span className="font-bold text-blue-600">{product.type === 'WEIGHABLE' ? `${formatMoney((product as any).price_per_unit || product.price)}/${(product as any).unit_type || 'kg'}` : formatMoney(product.price)}</span><span className={`text-[10px] px-2 py-0.5 rounded-full ${product.type === ProductType.SERIALIZED ? 'bg-amber-100 text-amber-700' : product.type === 'WEIGHABLE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>{product.type === ProductType.SERIALIZED ? 'IMEI' : product.type === 'WEIGHABLE' ? '⚖️ KG' : 'STD'}</span></div></button>))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
