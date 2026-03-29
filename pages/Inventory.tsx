@@ -156,22 +156,27 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
       if (row._status === 'error') { errors++; continue; }
       const supplier_id = row.supplier_name ? await resolveSupplier(row.supplier_name) : null;
       try {
-        // Para productos con IMEI: el duplicado es SKU+IMEI, no solo SKU
-        // Un mismo SKU con IMEI diferente = celular distinto → INSERT
+        // Lógica de duplicado:
+        // - Con IMEI    → buscar SKU + IMEI   (mismo SKU + IMEI distinto = producto distinto → INSERT)
+        // - Con Barcode → buscar SKU + Barcode (mismo SKU + barcode distinto = producto distinto → INSERT)
+        // - Sin ninguno → buscar solo por SKU
         let existing: { id: string; stock_quantity: number } | null = null;
 
         if (row.imei) {
-          // Buscar por SKU + IMEI exacto
-          const { data: byImei } = await supabase
+          const { data } = await supabase
             .from('products').select('id, stock_quantity')
             .eq('company_id', companyId).eq('sku', row.sku).eq('imei', row.imei).maybeSingle();
-          existing = byImei;
+          existing = data;
+        } else if (row.barcode) {
+          const { data } = await supabase
+            .from('products').select('id, stock_quantity')
+            .eq('company_id', companyId).eq('sku', row.sku).eq('barcode', row.barcode).maybeSingle();
+          existing = data;
         } else {
-          // Sin IMEI: buscar solo por SKU (comportamiento original)
-          const { data: bySku } = await supabase
+          const { data } = await supabase
             .from('products').select('id, stock_quantity')
             .eq('company_id', companyId).eq('sku', row.sku).maybeSingle();
-          existing = bySku;
+          existing = data;
         }
 
         let error: any = null;
