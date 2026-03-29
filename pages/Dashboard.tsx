@@ -14,25 +14,43 @@ import { supabase } from '../supabaseClient';
 import RefreshButton from '../components/RefreshButton';
 
 // ── TIPOS DE PERÍODO ──────────────────────────────────────────────────────────
-type Period = 'week' | 'month' | 'year';
+type Period = 'today' | 'week' | 'month' | 'year' | 'custom';
 
 const PERIOD_LABELS: Record<Period, string> = {
-  week:  'Esta semana',
-  month: 'Este mes',
-  year:  'Este año',
+  today:  'Hoy',
+  week:   'Esta semana',
+  month:  'Este mes',
+  year:   'Este año',
+  custom: 'Rango',
 };
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-const startOf = (period: Period): Date => {
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+const startOf = (period: Period, customFrom?: string): Date => {
+  if (period === 'custom' && customFrom) {
+    const d = new Date(customFrom + 'T00:00:00');
+    return d;
+  }
   const d = new Date();
+  if (period === 'today') { d.setHours(0,0,0,0); }
   if (period === 'week')  { d.setDate(d.getDate() - d.getDay()); d.setHours(0,0,0,0); }
   if (period === 'month') { d.setDate(1); d.setHours(0,0,0,0); }
   if (period === 'year')  { d.setMonth(0,1); d.setHours(0,0,0,0); }
   return d;
 };
 
+const endOf = (period: Period, customTo?: string): Date => {
+  if (period === 'custom' && customTo) {
+    const d = new Date(customTo + 'T23:59:59');
+    return d;
+  }
+  return new Date(); // now
+};
+
 const prevPeriodStart = (period: Period): Date => {
   const d = new Date();
+  if (period === 'today') { d.setDate(d.getDate() - 1); d.setHours(0,0,0,0); }
   if (period === 'week')  { d.setDate(d.getDate() - d.getDay() - 7); d.setHours(0,0,0,0); }
   if (period === 'month') { d.setMonth(d.getMonth()-1, 1); d.setHours(0,0,0,0); }
   if (period === 'year')  { d.setFullYear(d.getFullYear()-1, 0, 1); d.setHours(0,0,0,0); }
@@ -109,44 +127,104 @@ const REPAIR_LABELS: Record<string, string> = {
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────────────────
 const Dashboard: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const { products, repairs, sales, isLoading, company, companyId, refreshAll } = useDatabase();
+  const { products, repairs, isLoading, company, companyId, branchId, refreshAll } = useDatabase();
 
-  const [period, setPeriod] = useState<Period>('week');
+  const [period, setPeriod] = useState<Period>('today');
+  const [customFrom, setCustomFrom] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [customTo, setCustomTo] = useState<string>(todayStr);
   const [chartReady, setChartReady] = useState(false);
 
   // ── Gastos operativos del período ─────────────────────────────────────────
   const [opExpenses, setOpExpenses] = useState(0);
   const [pendingExpenses, setPendingExpenses] = useState<any[]>([]);
 
+  // ── Ventas del período — consulta directa (NO limitada por el contexto) ───
+  const [currentSales, setCurrentSales] = useState<any[]>([]);
+  const [prevSales, setPrevSales] = useState<any[]>([]);
+
   useEffect(() => {
     if (!companyId) return;
     const load = async () => {
-      const now = new Date();
-      const start = startOf(period);
-      const fromISO = start.toISOString();
-      const toISO   = now.toISOString();
-      const [{ data: expData }, { data: pendData }] = await Promise.all([
-        supabase
-          .from('expenses')
-          .select('amount')
-          .eq('company_id', companyId)
-          .neq('status', 'CANCELLED')
-          .gte('expense_date', fromISO.slice(0,10))
-          .lte('expense_date', toISO.slice(0,10)),
-        supabase
-          .from('expenses')
-          .select('id, description, amount, due_date, status, expense_categories(name, color)')
-          .eq('company_id', companyId)
-          .in('status', ['PENDING', 'OVERDUE'])
-          .order('due_date', { ascending: true })
-          .limit(5),
-      ]);
-      const total = (expData || []).reduce((s: number, e: any) => s + (e.amount || 0), 0);
-      setOpExpenses(total);
+      const start    = startOf(period, customFrom);
+      const end      = endOf(period, customTo);
+      const prevStart = prevPeriodStart(period);
+      const fromISO  = start.toISOString();
+      const toISO    = end.toISOString();
+      const prevISO  = prevStart.toISOString();
+
+      // Ventas período actual
+      let qCurrent = supabase
+        .from('invoices')
+        .select('id, total_amount, created_at, business_type, status')
+        .eq('company_id', companyId)
+        .neq('status', 'CANCELLED')
+        .gte('created_at', fromISO)
+        .lte('created_at', toISO);
+      if (branchId) qCurrent = qCurrent.eq('branch_id', branchId);
+
+      // Ventas período anterior (no aplica para rango custom)
+      let qPrev = period !== 'custom'
+        ? supabase
+            .from('invoices')
+            .select('id, total_amount, created_at, business_type, status')
+            .eq('company_id', companyId)
+            .neq('status', 'CANCELLED')
+            .gte('created_at', prevISO)
+            .lt('created_at', fromISO)
+        : null;
+      if (qPrev && branchId) qPrev = qPrev.eq('branch_id', branchId);
+
+      // Gastos operativos
+      let qExp = supabase
+        .from('expenses')
+        .select('amount')
+        .eq('company_id', companyId)
+        .neq('status', 'CANCELLED')
+        .gte('expense_date', fromISO.slice(0, 10))
+        .lte('expense_date', toISO.slice(0, 10));
+
+      const [{ data: curData }, prevResult, { data: expData }, { data: pendData }] =
+        await Promise.all([
+          qCurrent,
+          qPrev ? qPrev : Promise.resolve({ data: [] }),
+          qExp,
+          supabase
+            .from('expenses')
+            .select('id, description, amount, due_date, status, expense_categories(name, color)')
+            .eq('company_id', companyId)
+            .in('status', ['PENDING', 'OVERDUE'])
+            .order('due_date', { ascending: true })
+            .limit(5),
+        ]);
+
+      // Filtrar por tipo de negocio activo
+      // Si la factura no tiene business_type → incluir siempre (legacy)
+      // Si tiene business_type → debe estar en los tipos configurados del negocio
+      const cfg2 = (company?.config as any) || {};
+      const bTypes: string[] = Array.isArray(cfg2.business_types)
+        ? cfg2.business_types
+        : cfg2.business_type ? [cfg2.business_type] : [];
+
+      const filterByType = (rows: any[]) =>
+        bTypes.length === 0
+          ? rows // sin config → mostrar todo
+          : rows.filter((s: any) => !s.business_type || bTypes.includes(s.business_type));
+
+      const cur  = filterByType(curData || []);
+      const prev = filterByType((prevResult as any)?.data || []);
+
+      console.log('[Dashboard] período:', period, '| facturas actuales:', cur.length, '| anteriores:', prev.length, '| bTypes:', bTypes);
+
+      setCurrentSales(cur);
+      setPrevSales(prev);
+      setOpExpenses((expData || []).reduce((s: number, e: any) => s + (e.amount || 0), 0));
       setPendingExpenses(pendData || []);
     };
     load();
-  }, [companyId, period]);
+  }, [companyId, branchId, period, customFrom, customTo, company]);
 
   // ── Tipo de negocio ACTIVO (lee el que está seleccionado en el sidebar) ──────
   // Layout guarda en localStorage el tipo activo cuando el usuario cambia de sección
@@ -228,26 +306,10 @@ const Dashboard: React.FC = () => {
     return () => clearTimeout(t);
   }, []);
 
-  // ── FILTRAR VENTAS POR PERÍODO ────────────────────────────────────────────
-  const { currentSales, prevSales } = useMemo(() => {
-    const start = startOf(period);
-    const prevStart = prevPeriodStart(period);
-    // Solo mostrar ventas del tipo de negocio activo (o sin tipo = legacy)
-    const salesByType = sales.filter((s: any) =>
-      !s.business_type || businessTypes.includes(s.business_type)
-    );
-    const current = salesByType.filter((s: any) => new Date(s.created_at) >= start);
-    const prev    = salesByType.filter((s: any) => {
-      const d = new Date(s.created_at);
-      return d >= prevStart && d < start;
-    });
-    return { currentSales: current, prevSales: prev };
-  }, [sales, period, businessTypes]);
-
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  const totalSales     = currentSales.reduce((s: number, v: any) => s + (v.total_amount || 0), 0);
-  const prevTotal      = prevSales.reduce((s: number, v: any) => s + (v.total_amount || 0), 0);
-  const salesTrend     = prevTotal > 0 ? ((totalSales - prevTotal) / prevTotal) * 100 : undefined;
+  const totalSales  = currentSales.reduce((s: number, v: any) => s + v.total_amount || 0, 0);
+  const prevTotal   = prevSales.reduce((s: number, v: any) => s + v.total_amount || 0, 0);
+  const salesTrend  = prevTotal > 0 ? ((totalSales - prevTotal) / prevTotal) * 100 : undefined;
 
   // Productos pesables: stock en gramos → convertir a kg para valor y mostrar correctamente
   const normalProducts  = products.filter((p: any) => p.type !== 'WEIGHABLE');
@@ -287,6 +349,43 @@ const Dashboard: React.FC = () => {
 
   // ── GRÁFICA VENTAS POR DÍA / MES ─────────────────────────────────────────
   const salesChart = useMemo(() => {
+    if (period === 'today') {
+      // Agrupar por hora del día (00h–23h)
+      const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0') + 'h');
+      const grouped: Record<string, { current: number; prev: number }> = {};
+      hours.forEach(h => { grouped[h] = { current: 0, prev: 0 }; });
+      currentSales.forEach((s: any) => {
+        const h = String(new Date(s.created_at).getHours()).padStart(2, '0') + 'h';
+        grouped[h].current += s.total_amount || 0;
+      });
+      prevSales.forEach((s: any) => {
+        const h = String(new Date(s.created_at).getHours()).padStart(2, '0') + 'h';
+        grouped[h].prev += s.total_amount || 0;
+      });
+      return hours.map(name => ({ name, ...grouped[name] }));
+    }
+    if (period === 'custom') {
+      // Agrupar por día dentro del rango
+      const from = new Date(customFrom + 'T00:00:00');
+      const to   = new Date(customTo   + 'T23:59:59');
+      const diffDays = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+      const labels: string[] = [];
+      for (let i = 0; i < Math.min(diffDays, 60); i++) {
+        const d = new Date(from); d.setDate(from.getDate() + i);
+        labels.push(d.toISOString().slice(0, 10));
+      }
+      const grouped: Record<string, number> = {};
+      labels.forEach(l => { grouped[l] = 0; });
+      currentSales.forEach((s: any) => {
+        const key = new Date(s.created_at).toISOString().slice(0, 10);
+        if (key in grouped) grouped[key] += s.total_amount || 0;
+      });
+      return labels.map(l => ({
+        name: l.slice(5), // MM-DD
+        current: grouped[l],
+        prev: 0,
+      }));
+    }
     if (period === 'week') {
       const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
       const grouped: Record<string, { current: number; prev: number }> = {};
@@ -320,7 +419,7 @@ const Dashboard: React.FC = () => {
       grouped[m] += s.total_amount || 0;
     });
     return MONTHS.map(name => ({ name, current: grouped[name], prev: 0 }));
-  }, [currentSales, prevSales, period]);
+  }, [currentSales, prevSales, period, customFrom, customTo]);
 
   // ── GRÁFICA REPARACIONES POR ESTADO ──────────────────────────────────────
   const repairChart = useMemo(() => {
@@ -368,7 +467,7 @@ const Dashboard: React.FC = () => {
           </h2>
           <p className="text-slate-500 text-sm">{company?.name || 'POSmaster'}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <RefreshButton onRefresh={refreshAll} />
           <Calendar size={16} className="text-slate-400" />
           <div className="flex bg-white border border-slate-200 rounded-lg p-1 gap-1">
@@ -383,6 +482,26 @@ const Dashboard: React.FC = () => {
               </button>
             ))}
           </div>
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 bg-white border border-blue-200 rounded-lg px-2 py-1">
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo}
+                onChange={e => setCustomFrom(e.target.value)}
+                className="text-xs text-slate-700 border-none outline-none bg-transparent cursor-pointer"
+              />
+              <span className="text-slate-300 text-xs">→</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={todayStr()}
+                onChange={e => setCustomTo(e.target.value)}
+                className="text-xs text-slate-700 border-none outline-none bg-transparent cursor-pointer"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -537,12 +656,14 @@ const Dashboard: React.FC = () => {
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-800">
-              Ventas — {PERIOD_LABELS[period]}
+              Ventas — {period === 'custom'
+                ? `${customFrom} → ${customTo}`
+                : PERIOD_LABELS[period]}
             </h3>
-            {period === 'week' && (
+            {(period === 'week' || period === 'today') && (
               <div className="flex items-center gap-4 text-xs text-slate-400">
                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Actual</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-300 inline-block" /> Semana anterior</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-300 inline-block" /> {period === 'today' ? 'Ayer' : 'Semana anterior'}</span>
               </div>
             )}
           </div>
@@ -555,10 +676,10 @@ const Dashboard: React.FC = () => {
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }}
                     tickFormatter={v => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                   <Tooltip content={<CustomTooltip formatter={formatMoney} />} cursor={{ fill: '#f8fafc' }} />
-                  {period === 'week' && (
-                    <Bar dataKey="prev" name="Sem. anterior" fill="#e2e8f0" radius={[3,3,0,0]} barSize={16} />
+                  {(period === 'week' || period === 'today') && (
+                    <Bar dataKey="prev" name={period === 'today' ? 'Ayer' : 'Sem. anterior'} fill="#e2e8f0" radius={[3,3,0,0]} barSize={16} />
                   )}
-                  <Bar dataKey="current" name="Período actual" fill="#3b82f6" radius={[4,4,0,0]} barSize={period === 'week' ? 20 : 36} />
+                  <Bar dataKey="current" name="Período actual" fill="#3b82f6" radius={[4,4,0,0]} barSize={period === 'week' || period === 'today' ? 20 : 36} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -614,7 +735,7 @@ const Dashboard: React.FC = () => {
 
           {/* Tendencia de ventas - LineChart */}
           <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-            <h3 className="font-bold text-slate-800 mb-6">Tendencia acumulada — {PERIOD_LABELS[period]}</h3>
+            <h3 className="font-bold text-slate-800 mb-6">Tendencia acumulada — {period === 'custom' ? `${customFrom} → ${customTo}` : PERIOD_LABELS[period]}</h3>
             <div className="h-56">
               {chartReady ? (
                 <ResponsiveContainer width="100%" height="100%">
