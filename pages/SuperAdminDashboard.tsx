@@ -921,27 +921,31 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     // Persistir pagados en localStorage para no perderlos al re-render
     const [pagados, setPagados] = React.useState<Set<string>>(() => {
       try {
-        const saved = localStorage.getItem('billing_pagados');
+        const mes = new Date().toISOString().slice(0,7);
+        const saved = localStorage.getItem(`billing_pagados_${mes}`);
         return saved ? new Set(JSON.parse(saved)) : new Set();
       } catch { return new Set(); }
     });
 
     // Guardar pagados en localStorage cuando cambian
     React.useEffect(() => {
-      localStorage.setItem('billing_pagados', JSON.stringify([...pagados]));
+      const mes1 = new Date().toISOString().slice(0,7);
+      localStorage.setItem(`billing_pagados_${mes1}`, JSON.stringify([...pagados]));
     }, [pagados]);
     const [facturando, setFacturando] = React.useState<string | null>(null);
 
     // Descuentos por cliente: { [companyId]: { tipo: 'pct'|'val', valor: number, meses: number } }
     const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>(() => {
       try {
-        const saved = localStorage.getItem('billing_descuentos');
+        const mes = new Date().toISOString().slice(0,7);
+        const saved = localStorage.getItem(`billing_descuentos_${mes}`);
         return saved ? JSON.parse(saved) : {};
       } catch { return {}; }
     });
 
     React.useEffect(() => {
-      localStorage.setItem('billing_descuentos', JSON.stringify(descuentos));
+      const mes2 = new Date().toISOString().slice(0,7);
+      localStorage.setItem(`billing_descuentos_${mes2}`, JSON.stringify(descuentos));
     }, [descuentos]);
 
     const [facturaConfig, setFacturaConfig] = React.useState<{
@@ -964,13 +968,15 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     const [savingConfig, setSavingConfig] = React.useState(false);
     const [resultados, setResultados] = React.useState<Record<string, { cufe: string; pdf_url: string; numero: string; valor: number; fecha: string }>>(() => {
       try {
-        const saved = localStorage.getItem('billing_resultados');
+        const mes = new Date().toISOString().slice(0,7);
+        const saved = localStorage.getItem(`billing_resultados_${mes}`);
         return saved ? JSON.parse(saved) : {};
       } catch { return {}; }
     });
 
     React.useEffect(() => {
-      localStorage.setItem('billing_resultados', JSON.stringify(resultados));
+      const mes3 = new Date().toISOString().slice(0,7);
+      localStorage.setItem(`billing_resultados_${mes3}`, JSON.stringify(resultados));
     }, [resultados]);
 
     // ── Cargar credenciales Factus desde la company del superadmin ────────────
