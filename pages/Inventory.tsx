@@ -1160,7 +1160,7 @@ const PesablesTab: React.FC<PesablesTabProps> = ({ companyId, branchId, formatMo
 const Inventory: React.FC = () => {
   const { formatMoney } = useCurrency();
   const { companyId } = useCompany();
-  const { company, branchId } = useDatabase();
+  const { company, branchId, userRole } = useDatabase();
 
   const cfg = (company?.config as any) || {};
   const businessTypes: string[] = Array.isArray(cfg.business_types)
@@ -1224,6 +1224,44 @@ const Inventory: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showInactive, setShowInactive] = useState(false);
   const [showDescuentos, setShowDescuentos] = useState(false);
+
+  // ── PIN de eliminación ────────────────────────────────────────────────────
+  const [pinModal, setPinModal] = useState<{
+    open: boolean;
+    onConfirm: (() => void) | null;
+    label: string;
+  }>({ open: false, onConfirm: null, label: '' });
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
+  const requirePin = (label: string, onConfirm: () => void) => {
+    const cfg2 = (company?.config as any) || {};
+    const needsPin = cfg2.require_delete_pin && cfg2.delete_pin;
+    // Solo ADMIN/OWNER pueden eliminar si está activo el PIN
+    if (needsPin && userRole !== 'ADMIN' && userRole !== 'MASTER' && userRole !== 'OWNER') {
+      toast.error('Solo el administrador puede eliminar registros');
+      return;
+    }
+    if (needsPin) {
+      setPinInput('');
+      setPinError('');
+      setPinModal({ open: true, onConfirm, label });
+    } else {
+      onConfirm();
+    }
+  };
+
+  const confirmPin = () => {
+    const cfg2 = (company?.config as any) || {};
+    if (pinInput === cfg2.delete_pin) {
+      pinModal.onConfirm?.();
+      setPinModal({ open: false, onConfirm: null, label: '' });
+      setPinInput('');
+      setPinError('');
+    } else {
+      setPinError('PIN incorrecto. Intenta nuevamente.');
+    }
+  };
 
   useEffect(() => {
     if (!loading && products.length > 0) {
@@ -1326,26 +1364,25 @@ const Inventory: React.FC = () => {
   // ─── ELIMINAR PRODUCTO ACTIVO: verifica historial ───────────────
   // Si tiene historial → soft delete (desactiva)
   // Si no tiene historial → hard delete (borra permanentemente)
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este producto?')) return;
-    try {
-      const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
-        supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
-        supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
-      ]);
-      const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
-      if (hasHistory) {
-        // Tiene historial → solo desactivar (soft delete)
-        await productService.delete(id);
-        toast.success('Producto desactivado (tiene historial asociado)');
-      } else {
-        // Sin historial → eliminar permanentemente
-        const { error } = await supabase.from('products').delete().eq('id', id);
-        if (error) throw error;
-        toast.success('Producto eliminado permanentemente');
-      }
-      load();
-    } catch (e: any) { toast.error(e.message); }
+  const handleDelete = (id: string) => {
+    requirePin('eliminar este producto', async () => {
+      try {
+        const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+          supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
+          supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
+        ]);
+        const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+        if (hasHistory) {
+          await productService.delete(id);
+          toast.success('Producto desactivado (tiene historial asociado)');
+        } else {
+          const { error } = await supabase.from('products').delete().eq('id', id);
+          if (error) throw error;
+          toast.success('Producto eliminado permanentemente');
+        }
+        load();
+      } catch (e: any) { toast.error(e.message); }
+    });
   };
 
   const toggleSelect = (id: string) => {
@@ -1366,9 +1403,9 @@ const Inventory: React.FC = () => {
 
   // ─── ELIMINACIÓN MASIVA ─────────────────────────────────────────
   // Detecta si hay inactivos en la selección para decidir el tipo de operación
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
-
+    requirePin(`eliminar ${selectedIds.size} producto(s)`, async () => {
     const ids = Array.from(selectedIds);
     const hasInactive = ids.some(id => {
       const p = products.find(x => x.id === id);
@@ -1423,6 +1460,7 @@ const Inventory: React.FC = () => {
 
     setSelectedIds(new Set());
     load();
+    }); // end requirePin
   };
 
   const filtered = products.filter(p => {
@@ -1526,7 +1564,7 @@ const Inventory: React.FC = () => {
                   Activar
                 </button>
                 <button
-                  onClick={async () => {
+                  onClick={() => requirePin(`eliminar "${p.name}"`, async () => {
                     // Verificar historial antes de borrar
                     const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
                       supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
@@ -1546,7 +1584,7 @@ const Inventory: React.FC = () => {
                     if (error) { toast.error('Error al eliminar: ' + error.message); return; }
                     toast.success('Producto eliminado permanentemente');
                     load();
-                  }}
+                  })}
                   className="text-red-600 hover:text-red-800 text-xs font-bold px-2 py-0.5 border border-red-300 rounded bg-red-50"
                   title="Eliminar permanentemente">
                   🗑️ Borrar
@@ -1890,6 +1928,48 @@ const Inventory: React.FC = () => {
           onClose={() => setShowImport(false)}
           onSuccess={() => { setShowImport(false); load(); }}
         />
+      )}
+
+      {/* ── MODAL PIN DE ELIMINACIÓN ── */}
+      {pinModal.open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-5 bg-red-600 text-white">
+              <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">Confirmación requerida</p>
+              <h3 className="text-lg font-black flex items-center gap-2">🔐 Ingresa el PIN para {pinModal.label}</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-500">Esta acción requiere autorización del administrador.</p>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">PIN de seguridad</label>
+                <input
+                  type="password"
+                  maxLength={8}
+                  autoFocus
+                  value={pinInput}
+                  onChange={e => { setPinInput(e.target.value); setPinError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && confirmPin()}
+                  placeholder="••••"
+                  className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-center text-2xl font-black tracking-widest focus:border-red-400 focus:outline-none"
+                />
+                {pinError && <p className="text-xs text-red-500 font-semibold mt-1">{pinError}</p>}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setPinModal({ open: false, onConfirm: null, label: '' }); setPinInput(''); setPinError(''); }}
+                  className="flex-1 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 text-sm">
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmPin}
+                  disabled={!pinInput}
+                  className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 text-sm">
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {showDescuentos && companyId && (

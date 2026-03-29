@@ -340,7 +340,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
 
   const openEdit = (c: any) => {
     setSelectedCompany(c);
-    setEditForm({ name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '', plan: c.subscription_plan, subscription_status: c.subscription_status, subscription_start_date: c.subscription_start_date || '', subscription_end_date: c.subscription_end_date || '', feature_flags: c.feature_flags && Object.keys(c.feature_flags).length > 0 ? c.feature_flags : getDefaultFlags(c.subscription_plan || 'BASIC'), show_in_landing: c.show_in_landing || false, business_type: c.config?.business_type || c.config?.business_types?.[0] || 'general' });
+    setEditForm({ name: c.name, nit: c.nit, email: c.email || '', phone: c.phone || '', plan: c.subscription_plan, subscription_status: c.subscription_status, subscription_start_date: c.subscription_start_date || '', subscription_end_date: c.subscription_end_date || '', feature_flags: c.feature_flags && Object.keys(c.feature_flags).length > 0 ? c.feature_flags : getDefaultFlags(c.subscription_plan || 'BASIC'), show_in_landing: c.show_in_landing || false, business_type: c.config?.business_type || c.config?.business_types?.[0] || 'general', require_delete_pin: c.config?.require_delete_pin || false, delete_pin: c.config?.delete_pin || '' });
     setShowEdit(true);
   };
 
@@ -353,7 +353,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       subscription_start_date: editForm.subscription_start_date || null,
       subscription_end_date: editForm.subscription_end_date || null,
       feature_flags: editForm.feature_flags, show_in_landing: editForm.show_in_landing,
-      config: { ...currentConfig, business_type: editForm.business_type, business_types: [editForm.business_type] },
+      config: { ...currentConfig, business_type: editForm.business_type, business_types: [editForm.business_type], require_delete_pin: editForm.require_delete_pin || false, delete_pin: editForm.delete_pin || '' },
     }).eq('id', selectedCompany.id);
     if (error) { toast.error(error.message); return; }
     toast.success('✅ Actualizado'); setShowEdit(false); load();
@@ -921,31 +921,27 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     // Persistir pagados en localStorage para no perderlos al re-render
     const [pagados, setPagados] = React.useState<Set<string>>(() => {
       try {
-        const mes = new Date().toISOString().slice(0,7);
-        const saved = localStorage.getItem(`billing_pagados_${mes}`);
+        const saved = localStorage.getItem('billing_pagados');
         return saved ? new Set(JSON.parse(saved)) : new Set();
       } catch { return new Set(); }
     });
 
     // Guardar pagados en localStorage cuando cambian
     React.useEffect(() => {
-      const mes1 = new Date().toISOString().slice(0,7);
-      localStorage.setItem(`billing_pagados_${mes1}`, JSON.stringify([...pagados]));
+      localStorage.setItem('billing_pagados', JSON.stringify([...pagados]));
     }, [pagados]);
     const [facturando, setFacturando] = React.useState<string | null>(null);
 
     // Descuentos por cliente: { [companyId]: { tipo: 'pct'|'val', valor: number, meses: number } }
     const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>(() => {
       try {
-        const mes = new Date().toISOString().slice(0,7);
-        const saved = localStorage.getItem(`billing_descuentos_${mes}`);
+        const saved = localStorage.getItem('billing_descuentos');
         return saved ? JSON.parse(saved) : {};
       } catch { return {}; }
     });
 
     React.useEffect(() => {
-      const mes2 = new Date().toISOString().slice(0,7);
-      localStorage.setItem(`billing_descuentos_${mes2}`, JSON.stringify(descuentos));
+      localStorage.setItem('billing_descuentos', JSON.stringify(descuentos));
     }, [descuentos]);
 
     const [facturaConfig, setFacturaConfig] = React.useState<{
@@ -968,15 +964,13 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     const [savingConfig, setSavingConfig] = React.useState(false);
     const [resultados, setResultados] = React.useState<Record<string, { cufe: string; pdf_url: string; numero: string; valor: number; fecha: string }>>(() => {
       try {
-        const mes = new Date().toISOString().slice(0,7);
-        const saved = localStorage.getItem(`billing_resultados_${mes}`);
+        const saved = localStorage.getItem('billing_resultados');
         return saved ? JSON.parse(saved) : {};
       } catch { return {}; }
     });
 
     React.useEffect(() => {
-      const mes3 = new Date().toISOString().slice(0,7);
-      localStorage.setItem(`billing_resultados_${mes3}`, JSON.stringify(resultados));
+      localStorage.setItem('billing_resultados', JSON.stringify(resultados));
     }, [resultados]);
 
     // ── Cargar credenciales Factus desde la company del superadmin ────────────
@@ -1887,6 +1881,34 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                   <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: editForm.show_in_landing ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
                 </button>
               </div>
+            </div>
+
+            {/* PIN de eliminación */}
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: editForm.require_delete_pin ? 12 : 0 }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#0f172a' }}>🔐 PIN para eliminar registros</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Requiere PIN o contraseña antes de borrar productos, clientes, etc.</p>
+                </div>
+                <button type="button" onClick={() => setEditForm((p: any) => ({ ...p, require_delete_pin: !p.require_delete_pin }))}
+                  style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: editForm.require_delete_pin ? '#ef4444' : '#e2e8f0', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: editForm.require_delete_pin ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                </button>
+              </div>
+              {editForm.require_delete_pin && (
+                <div>
+                  <p style={{ margin: '0 0 5px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>PIN (4–8 dígitos o letras)</p>
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="Ej: 1234"
+                    value={editForm.delete_pin || ''}
+                    onChange={(e: any) => setEditForm((p: any) => ({ ...p, delete_pin: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff5f5', boxSizing: 'border-box' as const, letterSpacing: 4, fontWeight: 700 }}
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444' }}>⚠️ El cliente verá este campo al intentar eliminar. Solo ADMIN y dueño pueden eliminar si está activo.</p>
+                </div>
+              )}
             </div>
 
             {/* Feature flags */}
