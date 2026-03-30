@@ -632,12 +632,9 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     const [saving, setSaving] = React.useState(false);
     const [modoEdicion, setModoEdicion] = React.useState(false);
 
-    // Estado editable de planes por feature — inicializa desde FEATURE_DEFS
-    // y luego sobreescribe con lo que haya en platform_settings
     const [planMatrix, setPlanMatrix] = React.useState<Record<string, string[]>>(() => {
       const m: Record<string, string[]> = {};
       FEATURE_DEFS.forEach(f => {
-        // Intentar leer de pricingData si ya estaba guardado
         const saved = (pricingData as any)[`feature_plans_${f.id}`];
         m[f.id] = saved ? saved.split(',') : [...f.defaultPlans];
       });
@@ -662,7 +659,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           { onConflict: 'key' }
         );
       }
-      // Actualizar pricingData local para reflejar cambios
       const updates: Record<string,string> = {};
       Object.entries(planMatrix).forEach(([id, plans]) => {
         updates[`feature_plans_${id}`] = plans.join(',');
@@ -680,8 +676,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       setPlanMatrix(m);
     };
 
-
-    // Cuántos clientes tienen cada feature activa
     const featureStats = FEATURE_DEFS.map(fd => ({
       ...fd,
       activePlans: planMatrix[fd.id] || fd.defaultPlans,
@@ -689,7 +683,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       total: companies.filter(c => c.subscription_plan !== 'TRIAL').length,
     }));
 
-    // Generar imagen de cotización de feature para compartir
     const generarImagenFeature = (feat: typeof FEATURE_DEFS[0]) => {
       setGenerandoImg(true);
       const html = `
@@ -918,7 +911,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     const periodoLabel = mesActual.charAt(0).toUpperCase() + mesActual.slice(1);
 
     const [subPanel, setSubPanel] = React.useState<'cobros' | 'historial' | 'cotizaciones'>('cobros');
-    // Persistir pagados en localStorage para no perderlos al re-render
     const [pagados, setPagados] = React.useState<Set<string>>(() => {
       try {
         const saved = localStorage.getItem('billing_pagados');
@@ -926,13 +918,11 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       } catch { return new Set(); }
     });
 
-    // Guardar pagados en localStorage cuando cambian
     React.useEffect(() => {
       localStorage.setItem('billing_pagados', JSON.stringify([...pagados]));
     }, [pagados]);
     const [facturando, setFacturando] = React.useState<string | null>(null);
 
-    // Descuentos por cliente: { [companyId]: { tipo: 'pct'|'val', valor: number, meses: number } }
     const [descuentos, setDescuentos] = React.useState<Record<string, { tipo: 'pct'|'val'; valor: number; meses: number }>>(() => {
       try {
         const saved = localStorage.getItem('billing_descuentos');
@@ -973,7 +963,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       localStorage.setItem('billing_resultados', JSON.stringify(resultados));
     }, [resultados]);
 
-    // ── Cargar credenciales Factus desde la company del superadmin ────────────
     React.useEffect(() => {
       const loadFactusConfig = async () => {
         const { data: { user } } = await supabase.auth.getUser();
@@ -1000,7 +989,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       loadFactusConfig();
     }, []);
 
-    // ── Guardar credenciales Factus en Supabase ───────────────────────────────
     const guardarFactusConfig = async () => {
       setSavingConfig(true);
       try {
@@ -1021,7 +1009,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
             factus_password:      facturaConfig.factus_password.trim(),
             factus_env:           facturaConfig.factus_env,
             mi_nit:               facturaConfig.mi_nit.trim(),
-            // Limpiar token cacheado al cambiar credenciales
             numbering_range_id:   facturaConfig.numbering_range_id || null,
             factus_token:         null,
             factus_token_expiry:  null,
@@ -1036,11 +1023,9 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
       }
     };
 
-    // Historial desde audit_logs
     const [historial, setHistorial] = React.useState<any[]>([]);
     const [loadingHistorial, setLoadingHistorial] = React.useState(false);
 
-    // Cotizaciones
     const [cotizaciones, setCotizaciones] = React.useState<Array<{
       id: string; company: any; meses: number; descTipo: 'pct'|'val'; descValor: number; nota: string;
     }>>([]);
@@ -1084,7 +1069,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
 
       setFacturando(company.id);
       try {
-        // 1. Obtener token OAuth de Factus
         const base = facturaConfig.factus_env === 'production'
           ? 'https://api.factus.com.co'
           : 'https://api-sandbox.factus.com.co';
@@ -1103,27 +1087,23 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         if (!tokenRes.ok) { toast.error('Error al obtener token de Factus'); return; }
         const { access_token } = await tokenRes.json();
 
-        // 2. Obtener rango de numeración activo
         const rangosRes = await fetch(`${base}/v1/numbering-ranges`, {
           headers: { 'Authorization': `Bearer ${access_token}`, 'Accept': 'application/json' },
         });
         const rangosData = await rangosRes.json();
         console.log('[Factus] rangosData raw:', JSON.stringify(rangosData).substring(0, 500));
 
-        // Factus puede devolver la lista en varias estructuras
         let rangos: any[] = [];
         if (Array.isArray(rangosData)) rangos = rangosData;
         else if (Array.isArray(rangosData?.data)) rangos = rangosData.data;
         else if (Array.isArray(rangosData?.data?.data)) rangos = rangosData.data.data;
         else if (rangosData?.data && typeof rangosData.data === 'object') {
-          // A veces devuelve un objeto paginado con items dentro
           const vals = Object.values(rangosData.data);
           const arr = vals.find((v) => Array.isArray(v));
           if (arr) rangos = arr as any[];
         }
         console.log('[Factus] rangos parseados:', rangos.length, JSON.stringify(rangos.map((r:any)=>({id:r.id,prefix:r.prefix,expired:r.is_expired}))));
 
-        // Tomar el primero no expirado; si todos expirados tomar el primero
         const rango = rangos.find((r: any) => r.is_expired === false) ?? rangos.find((r: any) => !r.is_expired) ?? rangos[0];
         if (!rango?.id) {
           console.error('[Factus] No rango encontrado. Respuesta completa:', JSON.stringify(rangosData));
@@ -1131,20 +1111,16 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           return;
         }
         console.log('[Factus] Rango seleccionado:', rango.id, rango.prefix);
-        // Si hay un numbering_range_id guardado en config, usarlo directamente
         const rangoIdFinal: number = facturaConfig.numbering_range_id || rango.id;
         console.log('[Factus] Rango ID final a usar:', rangoIdFinal);
 
-        // 3. Armar payload de factura
-                const nitLimpio = (company.nit || '').replace(/[^0-9]/g, '').replace(/^0+$/, '');
+        const nitLimpio = (company.nit || '').replace(/[^0-9]/g, '').replace(/^0+$/, '');
         const tieneNit = nitLimpio.length > 3 && nitLimpio !== '0';
-        // Si no tiene NIT, generar un número basado en el ID de la empresa (consistente)
         const idNumerico = tieneNit
           ? nitLimpio
           : (company.id || '').replace(/[^0-9]/g, '').slice(0, 10).padStart(10, '1') || '2222222222';
         const docNum = idNumerico;
 
-        // Persona natural NO responsable de IVA — tributo ZZ, tarifa 0
         const payload = {
           numbering_range_id: rangoIdFinal,
           reference_code: `PM-${company.id.slice(0,6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
@@ -1163,7 +1139,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
             address: company.address || 'Colombia',
             email: company.email || 'sin-email@posmaster.org',
             phone: company.phone || '3000000000',
-            legal_organization_id: '2',    // Siempre persona natural para clientes sin NIT
+            legal_organization_id: '2',
             tribute_id: '21',
             identification_document_id: tieneNit ? '6' : '3',
             municipality_id: '149',
@@ -1175,18 +1151,17 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
             name: `Suscripcion POSmaster Plan ${company.subscription_plan}${meses > 1 ? ' x' + meses + ' meses' : ''} - ${periodoLabel}`,
             quantity: 1,
             discount_rate: 0,
-            price: precio,          // Precio total — no responsable de IVA
-            tax_rate: '0.00',       // No responsable IVA (persona natural régimen simple)
+            price: precio,
+            tax_rate: '0.00',
             unit_measure_id: 70,
             standard_code_id: 1,
-            is_excluded: 1,         // Excluido de IVA
-            tribute_id: 1,          // Debe ser 1 (IVA) incluso cuando is_excluded=1
+            is_excluded: 1,
+            tribute_id: 1,
             withholding_taxes: [],
           }],
         };
         console.log('[Factus] payload:', JSON.stringify(payload, null, 2));
 
-        // 4. Enviar a Factus
         const factRes = await fetch(`${base}/v1/bills/validate`, {
           method: 'POST',
           headers: {
@@ -1213,7 +1188,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
         setResultados(prev => ({ ...prev, [company.id]: { cufe, pdf_url, numero, valor: precio, fecha: new Date().toLocaleDateString('es-CO') } }));
         toast.success(`✅ Factura ${numero} emitida para ${company.name}`);
 
-        // 5. Registrar en audit_logs
         try {
           await supabase.from('audit_logs').insert({
             company_id: company.id,
@@ -1291,7 +1265,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
             { label: 'Marcados pagados', value: pagados.size, color: '#10b981' },
             { label: 'Facturados hoy', value: Object.keys(resultados).length, color: '#8b5cf6' },
             { label: 'Total a facturar', value: fmt(clientesActivos.filter(c => pagados.has(c.id)).reduce((s, c) => { const d = descuentos[c.id] || { tipo: 'pct', valor: 0, meses: 1 }; return s + calcPrecio(c, d.meses); }, 0)), color: '#f59e0b', isText: true },
-          ].map(({ label, value, color, isText }) => (
+          ].map(({ label, value, color, isText }: any) => (
             <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
               <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' as const }}>{label}</p>
               <p style={{ margin: '6px 0 0', fontSize: isText ? 16 : 28, fontWeight: 800, color }}>{value}</p>
@@ -1311,7 +1285,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           ))}
         </div>
 
-        {/* Config Factus — siempre visible */}
+        {/* Config Factus */}
         <div>
           <button onClick={() => setShowConfig(!showConfig)} style={{ ...btn('gray'), fontSize: 12 }}>
             ⚙️ {showConfig ? 'Ocultar' : 'Configurar'} credenciales Factus · Ambiente: {facturaConfig.factus_env}
@@ -1329,10 +1303,20 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                 ].map(({ k, label }) => (
                   <div key={k}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>{label}</label>
-                    <input type={k.includes('secret') || k.includes('password') ? 'password' : 'text'}
+                    {/* FIX 3: type="text" con -webkit-text-security para secret/password — más fluido que type="password" */}
+                    <input
+                      type="text"
                       value={(facturaConfig as any)[k]}
                       onChange={e => setFacturaConfig(p => ({ ...p, [k]: e.target.value }))}
-                      style={input()} placeholder={label} />
+                      style={{
+                        ...input(),
+                        ...(k.includes('secret') || k.includes('password')
+                          ? { WebkitTextSecurity: 'disc' as any }
+                          : {}),
+                      }}
+                      placeholder={label}
+                      autoComplete={k.includes('secret') || k.includes('password') ? 'off' : undefined}
+                    />
                   </div>
                 ))}
                 <div>
@@ -1343,7 +1327,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                   </select>
                 </div>
               </div>
-              {/* Botón guardar */}
               <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
                 <button onClick={guardarFactusConfig} disabled={savingConfig}
                   style={{ ...btn('purple'), padding: '9px 20px', fontSize: 13, opacity: savingConfig ? 0.6 : 1 }}>
@@ -1393,13 +1376,11 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                         <td style={col}>
                           <span style={{ ...pill('gray'), background: PLAN_COLOR[c.subscription_plan] + '20', color: PLAN_COLOR[c.subscription_plan] }}>{c.subscription_plan}</span>
                         </td>
-                        {/* Meses */}
                         <td style={col}>
                           <input type="number" min={1} max={12} value={d.meses}
                             onChange={e => setDescuento(c.id, 'meses', parseInt(e.target.value) || 1)}
                             style={{ ...input(), width: 50, textAlign: 'center', padding: '4px 6px' }} />
                         </td>
-                        {/* Descuento */}
                         <td style={col}>
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                             <select value={d.tipo} onChange={e => setDescuento(c.id, 'tipo', e.target.value)}
@@ -1416,12 +1397,10 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                             <p style={{ margin: '2px 0 0', fontSize: 10, color: '#ef4444' }}>-{fmt(precioBase - precioFinal)}</p>
                           )}
                         </td>
-                        {/* Valor final */}
                         <td style={{ ...col, fontWeight: 800, color: '#0f172a' }}>
                           {fmt(precioFinal)}
                           {d.valor > 0 && <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', textDecoration: 'line-through' }}>{fmt(precioBase)}</p>}
                         </td>
-                        {/* Pagó */}
                         <td style={col}>
                           <button onClick={() => togglePagado(c.id)}
                             style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
@@ -1430,7 +1409,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                             {marcado ? 'Pagó ✓' : 'Pendiente'}
                           </button>
                         </td>
-                        {/* Factura emitida */}
                         <td style={col}>
                           {resultado ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1443,7 +1421,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
                             </div>
                           ) : <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>}
                         </td>
-                        {/* Acciones */}
                         <td style={col}>
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
                             {marcado && !resultado && (
@@ -1733,7 +1710,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
 
       {/* SIDEBAR */}
       <aside style={{ width: 220, background: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        {/* Logo */}
         <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 34, height: 34, background: '#2563eb', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12, color: '#fff' }}>PM</div>
@@ -1744,29 +1720,27 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           </div>
         </div>
 
-        {/* Nav */}
         <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {NAVITEMS.map(item => {
-            const active = panel === item.key;
+            const isActive = panel === item.key;
             return (
               <button key={item.key} onClick={() => setPanel(item.key)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' as const, background: active ? 'rgba(255,255,255,0.12)' : 'transparent', color: active ? '#fff' : '#94a3b8', fontWeight: active ? 700 : 400, fontSize: 14, transition: 'all 0.15s' }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9, border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' as const, background: isActive ? 'rgba(255,255,255,0.12)' : 'transparent', color: isActive ? '#fff' : '#94a3b8', fontWeight: isActive ? 700 : 400, fontSize: 14, transition: 'all 0.15s' }}
+                onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
                 {item.icon}
                 <span style={{ flex: 1 }}>{item.label}</span>
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span style={{ background: active ? 'rgba(255,255,255,0.25)' : '#1e293b', color: active ? '#fff' : '#94a3b8', fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 20 }}>{item.badge}</span>
+                  <span style={{ background: isActive ? 'rgba(255,255,255,0.25)' : '#1e293b', color: isActive ? '#fff' : '#94a3b8', fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 20 }}>{item.badge}</span>
                 )}
               </button>
             );
           })}
         </nav>
 
-        {/* Footer */}
         <div style={{ padding: '12px 10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <button onClick={handleRefreshAll} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 9, border: 'none', cursor: 'pointer', width: '100%', background: 'transparent', color: '#64748b', fontSize: 13 }}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar
+            <RefreshCw size={14} /> Actualizar
           </button>
           <button onClick={() => { supabase.auth.signOut(); onExit(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 9, border: 'none', cursor: 'pointer', width: '100%', background: 'transparent', color: '#ef4444', fontSize: 13 }}>
             <LogOut size={14} /> Cerrar sesión
@@ -1776,7 +1750,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
 
       {/* MAIN CONTENT */}
       <main style={{ flex: 1, overflowY: 'auto' }}>
-        {/* Top bar */}
         <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '0 28px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10 }}>
           <div>
             <h2 style={{ margin: 0, fontWeight: 800, fontSize: 18, color: '#0f172a' }}>
@@ -1789,7 +1762,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
           </div>
         </div>
 
-        {/* Panel content */}
         <div style={{ padding: 28 }}>
           {panel === 'overview'  && <OverviewPanel />}
           {panel === 'companies' && <CompaniesPanel />}
@@ -1883,7 +1855,7 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
               </div>
             </div>
 
-            {/* PIN de eliminación */}
+            {/* ── FIX 1: PIN de eliminación — defaultValue + onBlur para evitar pérdida de foco ── */}
             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: editForm.require_delete_pin ? 12 : 0 }}>
                 <div>
@@ -1898,13 +1870,27 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
               {editForm.require_delete_pin && (
                 <div>
                   <p style={{ margin: '0 0 5px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>PIN (4–8 dígitos o letras)</p>
+                  {/*
+                    FIX 1: Usar defaultValue + onBlur en vez de value + onChange.
+                    Esto evita que React re-renderice en cada tecla y rompa el foco
+                    cuando editForm cambia por cualquier otra causa.
+                  */}
                   <input
+                    key={`pin-${selectedCompany?.id}`}
                     type="text"
                     maxLength={8}
                     placeholder="Ej: 1234"
-                    value={editForm.delete_pin || ''}
-                    onChange={(e: any) => setEditForm((p: any) => ({ ...p, delete_pin: e.target.value }))}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff5f5', boxSizing: 'border-box' as const, letterSpacing: 4, fontWeight: 700 }}
+                    defaultValue={editForm.delete_pin || ''}
+                    onBlur={(e) => setEditForm((p: any) => ({ ...p, delete_pin: e.target.value }))}
+                    autoComplete="off"
+                    inputMode="numeric"
+                    style={{
+                      width: '100%', padding: '8px 12px',
+                      border: '1px solid #fca5a5', borderRadius: 8,
+                      fontSize: 14, outline: 'none', background: '#fff5f5',
+                      boxSizing: 'border-box' as const,
+                      letterSpacing: 4, fontWeight: 700,
+                    }}
                   />
                   <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444' }}>⚠️ El cliente verá este campo al intentar eliminar. Solo ADMIN y dueño pueden eliminar si está activo.</p>
                 </div>
@@ -2012,7 +1998,6 @@ const SuperAdminDashboard: React.FC<{ onExit: () => void; onPreview: (id: string
     </div>
   );
 
-  // This is needed due to the async load being used in button
   function handleRefreshAll() { load(); }
 };
 

@@ -10,6 +10,9 @@ import { useCurrency } from '../contexts/CurrencyContext';
 import { Product } from '../types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
+import * as XLSX from 'xlsx';
+import { logAudit, AuditEntry, ACTION_LABELS, SOURCE_LABELS, FIELD_LABELS } from '../services/productAuditService';
+import ProductHistoryModal from '../components/ProductHistoryModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Supplier { id: string; name: string; nit?: string; phone?: string; email?: string; }
@@ -47,11 +50,11 @@ interface PurchaseOrder {
 }
 
 const STATUS_CFG = {
-  DRAFT:     { label: 'Borrador',  cls: 'bg-slate-100 text-slate-600',     icon: <Edit3 size={11} /> },
-  SENT:      { label: 'Enviada',   cls: 'bg-blue-100 text-blue-700',       icon: <Send size={11} /> },
-  PARTIAL:   { label: 'Parcial',   cls: 'bg-amber-100 text-amber-700',     icon: <Clock size={11} /> },
-  RECEIVED:  { label: 'Recibida',  cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={11} /> },
-  CANCELLED: { label: 'Cancelada', cls: 'bg-red-100 text-red-700',         icon: <XCircle size={11} /> },
+  DRAFT:     { label: 'Borrador',   cls: 'bg-slate-100 text-slate-600',     icon: <Edit3 size={11} /> },
+  SENT:      { label: 'Enviada',    cls: 'bg-blue-100 text-blue-700',       icon: <Send size={11} /> },
+  PARTIAL:   { label: 'Parcial',    cls: 'bg-amber-100 text-amber-700',     icon: <Clock size={11} /> },
+  RECEIVED:  { label: 'Recibida',   cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={11} /> },
+  CANCELLED: { label: 'Cancelada',  cls: 'bg-red-100 text-red-700',         icon: <XCircle size={11} /> },
 };
 
 const EMPTY_ITEM: POItem = { description: '', sku: '', quantity_ordered: 1, quantity_received: 0, unit_cost: 0, tax_rate: 19 };
@@ -60,6 +63,13 @@ function nextOrderNumber(existing: PurchaseOrder[]): string {
   const nums = existing.map(o => parseInt(o.order_number.replace(/\D/g, '')) || 0);
   return `OC-${(Math.max(0, ...nums) + 1).toString().padStart(4, '0')}`;
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const fmt = (n: number | null | undefined) =>
+  n != null ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n) : '—';
+
+const fmtDate = (d: string) =>
+  new Date(d).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
 // ─── PDF Generator ────────────────────────────────────────────────────────────
 function generatePOPDF(order: PurchaseOrder, company: any, formatMoney: (n: number) => string) {
@@ -143,12 +153,13 @@ function generatePOPDF(order: PurchaseOrder, company: any, formatMoney: (n: numb
 interface ReceiveModalProps {
   order: PurchaseOrder;
   sessionId: string | null;
+  suppliers: Supplier[];
   onClose: () => void;
-  onDone: (updatedOrder: PurchaseOrder) => void;
+  onDone: (updatedOrder: PurchaseOrder, stockChanges: string[]) => void;
   formatMoney: (n: number) => string;
 }
 
-const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, onDone, formatMoney }) => {
+const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, suppliers, onClose, onDone, formatMoney }) => {
   const [items, setItems] = useState<POItem[]>(
     (order.purchase_order_items || []).map(i => ({ ...i, quantity_received: i.quantity_received || 0 }))
   );
@@ -157,12 +168,88 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
   const [payWithCash, setPayWithCash] = useState(false);
   const [cashAmount, setCashAmount] = useState(order.total_amount || 0);
 
+  // Estado del proveedor (el de la OC + poder cambiarlo)
+  const [selectedSupplierId, setSelectedSupplierId] = useState(order.supplier_id || '');
+  const [selectedSupplierName, setSelectedSupplierName] = useState(order.supplier_name || '');
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
   const allReceived = items.every(i => i.quantity_received >= i.quantity_ordered);
   const someReceived = items.some(i => i.quantity_received > 0);
 
-  const handleSave = async () => {
-    setSaving(true);
+  // Filtrar proveedores para el dropdown
+  const filteredSuppliers = suppliers.filter(s =>
+    !supplierSearch ||
+    s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
+    (s.nit || '').includes(supplierSearch)
+  ).slice(0, 8);
+
+  // Seleccionar un proveedor existente
+  const selectSupplier = (id: string) => {
+    const sup = suppliers.find(s => s.id === id);
+    if (sup) {
+      setSelectedSupplierId(sup.id);
+      setSelectedSupplierName(sup.name);
+    }
+    setShowSupplierDropdown(false);
+    setSupplierSearch('');
+  };
+
+  // Crear proveedor nuevo si no existe
+  const handleSupplierBlur = async () => {
+    setShowSupplierDropdown(false);
+    const name = selectedSupplierName.trim();
+    if (!name) return;
+
+    // Buscar si ya existe
+    const existing = suppliers.find(s => s.name.trim().toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setSelectedSupplierId(existing.id);
+      setSelectedSupplierName(existing.name);
+      return;
+    }
+
+    // Crear nuevo proveedor
+    setCreatingSupplier(true);
     try {
+      const { data, error } = await supabase.from('suppliers').insert({
+        company_id: order.company_id || null,
+        name: name,
+      }).select('id').single();
+
+      if (error) throw error;
+      if (data) {
+        setSelectedSupplierId(data.id);
+        toast.success(`Proveedor "${name}" creado`);
+      }
+    } catch (err: any) {
+      console.warn('Error creando proveedor:', err);
+      toast.error('Error al crear proveedor: ' + err.message);
+    } finally {
+      setCreatingSupplier(false);
+    }
+  };
+
+  const handleSave = async () => {
+    // Validar que la OC esté en estado ENVIADA o PARCIAL
+    if (order.status === 'DRAFT') {
+      toast.error('⚠️ Diligencie primero la orden de compra. Cambie el estado a "Enviada" antes de recibir.');
+      return;
+    }
+
+    setSaving(true);
+    const receivedProductIds: string[] = [];
+
+    try {
+      // Actualizar proveedor en la OC si cambió
+      if (selectedSupplierId !== order.supplier_id || selectedSupplierName !== order.supplier_name) {
+        await supabase.from('purchase_orders').update({
+          supplier_id: selectedSupplierId || null,
+          supplier_name: selectedSupplierName,
+        }).eq('id', order.id);
+      }
+
       // 1. Actualizar cantidad recibida en cada item
       for (const item of items) {
         if (!item.id) continue;
@@ -171,26 +258,25 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
           .eq('id', item.id);
       }
 
-      // 2. Actualizar stock + Kardex por cada item recibido
+      // 2. Actualizar stock + Kardex + Auditoría por cada item recibido
       for (const item of items) {
         const prevReceived = order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0;
         const newQty = item.quantity_received - prevReceived;
         if (newQty <= 0) continue;
 
-        // Buscar producto por product_id, luego por SKU como fallback
         let prodId: string | null = item.product_id || null;
         let prod: any = null;
 
         if (prodId) {
           const { data } = await supabase
             .from('products')
-            .select('id, stock_quantity, cost, company_id, branch_id')
+            .select('id, name, sku, stock_quantity, cost, price, company_id, branch_id')
             .eq('id', prodId).single();
           prod = data;
         } else if (item.sku) {
           const { data } = await supabase
             .from('products')
-            .select('id, stock_quantity, cost, company_id, branch_id')
+            .select('id, name, sku, stock_quantity, cost, price, company_id, branch_id')
             .eq('sku', item.sku).maybeSingle();
           prod = data;
           if (prod) prodId = prod.id;
@@ -201,13 +287,18 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
           continue;
         }
 
-        // Actualizar stock y costo
+        const stockBefore = prod.stock_quantity ?? 0;
+        const stockAfter  = stockBefore + newQty;
+        const costBefore  = prod.cost ?? 0;
+        const costAfter   = item.unit_cost > 0 ? item.unit_cost : costBefore;
+
         await supabase.from('products').update({
-          stock_quantity: (prod.stock_quantity || 0) + newQty,
-          cost: item.unit_cost > 0 ? item.unit_cost : prod.cost,
+          stock_quantity: stockAfter,
+          cost: costAfter,
         }).eq('id', prodId);
 
-        // Kardex
+        receivedProductIds.push(prodId);
+
         await supabase.from('inventory_movements').insert({
           company_id:     prod.company_id,
           branch_id:      prod.branch_id || null,
@@ -221,7 +312,29 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
           notes:          `OC ${order.order_number} — ${item.description}`,
         });
 
-        // Guardar product_id si se encontró por SKU
+        await logAudit({
+          company_id:     prod.company_id,
+          product_id:     prodId,
+          product_name:   prod.name,
+          product_sku:    prod.sku,
+          action:         'PURCHASE_ORDER',
+          source:         'purchase_order',
+          changed_fields: {
+            stock_quantity: { before: stockBefore, after: stockAfter },
+            ...(item.unit_cost > 0 && item.unit_cost !== costBefore
+              ? { cost: { before: costBefore, after: costAfter } }
+              : {}),
+          },
+          quantity_before:  stockBefore,
+          quantity_after:   stockAfter,
+          quantity_delta:   newQty,
+          cost_before:      costBefore,
+          cost_after:       costAfter,
+          reference_id:     order.id,
+          reference_label:  `Orden de Compra #${order.order_number} — ${selectedSupplierName}`,
+          notes:            `Recepción de ${newQty} unidad(es) — OC ${allReceived ? 'completada' : 'parcial'}`,
+        });
+
         if (!item.product_id && prodId && item.id) {
           await supabase.from('purchase_order_items')
             .update({ product_id: prodId }).eq('id', item.id);
@@ -231,7 +344,13 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
       // 3. Actualizar estado de la OC
       const newStatus = allReceived ? 'RECEIVED' : 'PARTIAL';
       const { data: updated } = await supabase.from('purchase_orders')
-        .update({ status: newStatus, received_date: receiveDate })
+        .update({
+          status: newStatus,
+          received_date: receiveDate,
+          received_at: new Date().toISOString(),
+          supplier_id: selectedSupplierId || null,
+          supplier_name: selectedSupplierName,
+        })
         .eq('id', order.id)
         .select('*, purchase_order_items(*)')
         .single();
@@ -242,7 +361,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
           company_id:   order.company_id || updated?.company_id,
           branch_id:    order.branch_id  || updated?.branch_id || null,
           session_id:   sessionId,
-          concept:      `Pago OC ${order.order_number} — ${order.supplier_name}`,
+          concept:      `Pago OC ${order.order_number} — ${selectedSupplierName}`,
           amount:       cashAmount,
           category:     'compra_mercancia',
           reference_id: order.id,
@@ -250,8 +369,8 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
         toast.success('💵 Egreso de compra registrado en caja');
       }
 
-      toast.success(allReceived ? '✅ Orden recibida — stock y kardex actualizados' : '📦 Recepción parcial registrada');
-      onDone(updated);
+      toast.success(allReceived ? '✅ Orden recibida — stock y trazabilidad actualizados' : '📦 Recepción parcial registrada');
+      onDone(updated, receivedProductIds);
     } catch (err: any) {
       toast.error('Error: ' + err.message);
     } finally {
@@ -267,12 +386,77 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div>
             <h2 className="font-bold text-slate-800">Registrar recepción</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{order.order_number} · {order.supplier_name}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{order.order_number}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4">
+          {/* ── Selector de Proveedor con Dropdown ── */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide flex items-center gap-1">
+              <Truck size={13} /> Proveedor
+            </p>
+            <div className="relative">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Seleccionar o escribir proveedor</label>
+              <div className="relative">
+                <Truck size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={selectedSupplierName}
+                  onChange={e => {
+                    setSelectedSupplierName(e.target.value);
+                    setSupplierSearch(e.target.value);
+                    setSelectedSupplierId('');
+                    setShowSupplierDropdown(true);
+                  }}
+                  onFocus={() => { setShowSupplierDropdown(true); setSupplierSearch(''); }}
+                  onBlur={() => setTimeout(handleSupplierBlur, 300)}
+                  placeholder="Buscar proveedor o escribir uno nuevo..."
+                  className="w-full pl-9 pr-4 py-2.5 border border-blue-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400 text-slate-800 bg-white"
+                />
+                {creatingSupplier && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              {/* Dropdown de proveedores existentes */}
+              {showSupplierDropdown && filteredSuppliers.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-30 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-48 overflow-y-auto">
+                  {filteredSuppliers.map(s => (
+                    <button
+                      key={s.id}
+                      onMouseDown={() => selectSupplier(s.id)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-blue-50 text-left border-b border-slate-50 last:border-0"
+                    >
+                      <div>
+                        <p className="text-xs font-semibold text-slate-800">{s.name}</p>
+                        {s.nit && <p className="text-[10px] text-slate-400">NIT: {s.nit}</p>}
+                      </div>
+                      {(s.phone || s.email) && (
+                        <span className="text-[10px] text-blue-500">
+                          {s.phone ? `📞 ${s.phone}` : `📧 ${s.email}`}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {showSupplierDropdown && filteredSuppliers.length === 0 && supplierSearch && (
+                <div className="absolute top-full left-0 right-0 z-30 bg-white border border-blue-200 rounded-xl shadow-lg mt-1 p-3">
+                  <p className="text-xs text-blue-600 font-semibold">
+                    No se encontró "{supplierSearch}"
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    Al salir del campo se creará como proveedor nuevo
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="text-xs font-bold text-slate-500 mb-1 block">Fecha de recepción</label>
             <input type="date" value={receiveDate} onChange={e => setReceiveDate(e.target.value)}
@@ -280,8 +464,8 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
           </div>
 
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-700">
-            <p className="font-bold mb-0.5">💡 Cómo funciona</p>
-            <p>Ingresa la cantidad que realmente llegó. El stock y el Kardex se actualizarán automáticamente.</p>
+            <p className="font-bold mb-0.5">💡 Trazabilidad automática</p>
+            <p>Al confirmar, se actualizan el stock, el Kardex y el <strong>historial de auditoría</strong> de cada producto.</p>
           </div>
 
           <div>
@@ -294,6 +478,7 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
             <div className="space-y-2">
               {items.map((item, idx) => {
                 const prevReceived = order.purchase_order_items?.find(i => i.id === item.id)?.quantity_received || 0;
+                const remaining = item.quantity_ordered - prevReceived;
                 const isComplete = item.quantity_received >= item.quantity_ordered;
                 return (
                   <div key={idx} className={`grid grid-cols-12 gap-1 items-center p-2 rounded-lg ${isComplete ? 'bg-emerald-50' : 'bg-slate-50'}`}>
@@ -317,7 +502,6 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
             </div>
           </div>
 
-          {/* Aviso items sin producto vinculado */}
           {items.some(i => !i.product_id && !i.sku) && (
             <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-800">
               <p className="font-bold mb-1">⚠️ Algunos productos no tienen SKU ni están vinculados al inventario</p>
@@ -325,7 +509,6 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
             </div>
           )}
 
-          {/* Quick fill */}
           <div className="flex gap-2">
             <button onClick={() => setItems(prev => prev.map(i => ({ ...i, quantity_received: i.quantity_ordered })))}
               className="flex-1 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 rounded-xl hover:bg-emerald-200">
@@ -337,7 +520,6 @@ const ReceiveModal: React.FC<ReceiveModalProps> = ({ order, sessionId, onClose, 
             </button>
           </div>
 
-          {/* Pago en efectivo */}
           <div className={`rounded-xl border-2 p-4 transition-all ${payWithCash ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -406,6 +588,7 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
   const [activeItemIdx, setActiveItemIdx] = useState<number | null>(null);
   const [productSearch, setProductSearch] = useState('');
 
+  // ★ CAMBIO CRÍTICO: El estado inicial siempre es DRAFT, nunca RECEIVED
   const [form, setForm] = useState({
     order_number: initial?.order_number || nextNumber,
     supplier_id: initial?.supplier_id || '',
@@ -413,7 +596,9 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
     supplier_nit: initial?.supplier_nit || '',
     expected_date: initial?.expected_date || '',
     notes: initial?.notes || '',
-    status: initial?.status || 'DRAFT' as PurchaseOrder['status'],
+    status: (initial?.status === 'DRAFT' || initial?.status === 'SENT')
+      ? initial.status
+      : 'DRAFT' as PurchaseOrder['status'],
   });
 
   const [items, setItems] = useState<POItem[]>(() => {
@@ -538,10 +723,15 @@ const OrderForm: React.FC<OrderFormProps> = ({ initial, products, suppliers, com
                   <input className={inputCls} type="date" value={form.expected_date} onChange={e => setForm(f => ({ ...f, expected_date: e.target.value }))} />
                 </div>
               </div>
+              {/* ★ CAMBIO: Solo permite DRAFT y SENT. RECIBIDA se alcanza por el flujo de Recepción */}
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">Estado</label>
+                <label className="text-xs text-slate-500 mb-1 block">
+                  Estado
+                  <span className="ml-1 text-[10px] text-blue-500 font-normal">(solo Borrador o Enviada al crear)</span>
+                </label>
                 <select className={inputCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as PurchaseOrder['status'] }))}>
-                  {Object.entries(STATUS_CFG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  <option value="DRAFT">Borrador</option>
+                  <option value="SENT">Enviada</option>
                 </select>
               </div>
               <textarea className={inputCls + ' resize-none'} rows={2} placeholder="Notas u observaciones..."
@@ -660,11 +850,19 @@ const PurchaseOrders: React.FC = () => {
   const [receiveOrder, setReceiveOrder] = useState<PurchaseOrder | null>(null);
   const [detailOrder, setDetailOrder] = useState<PurchaseOrder | null>(null);
 
-  // ── Productos agotados (stock = 0) ──────────────────────────
+  const [localProductStock, setLocalProductStock] = useState<Record<string, number>>({});
   const [showZeroStock, setShowZeroStock] = useState(false);
   const [zeroStockSearch, setZeroStockSearch] = useState('');
+  const [historyProduct, setHistoryProduct] = useState<{id: string; name: string; sku: string} | null>(null);
 
-  const zeroStockProducts = (products || []).filter(p =>
+  const productsWithLocalStock = (products || []).map(p => ({
+    ...p,
+    stock_quantity: localProductStock[p.id!] !== undefined
+      ? localProductStock[p.id!]
+      : p.stock_quantity,
+  }));
+
+  const zeroStockProducts = productsWithLocalStock.filter(p =>
     p.stock_quantity <= 0 &&
     p.type !== 'SERVICE' &&
     (p as any).type !== 'WEIGHABLE' &&
@@ -685,6 +883,15 @@ const PurchaseOrders: React.FC = () => {
     }));
     setEditOrder(null);
     setShowForm(true);
+  };
+
+  // ★ NUEVO: Handler para el botón 🔄 Recibir en Productos Agotados
+  const handleQuickReceive = () => {
+    toast.error('⚠️ Diligencie primero la orden de compra (OC)', {
+      duration: 4000,
+      icon: '🚫',
+      id: 'quick-receive-blocked',
+    });
   };
 
   const load = useCallback(async () => {
@@ -722,10 +929,332 @@ const PurchaseOrders: React.FC = () => {
   };
 
   const handleStatusChange = async (order: PurchaseOrder, status: PurchaseOrder['status']) => {
+    // ★ SEGURIDAD: No permitir cambiar a RECEIVED directamente desde aquí
+    if (status === 'RECEIVED') {
+      toast.error('⚠️ Para marcar como Recibida, use el botón "Recibir" en el detalle de la OC');
+      return;
+    }
     await supabase.from('purchase_orders').update({ status }).eq('id', order.id);
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status } : o));
     if (detailOrder?.id === order.id) setDetailOrder(prev => prev ? { ...prev, status } : null);
     toast.success(`Orden marcada como ${STATUS_CFG[status].label}`);
+  };
+
+  // ─── EXPORTAR HISTORIAL PDF ───────────────────────────────────────────
+  const exportOrderHistoryPDF = async (order: PurchaseOrder) => {
+    toast.loading('Generando historial PDF...', { id: 'export-pdf' });
+    try {
+      const itemIds = (order.purchase_order_items || [])
+        .map(i => i.product_id)
+        .filter((id): id is string => !!id);
+
+      if (itemIds.length === 0) {
+        toast.error('No hay productos vinculados a esta OC', { id: 'export-pdf' });
+        return;
+      }
+
+      const { data: history }: { data: AuditEntry[] | null } = await supabase
+        .from('product_audit_log')
+        .select('*')
+        .in('product_id', itemIds)
+        .eq('source', 'purchase_order')
+        .order('created_at', { ascending: true });
+
+      const allHistory = history || [];
+
+      if (allHistory.length === 0) {
+        toast.error('Sin registros de historial para esta OC', { id: 'export-pdf' });
+        return;
+      }
+
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const W = 210;
+      const M = 14;
+      let y = M;
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, W, 30, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('HISTORIAL POR ORDEN DE COMPRA', M, 13);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${order.order_number} — ${order.supplier_name}`, M, 20);
+      doc.text(`Exportado: ${new Date().toLocaleString('es-CO')}`, M, 26);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text(order.order_number, W - M, 13, { align: 'right' });
+      doc.text(formatMoney(order.total_amount), W - M, 20, { align: 'right' });
+      y = 38;
+
+      const totalIn = allHistory.filter(e => (e.quantity_delta ?? 0) > 0).reduce((s, e) => s + (e.quantity_delta ?? 0), 0);
+      const totalOut = allHistory.filter(e => (e.quantity_delta ?? 0) < 0).reduce((s, e) => s + (e.quantity_delta ?? 0), 0);
+
+      doc.setFillColor(248, 250, 252);
+      doc.rect(M, y, W - M * 2, 10, 'F');
+      const summaryKpis = [
+        { label: 'Productos', value: itemIds.length.toString() },
+        { label: 'Registros', value: allHistory.length.toString() },
+        { label: 'Total entradas', value: totalIn > 0 ? `+${totalIn}` : '—' },
+        { label: 'Total salidas', value: totalOut !== 0 ? String(totalOut) : '—' },
+      ];
+      summaryKpis.forEach((kpi, i) => {
+        const xPos = M + (i * (W - M * 2) / 4) + 4;
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text(kpi.label, xPos, y + 3);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(15, 23, 42);
+        doc.text(kpi.value, xPos, y + 7);
+      });
+      y += 15;
+
+      const grouped: Record<string, AuditEntry[]> = {};
+      allHistory.forEach(e => {
+        const key = e.product_id || 'unknown';
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(e);
+      });
+
+      for (const [, entries] of Object.entries(grouped)) {
+        const firstEntry = entries[0];
+        const prodName = firstEntry.product_name || 'Producto desconocido';
+        const prodSku = firstEntry.product_sku || '—';
+
+        if (y > 255) { doc.addPage(); y = M; }
+
+        doc.setFillColor(241, 245, 249);
+        doc.rect(M, y, W - M * 2, 9, 'F');
+        doc.setDrawColor(226, 232, 240);
+        doc.line(M, y, W - M, y);
+        doc.line(M, y + 9, W - M, y + 9);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
+        doc.text(prodName, M + 4, y + 6);
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`SKU: ${prodSku}`, M + 100, y + 6);
+
+        const prodIn = entries.filter(e => (e.quantity_delta ?? 0) > 0).reduce((s, e) => s + (e.quantity_delta ?? 0), 0);
+        if (prodIn > 0) {
+          doc.setTextColor(22, 163, 74);
+          doc.setFont('helvetica', 'bold');
+          doc.text(`+${prodIn}`, W - M - 4, y + 6, { align: 'right' });
+        }
+        y += 12;
+
+        const headerCols = [
+          { label: 'Fecha', x: M + 2, w: 28 },
+          { label: 'Acción', x: M + 30, w: 28 },
+          { label: 'Stock Δ', x: M + 58, w: 16 },
+          { label: 'Stock Ant.', x: M + 74, w: 16 },
+          { label: 'Stock Nuevo', x: M + 90, w: 16 },
+          { label: 'Costo', x: M + 106, w: 30 },
+          { label: 'Usuario', x: M + 136, w: 28 },
+          { label: 'Notas', x: M + 164, w: 32 },
+        ];
+
+        doc.setFillColor(248, 250, 252);
+        doc.rect(M, y, W - M * 2, 7, 'F');
+        doc.setFontSize(6.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(100, 116, 139);
+        headerCols.forEach(c => doc.text(c.label, c.x, y + 5));
+        y += 8;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+
+        entries.forEach((entry, i) => {
+          if (y > 275) {
+            doc.addPage(); y = M;
+            doc.setFillColor(248, 250, 252);
+            doc.rect(M, y, W - M * 2, 7, 'F');
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(100, 116, 139);
+            headerCols.forEach(c => doc.text(c.label, c.x, y + 5));
+            y += 8;
+            doc.setFont('helvetica', 'normal');
+          }
+
+          if (i % 2 === 0) {
+            doc.setFillColor(252, 252, 253);
+            doc.rect(M, y - 1, W - M * 2, 6, 'F');
+          }
+
+          doc.setTextColor(30, 41, 59);
+          doc.text(entry.created_at ? fmtDate(entry.created_at) : '—', headerCols[0].x, y + 3);
+
+          doc.setFont('helvetica', 'bold');
+          doc.text(ACTION_LABELS[entry.action] || entry.action, headerCols[1].x, y + 3);
+          doc.setFont('helvetica', 'normal');
+
+          const delta = entry.quantity_delta ?? 0;
+          if (delta !== 0) {
+            doc.setTextColor(delta > 0 ? 22 : 220, delta > 0 ? 163 : 38, delta > 0 ? 74 : 38);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${delta > 0 ? '+' : ''}${delta}`, headerCols[2].x, y + 3);
+            doc.setFont('helvetica', 'normal');
+          } else {
+            doc.setTextColor(148, 163, 184);
+            doc.text('—', headerCols[2].x, y + 3);
+          }
+
+          doc.setTextColor(71, 85, 105);
+          doc.text(String(entry.quantity_before ?? '—'), headerCols[3].x, y + 3);
+          doc.setTextColor(22, 163, 74);
+          doc.setFont('helvetica', 'bold');
+          doc.text(String(entry.quantity_after ?? '—'), headerCols[4].x, y + 3);
+          doc.setFont('helvetica', 'normal');
+
+          if (entry.cost_before != null || entry.cost_after != null) {
+            doc.setTextColor(124, 58, 237);
+            doc.text(`${fmt(entry.cost_before)} → ${fmt(entry.cost_after)}`, headerCols[5].x, y + 3);
+          } else {
+            doc.setTextColor(148, 163, 184);
+            doc.text('—', headerCols[5].x, y + 3);
+          }
+
+          doc.setTextColor(71, 85, 105);
+          doc.text((entry.user_name || '—').substring(0, 20), headerCols[6].x, y + 3);
+
+          doc.setTextColor(148, 163, 184);
+          doc.text((entry.notes || '').substring(0, 40), headerCols[7].x, y + 3);
+
+          y += 7;
+        });
+
+        y += 5;
+      }
+
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          `${order.order_number} · ${order.supplier_name} · Generado por POSmaster · Página ${p} de ${totalPages}`,
+          W / 2, 290, { align: 'center' }
+        );
+      }
+
+      doc.save(`historial_OC_${order.order_number}_${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('PDF generado con éxito', { id: 'export-pdf' });
+    } catch (err: any) {
+      toast.error('Error al generar PDF: ' + err.message, { id: 'export-pdf' });
+    }
+  };
+
+  // ─── EXPORTAR HISTORIAL EXCEL ───────────────────────────────────────────
+  const exportOrderHistoryExcel = async (order: PurchaseOrder) => {
+    toast.loading('Generando historial Excel...', { id: 'export-xlsx' });
+    try {
+      const itemIds = (order.purchase_order_items || [])
+        .map(i => i.product_id)
+        .filter((id): id is string => !!id);
+
+      if (itemIds.length === 0) {
+        toast.error('No hay productos vinculados a esta OC', { id: 'export-xlsx' });
+        return;
+      }
+
+      const { data: history }: { data: AuditEntry[] | null } = await supabase
+        .from('product_audit_log')
+        .select('*')
+        .in('product_id', itemIds)
+        .eq('source', 'purchase_order')
+        .order('created_at', { ascending: true });
+
+      const allHistory = history || [];
+
+      if (allHistory.length === 0) {
+        toast.error('Sin registros de historial para esta OC', { id: 'export-xlsx' });
+        return;
+      }
+
+      const grouped: Record<string, AuditEntry[]> = {};
+      allHistory.forEach(e => {
+        const key = e.product_id || 'unknown';
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(e);
+      });
+
+      const summaryRows = Object.entries(grouped).map(([, entries]) => {
+        const first = entries[0];            // más antiguo (para nombre, SKU)
+        const last  = entries[entries.length - 1]; // ★ más reciente (para "último")
+        const totalIn = entries.filter(e => (e.quantity_delta ?? 0) > 0).reduce((s, e) => s + (e.quantity_delta ?? 0), 0);
+        const totalOut = entries.filter(e => (e.quantity_delta ?? 0) < 0).reduce((s, e) => s + (e.quantity_delta ?? 0), 0);
+        // Buscar último precio y costo desde el final hacia atrás
+        const lastWithPrice  = [...entries].reverse().find(e => e.price_after != null);
+        const lastWithCost   = [...entries].reverse().find(e => e.cost_after != null);
+        return {
+          'Producto': first.product_name || 'Desconocido',
+          'SKU': first.product_sku || '—',
+          'Registros': entries.length,
+          'Total entradas': totalIn > 0 ? totalIn : 0,
+          'Total salidas': totalOut,
+          'Último costo': lastWithCost?.cost_after ?? '',
+          'Último precio': lastWithPrice?.price_after ?? '',
+          'Último stock': last.quantity_after ?? '',
+          'Usuario últ. movimiento': last.user_name || '',
+        };
+      });
+
+      const detailRows = allHistory.map(e => {
+        const changedFields = e.changed_fields
+          ? Object.entries(e.changed_fields)
+              .map(([k, v]) => `${FIELD_LABELS[k] || k}: ${v.before} → ${v.after}`)
+              .join(' | ')
+          : '';
+        return {
+          'Fecha': e.created_at ? fmtDate(e.created_at) : '—',
+          'Producto': e.product_name || '',
+          'SKU': e.product_sku || '',
+          'Acción': ACTION_LABELS[e.action] || e.action,
+          'Fuente': SOURCE_LABELS[e.source] || e.source,
+          'Stock anterior': e.quantity_before ?? '',
+          'Stock nuevo': e.quantity_after ?? '',
+          'Diferencia': e.quantity_delta ?? '',
+          'Precio anterior': e.price_before ?? '',
+          'Precio nuevo': e.price_after ?? '',
+          'Costo anterior': e.cost_before ?? '',
+          'Costo nuevo': e.cost_after ?? '',
+          'Campos cambiados': changedFields,
+          'Referencia': e.reference_label || '',
+          'Notas': e.notes || '',
+          'Usuario': e.user_name || '',
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+
+      const ws1 = XLSX.utils.json_to_sheet(summaryRows);
+      ws1['!cols'] = [
+        { wch: 30 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Resumen por Producto');
+
+      const ws2 = XLSX.utils.json_to_sheet(detailRows);
+      ws2['!cols'] = [
+        { wch: 18 }, { wch: 28 }, { wch: 14 }, { wch: 16 }, { wch: 18 },
+        { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
+        { wch: 14 }, { wch: 14 }, { wch: 50 }, { wch: 24 }, { wch: 28 }, { wch: 20 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Detalle Completo');
+
+      XLSX.writeFile(wb, `historial_OC_${order.order_number}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Excel generado con éxito', { id: 'export-xlsx' });
+    } catch (err: any) {
+      toast.error('Error al generar Excel: ' + err.message, { id: 'export-xlsx' });
+    }
   };
 
   const nextNumber = nextOrderNumber(orders);
@@ -733,80 +1262,76 @@ const PurchaseOrders: React.FC = () => {
   return (
     <div className="space-y-5 p-4 md:p-6">
       {/* Header */}
-<div className="flex items-center justify-between">
-  <div>
-    <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
-    <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
-  </div>
-
-  {/* ── BOTÓN EXPORTAR PDF — NUEVO ── */}
-  <button
-    onClick={() => {
-      const now = new Date().toLocaleString('es-CO');
-      const totalGeneral = filtered.reduce((s, o) => s + o.total_amount, 0);
-      const rows = filtered.map(o => {
-        const cfg = STATUS_CFG[o.status];
-        return `<tr>
-          <td>${o.order_number}</td>
-          <td>${o.supplier_name}${o.supplier_nit ? `<br><span style="color:#94a3b8;font-size:10px">NIT: ${o.supplier_nit}</span>` : ''}</td>
-          <td>${new Date(o.created_at).toLocaleDateString('es-CO')}</td>
-          <td>${o.expected_date ? new Date(o.expected_date + 'T12:00:00').toLocaleDateString('es-CO') : '—'}</td>
-          <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:${o.status==='RECEIVED'?'#d1fae5':o.status==='SENT'?'#dbeafe':o.status==='PARTIAL'?'#fef3c7':o.status==='CANCELLED'?'#fee2e2':'#f1f5f9'};color:${o.status==='RECEIVED'?'#065f46':o.status==='SENT'?'#1e40af':o.status==='PARTIAL'?'#92400e':o.status==='CANCELLED'?'#991b1b':'#475569'}">${cfg.label}</span></td>
-          <td style="text-align:right;font-weight:700">$${o.total_amount.toLocaleString('es-CO')}</td>
-        </tr>`;
-      }).join('');
-
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Órdenes de Compra</title>
-      <style>
-        body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}
-        h1{font-size:18px;margin:0}
-        table{width:100%;border-collapse:collapse;margin-top:8px}
-        th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:7px 10px;text-align:left;border-bottom:2px solid #e2e8f0}
-        td{padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
-        tr:hover td{background:#f8fafc}
-        .total-row td{font-weight:800;font-size:13px;border-top:2px solid #0f172a;background:#f8fafc}
-        @page{size:A4 landscape;margin:12mm}
-        @media print{button{display:none}}
-      </style></head><body>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a">
+      <div className="flex items-center justify-between">
         <div>
-          <h1>${company?.name || 'POSmaster'}</h1>
-          <p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p>
+          <h1 className="text-xl font-bold text-slate-800">Órdenes de Compra</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Gestiona pedidos a proveedores y recepción de mercancía</p>
         </div>
-        <div style="text-align:right">
-          <p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">ÓRDENES DE COMPRA</p>
-          <p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${filtered.length} órdenes</p>
-          ${statusFilter !== 'ALL' ? `<p style="font-size:11px;color:#f59e0b;margin:0">Filtro: ${STATUS_CFG[statusFilter as keyof typeof STATUS_CFG]?.label || statusFilter}</p>` : ''}
-        </div>
-      </div>
 
-      <table>
-        <thead><tr>
-          <th>Número</th><th>Proveedor</th><th>Fecha</th><th>Entrega Esp.</th><th style="text-align:center">Estado</th><th style="text-align:right">Total</th>
-        </tr></thead>
-        <tbody>
-          ${rows}
-          <tr class="total-row">
-            <td colspan="5" style="text-align:right">TOTAL GENERAL (${filtered.length} órdenes)</td>
-            <td style="text-align:right;color:#1e40af">$${totalGeneral.toLocaleString('es-CO')}</td>
-          </tr>
-        </tbody>
-      </table>
+        <button
+          onClick={() => {
+            const now = new Date().toLocaleString('es-CO');
+            const totalGeneral = filtered.reduce((s, o) => s + o.total_amount, 0);
+            const rows = filtered.map(o => {
+              const cfg = STATUS_CFG[o.status];
+              return `<tr>
+                <td>${o.order_number}</td>
+                <td>${o.supplier_name}${o.supplier_nit ? `<br><span style="color:#94a3b8;font-size:10px">NIT: ${o.supplier_nit}</span>` : ''}</td>
+                <td>${new Date(o.created_at).toLocaleDateString('es-CO')}</td>
+                <td>${o.expected_date ? new Date(o.expected_date + 'T12:00:00').toLocaleDateString('es-CO') : '—'}</td>
+                <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:${o.status==='RECEIVED'?'#d1fae5':o.status==='SENT'?'#dbeafe':o.status==='PARTIAL'?'#fef3c7':o.status==='CANCELLED'?'#fee2e2':'#f1f5f9'};color:${o.status==='RECEIVED'?'#065f46':o.status==='SENT'?'#1e40af':o.status==='PARTIAL'?'#92400e':o.status==='CANCELLED'?'#991b1b':'#475569'}">${cfg.label}</span></td>
+                <td style="text-align:right;font-weight:700">$${o.total_amount.toLocaleString('es-CO')}</td>
+              </tr>`;
+            }).join('');
 
-      <p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p>
-      </body></html>`;
+            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Órdenes de Compra</title>
+            <style>
+              body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}
+              h1{font-size:18px;margin:0}
+              table{width:100%;border-collapse:collapse;margin-top:8px}
+              th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:7px 10px;text-align:left;border-bottom:2px solid #e2e8f0}
+              td{padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+              tr:hover td{background:#f8fafc}
+              .total-row td{font-weight:800;font-size:13px;border-top:2px solid #0f172a;background:#f8fafc}
+              @page{size:A4 landscape;margin:12mm}
+              @media print{button{display:none}}
+            </style></head><body>
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a">
+              <div>
+                <h1>${company?.name || 'POSmaster'}</h1>
+                <p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p>
+              </div>
+              <div style="text-align:right">
+                <p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">ÓRDENES DE COMPRA</p>
+                <p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${filtered.length} órdenes</p>
+                ${statusFilter !== 'ALL' ? `<p style="font-size:11px;color:#f59e0b;margin:0">Filtro: ${STATUS_CFG[statusFilter as keyof typeof STATUS_CFG]?.label || statusFilter}</p>` : ''}
+              </div>
+            </div>
+            <table>
+              <thead><tr>
+                <th>Número</th><th>Proveedor</th><th>Fecha</th><th>Entrega Esp.</th><th style="text-align:center">Estado</th><th style="text-align:right">Total</th>
+              </tr></thead>
+              <tbody>
+                ${rows}
+                <tr class="total-row">
+                  <td colspan="5" style="text-align:right">TOTAL GENERAL (${filtered.length} órdenes)</td>
+                  <td style="text-align:right;color:#1e40af">$${totalGeneral.toLocaleString('es-CO')}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p>
+            </body></html>`;
 
-      const w = window.open('', '_blank', 'width=1200,height=800');
-      if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
-    }}
-    className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-sm"
-  >
-    📄 Exportar PDF
-  </button>
+            const w = window.open('', '_blank', 'width=1200,height=800');
+            if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-sm"
+        >
+          📄 Exportar PDF
+        </button>
 
-  <button
-    onClick={() => { window.location.hash = '/warehouse'; }}
-   
+        <button
+          onClick={() => { window.location.hash = '/warehouse'; }}
           className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 shadow-sm"
           title="Ir al Display de Bodega">
           📦 Display Bodega
@@ -833,7 +1358,7 @@ const PurchaseOrders: React.FC = () => {
         ))}
       </div>
 
-      {/* ── Panel Productos Agotados ─────────────────────────────── */}
+      {/* ═══════════════════ Panel Productos Agotados ═══════════════════ */}
       <div className="bg-red-50 border border-red-200 rounded-xl overflow-hidden">
         <button
           onClick={() => setShowZeroStock(v => !v)}
@@ -842,7 +1367,7 @@ const PurchaseOrders: React.FC = () => {
             <Package size={16} className="text-red-500" />
             <span className="font-bold text-red-700 text-sm">Productos Agotados (Stock = 0)</span>
             <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-              {(products || []).filter(p => p.stock_quantity <= 0 && p.type !== 'SERVICE').length}
+              {productsWithLocalStock.filter(p => p.stock_quantity <= 0 && p.type !== 'SERVICE' && (p as any).type !== 'WEIGHABLE').length}
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs text-red-500 font-medium">
@@ -889,12 +1414,24 @@ const PurchaseOrders: React.FC = () => {
                           <td className="px-3 py-2 text-right font-bold text-red-500">{p.stock_quantity}</td>
                           <td className="px-3 py-2 text-right text-slate-500">{formatMoney(p.cost)}</td>
                           <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => addZeroStockToNewOrder(p)}
-                              title="Crear orden de compra con este producto"
-                              className="flex items-center gap-1 px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-[10px] font-bold">
-                              <Plus size={11} /> Ordenar
-                            </button>
+                            <div className="flex items-center gap-1 justify-end">
+                              {/* ★ BOTÓN 🔄 RECIBIR — Muestra error, NO permite recibir directo */}
+                              <button
+                                onClick={handleQuickReceive}
+                                title="Debe crear una orden de compra primero"
+                                className="flex items-center gap-1 px-2.5 py-1 bg-orange-100 text-orange-600 rounded-lg hover:bg-orange-200 transition-colors text-[10px] font-bold"
+                              >
+                                🔄 Recibir
+                              </button>
+                              {/* ★ BOTÓN OC — Abre formulario de orden de compra */}
+                              <button
+                                onClick={() => addZeroStockToNewOrder(p)}
+                                title="Crear orden de compra formal con este producto"
+                                className="flex items-center gap-1 px-2.5 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-[10px] font-bold"
+                              >
+                                <Plus size={11} /> Crear OC
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -903,7 +1440,10 @@ const PurchaseOrders: React.FC = () => {
                 </div>
                 <div className="px-4 py-2 bg-red-50 border-t border-red-100 flex items-center justify-between">
                   <span className="text-[11px] text-red-500 font-semibold">{zeroStockProducts.length} productos agotados</span>
-                  <span className="text-[11px] text-slate-400">Haz clic en <strong>Ordenar</strong> para crear una OC con ese producto pre-cargado</span>
+                  <span className="text-[11px] text-slate-400">
+                    Haz clic en <strong className="text-red-600">OC</strong> para crear orden de compra ·
+                    <span className="text-orange-500 ml-1">🔄 Recibir requiere OC primero</span>
+                  </span>
                 </div>
               </div>
             )}
@@ -928,7 +1468,7 @@ const PurchaseOrders: React.FC = () => {
         </div>
       </div>
 
-      {/* Table */}
+      {/* ═══════════════════ Tabla de Órdenes ═══════════════════ */}
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Cargando órdenes...</div>
@@ -956,6 +1496,7 @@ const PurchaseOrders: React.FC = () => {
                 {filtered.map(order => {
                   const cfg = STATUS_CFG[order.status];
                   const overdue = order.expected_date && new Date(order.expected_date) < new Date() && !['RECEIVED','CANCELLED'].includes(order.status);
+                  const canReceive = ['SENT', 'PARTIAL'].includes(order.status);
                   return (
                     <tr key={order.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
@@ -983,12 +1524,16 @@ const PurchaseOrders: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
-                          {['SENT','PARTIAL'].includes(order.status) && (
+                          {canReceive ? (
                             <button onClick={() => setReceiveOrder(order)} title="Registrar recepción"
                               className="p-1.5 hover:bg-emerald-50 rounded-lg text-emerald-600 hover:text-emerald-800">
                               <Package size={14} />
                             </button>
-                          )}
+                          ) : order.status === 'DRAFT' ? (
+                            <span className="p-1.5 text-slate-300" title="Cambie el estado a 'Enviada' para poder recibir">
+                              <Package size={14} />
+                            </span>
+                          ) : null}
                           <button onClick={() => generatePOPDF(order, company, formatMoney)} title="PDF"
                             className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700">
                             <Download size={14} />
@@ -1014,7 +1559,9 @@ const PurchaseOrders: React.FC = () => {
         )}
       </div>
 
-      {/* Modals */}
+      {/* ═══════════════════ Modales ═══════════════════ */}
+
+      {/* Modal OrderForm */}
       {showForm && (
         <OrderForm
           initial={editOrder} products={products} suppliers={suppliers}
@@ -1028,21 +1575,62 @@ const PurchaseOrders: React.FC = () => {
         />
       )}
 
+      {/* Modal ReceiveModal */}
       {receiveOrder && (
         <ReceiveModal
           order={receiveOrder}
           sessionId={session?.id || null}
+          suppliers={suppliers}
           formatMoney={formatMoney}
           onClose={() => setReceiveOrder(null)}
-          onDone={updated => {
+          onDone={(updated, receivedProductIds) => {
             setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
             setReceiveOrder(null);
-            refreshAll(); // ← refresca products para quitar de lista de agotados
+
+            // Actualizar también detailOrder si está abierto
+            if (detailOrder?.id === updated.id) {
+              setDetailOrder(updated);
+            }
+
+            if (receivedProductIds.length > 0) {
+              // 1. Consultar stock actualizado inmediatamente para override optimista
+              supabase
+                .from('products')
+                .select('id, stock_quantity')
+                .in('id', receivedProductIds)
+                .then(({ data }) => {
+                  if (data && data.length > 0) {
+                    setLocalProductStock(prev => {
+                      const next = { ...prev };
+                      data.forEach(p => { next[p.id] = p.stock_quantity; });
+                      return next;
+                    });
+                  }
+                });
+
+              // 2. Limpiar overrides DESPUÉS de que refreshAll termine
+              const clearOverrides = () => {
+                setLocalProductStock(prev => {
+                  const next = { ...prev };
+                  receivedProductIds.forEach(id => delete next[id]);
+                  return Object.keys(next).length > 0 ? next : {};
+                });
+              };
+
+              const result = refreshAll?.();
+              if (result && typeof result.then === 'function') {
+                result.then(clearOverrides).catch(clearOverrides);
+              } else {
+                setTimeout(clearOverrides, 2000);
+              }
+            } else {
+              refreshAll?.();
+            }
           }}
         />
       )}
 
-      {/* Modal detalle OC */}
+      {/* ═══════════════════ Modal detalle OC ═══════════════════ */}
       {detailOrder && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1058,17 +1646,37 @@ const PurchaseOrders: React.FC = () => {
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-900">
                   <Download size={13} /> PDF
                 </button>
+                <button
+                  onClick={() => exportOrderHistoryPDF(detailOrder)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700"
+                  title="Exportar historial de TODOS los productos de esta OC en un solo PDF">
+                  📄 Historial PDF
+                </button>
+                <button
+                  onClick={() => exportOrderHistoryExcel(detailOrder)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700"
+                  title="Exportar historial de TODOS los productos de esta OC en un solo Excel">
+                  📊 Historial Excel
+                </button>
                 {!['RECEIVED','CANCELLED'].includes(detailOrder.status) && (
                   <button onClick={() => { setEditOrder(detailOrder); setShowForm(true); setDetailOrder(null); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700">
                     <Edit3 size={13} /> Editar
                   </button>
                 )}
+                {/* ★ BOTÓN RECIBIR — Solo visible cuando estado es SENT o PARTIAL */}
                 {['SENT','PARTIAL'].includes(detailOrder.status) && (
                   <button onClick={() => { setReceiveOrder(detailOrder); setDetailOrder(null); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700">
                     <Package size={13} /> Recibir
                   </button>
+                )}
+                {/* ★ Cuando está en DRAFT: mostrar botón gris deshabilitado con tooltip */}
+                {detailOrder.status === 'DRAFT' && (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 text-slate-400 text-xs font-bold rounded-lg cursor-not-allowed"
+                    title="Cambie el estado a 'Enviada' primero para poder recibir">
+                    <Package size={13} /> Recibir
+                  </span>
                 )}
                 <button onClick={() => setDetailOrder(null)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
                   <X size={18} />
@@ -1091,6 +1699,22 @@ const PurchaseOrders: React.FC = () => {
                 ))}
               </div>
 
+              {/* ★ AVISO cuando está en DRAFT */}
+              {detailOrder.status === 'DRAFT' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                  <p className="font-bold flex items-center gap-1"><AlertCircle size={13} /> Orden en Borrador</p>
+                  <p className="mt-1">Para poder recibir mercancía, primero debe <strong>cambiar el estado a "Enviada"</strong> usando los botones de abajo. La recepción directa no está permitida en estado Borrador.</p>
+                </div>
+              )}
+
+              {/* ★ AVISO cuando ya está RECIBIDA */}
+              {detailOrder.status === 'RECEIVED' && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-700">
+                  <p className="font-bold flex items-center gap-1"><CheckCircle size={13} /> Orden Recibida</p>
+                  <p className="mt-1">Esta orden ya fue recibida y el stock fue actualizado. Puede consultar el historial de cambios usando el botón 🕐 en cada producto.</p>
+                </div>
+              )}
+
               <div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
                   <Package size={12} /> Productos
@@ -1104,6 +1728,7 @@ const PurchaseOrders: React.FC = () => {
                         <th className="text-right px-3 py-2">Recibido</th>
                         <th className="text-right px-3 py-2">Costo u.</th>
                         <th className="text-right px-3 py-2">Total</th>
+                        <th className="px-3 py-2"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -1121,6 +1746,20 @@ const PurchaseOrders: React.FC = () => {
                           </td>
                           <td className="px-3 py-2 text-right text-slate-600">{formatMoney(item.unit_cost)}</td>
                           <td className="px-3 py-2 text-right font-bold text-slate-800">{formatMoney(item.quantity_ordered * item.unit_cost)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {item.product_id && (
+                              <button
+                                onClick={() => setHistoryProduct({
+                                  id: item.product_id!,
+                                  name: item.description,
+                                  sku: item.sku || '',
+                                })}
+                                className="p-1.5 hover:bg-amber-50 rounded-lg text-amber-500 hover:text-amber-700"
+                                title="Ver historial del producto">
+                                <Clock size={13} />
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1145,11 +1784,12 @@ const PurchaseOrders: React.FC = () => {
                 </div>
               )}
 
+              {/* ★ CAMBIO: "Cambiar estado" — No permite RECIBIDA directamente */}
               {!['RECEIVED','CANCELLED'].includes(detailOrder.status) && (
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Cambiar estado</p>
                   <div className="flex flex-wrap gap-2">
-                    {(['DRAFT','SENT','PARTIAL','RECEIVED','CANCELLED'] as PurchaseOrder['status'][])
+                    {(['DRAFT','SENT','PARTIAL','CANCELLED'] as PurchaseOrder['status'][])
                       .filter(s => s !== detailOrder.status)
                       .map(s => (
                         <button key={s} onClick={() => handleStatusChange(detailOrder, s)}
@@ -1158,11 +1798,24 @@ const PurchaseOrders: React.FC = () => {
                         </button>
                       ))}
                   </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    💡 El estado <strong>"Recibida"</strong> se alcanza automáticamente al usar el botón <strong>"📦 Recibir"</strong> de arriba
+                  </p>
                 </div>
               )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de historial de producto individual */}
+      {historyProduct && (
+        <ProductHistoryModal
+          productId={historyProduct.id}
+          productName={historyProduct.name}
+          productSku={historyProduct.sku}
+          onClose={() => setHistoryProduct(null)}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { VariantManager } from '../components/VariantManager';
-import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle, Truck, Phone, Mail, AlertTriangle, ShoppingCart, Scale, TrendingUp, Calculator, BarChart3, RefreshCw, ChevronRight, Tag } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Package, Upload, Image as ImageIcon, ChevronDown, List, Grid3x3, ArrowLeft, Zap, FileSpreadsheet, Download, CheckCircle, AlertCircle, Truck, Phone, Mail, AlertTriangle, ShoppingCart, Scale, TrendingUp, Calculator, BarChart3, RefreshCw, ChevronRight, Tag, Clock } from 'lucide-react';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { productService, Product } from '../services/productService';
 import { useCompany } from '../hooks/useCompany';
@@ -10,6 +10,8 @@ import DescuentosModal from '../components/DescuentosModal';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import ProductHistoryModal from '../components/ProductHistoryModal';
+import { logAudit, diffProducts } from '../services/productAuditService';
 
 const EMPTY_PRODUCT = {
   company_id: '', name: '', sku: '', category: '', brand: '',
@@ -156,10 +158,6 @@ const ImportModal: React.FC<{ companyId: string; branchId: string | null; suppli
       if (row._status === 'error') { errors++; continue; }
       const supplier_id = row.supplier_name ? await resolveSupplier(row.supplier_name) : null;
       try {
-        // Lógica de duplicado:
-        // - Con IMEI    → buscar SKU + IMEI   (mismo SKU + IMEI distinto = producto distinto → INSERT)
-        // - Con Barcode → buscar SKU + Barcode (mismo SKU + barcode distinto = producto distinto → INSERT)
-        // - Sin ninguno → buscar solo por SKU
         let existing: { id: string; stock_quantity: number } | null = null;
 
         if (row.imei) {
@@ -1225,6 +1223,9 @@ const Inventory: React.FC = () => {
   const [showInactive, setShowInactive] = useState(false);
   const [showDescuentos, setShowDescuentos] = useState(false);
 
+  // ── PATCH 2: Estado para historial de producto ─────────────────────────────
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+
   // ── PIN de eliminación ────────────────────────────────────────────────────
   const [pinModal, setPinModal] = useState<{
     open: boolean;
@@ -1237,7 +1238,6 @@ const Inventory: React.FC = () => {
   const requirePin = (label: string, onConfirm: () => void) => {
     const cfg2 = (company?.config as any) || {};
     const needsPin = cfg2.require_delete_pin && cfg2.delete_pin;
-    // Solo ADMIN/OWNER pueden eliminar si está activo el PIN
     if (needsPin && userRole !== 'ADMIN' && userRole !== 'MASTER' && userRole !== 'OWNER') {
       toast.error('Solo el administrador puede eliminar registros');
       return;
@@ -1284,21 +1284,24 @@ const Inventory: React.FC = () => {
     } else { toast.error(`Producto no encontrado (SKU/Barcode/IMEI: "${barcode}")`); }
   });
 
-  const load = async () => {
-    if (!companyId) return;
-    setLoading(true);
-    try {
-      setProducts(await productService.getAllForInventory(companyId));
-      const { data: sups } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
-      setSuppliers(sups || []);
-      const { data: brs } = await supabase.from('branches').select('id, name').eq('company_id', companyId).eq('is_active', true).order('name');
-      setBranches(brs || []);
-    }
-    catch (e: any) { toast.error(e.message); }
-    finally { setLoading(false); }
-  };
+ const load = useCallback(async (silent = false) => {
+  if (!companyId) return;
+  if (!silent) setLoading(true);
+  try {
+    const fresh = await productService.getAllForInventory(companyId);
+    setProducts(fresh);
+    const { data: sups } = await supabase.from('suppliers').select('*').eq('company_id', companyId).order('name');
+    setSuppliers(sups || []);
+    const { data: brs } = await supabase.from('branches').select('id, name').eq('company_id', companyId).eq('is_active', true).order('name');
+    setBranches(brs || []);
+  } catch (e: any) { toast.error(e.message); }
+  finally { if (!silent) setLoading(false); }
+}, [companyId]);
 
-  useEffect(() => { load(); }, [companyId]);
+// 👇 ESTE ES EL QUE FALTA
+useEffect(() => {
+  load();
+}, [load]);
 
   const loadSuppliers = async () => {
     if (!companyId) return;
@@ -1339,18 +1342,77 @@ const Inventory: React.FC = () => {
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
+  // ── PATCH 3: handleSave con auditoría ──────────────────────────────────────
   const handleSave = async () => {
     if (!form.name || !form.sku) { toast.error('Nombre y SKU son requeridos'); return; }
     setSaving(true);
     try {
-      const productData = { ...form, supplier_id: (form as any).supplier_id || null, branch_id: (form as any).branch_id || branchId || null };
+      const productData = {
+        ...form,
+        supplier_id: (form as any).supplier_id || null,
+        branch_id: (form as any).branch_id || branchId || null,
+      };
+
       if (editing?.id) {
+        // Captura snapshot ANTES de guardar
+        const before: Record<string, any> = { ...editing };
+        const after: Record<string, any>  = { ...productData };
+        const changedFields = diffProducts(before, after);
+
         await productService.update(editing.id, productData);
+
+        // Registrar en audit_log si hubo cambios
+        if (Object.keys(changedFields).length > 0) {
+          const stockBefore = before.stock_quantity ?? 0;
+          const stockAfter  = after.stock_quantity  ?? 0;
+          const stockDelta  = stockAfter - stockBefore;
+
+          await logAudit({
+            company_id:     companyId!,
+            product_id:     editing.id,
+            product_name:   after.name || editing.name,
+            product_sku:    after.sku  || editing.sku,
+            action:         stockDelta !== 0 ? 'STOCK_UPDATE' :
+                            (changedFields.price || changedFields.cost) ? 'PRICE_UPDATE' : 'EDIT',
+            source:         'edit_modal',
+            changed_fields: changedFields,
+            quantity_before: stockDelta !== 0 ? stockBefore : undefined,
+            quantity_after:  stockDelta !== 0 ? stockAfter  : undefined,
+            quantity_delta:  stockDelta !== 0 ? stockDelta  : undefined,
+            price_before:   changedFields.price ? before.price : undefined,
+            price_after:    changedFields.price ? after.price  : undefined,
+            cost_before:    changedFields.cost  ? before.cost  : undefined,
+            cost_after:     changedFields.cost  ? after.cost   : undefined,
+            notes: `Editado desde modal de producto`,
+          });
+        }
+
         toast.success('Producto actualizado');
-        setShowModal(false); load();
+        setShowModal(false);
+        load();
       } else {
+        // Producto nuevo
         const created = await productService.create({ ...productData, company_id: companyId! });
         toast.success('Producto creado');
+
+        // Registrar creación en audit_log
+        if (created?.id) {
+          await logAudit({
+            company_id:      companyId!,
+            product_id:      created.id,
+            product_name:    productData.name,
+            product_sku:     productData.sku,
+            action:          'CREATION',
+            source:          'creation',
+            quantity_before: 0,
+            quantity_after:  productData.stock_quantity ?? 0,
+            quantity_delta:  productData.stock_quantity ?? 0,
+            price_after:     productData.price,
+            cost_after:      productData.cost,
+            notes:           'Producto creado manualmente',
+          });
+        }
+
         setShowModal(false);
         await load();
         if ((form as any).has_variants && created?.id) {
@@ -1361,29 +1423,36 @@ const Inventory: React.FC = () => {
     finally { setSaving(false); }
   };
 
-  // ─── ELIMINAR PRODUCTO ACTIVO: verifica historial ───────────────
-  // Si tiene historial → soft delete (desactiva)
-  // Si no tiene historial → hard delete (borra permanentemente)
   const handleDelete = (id: string) => {
-    requirePin('eliminar este producto', async () => {
-      try {
-        const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
-          supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
-          supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
-        ]);
-        const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
-        if (hasHistory) {
-          await productService.delete(id);
-          toast.success('Producto desactivado (tiene historial asociado)');
+  requirePin('eliminar este producto', async () => {
+    try {
+      const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
+        supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', id),
+        supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', id),
+      ]);
+      const hasHistory = (invoiceCount ?? 0) > 0 || (movCount ?? 0) > 0;
+
+      if (hasHistory) {
+        await productService.delete(id);
+        // Marcar inactivo optimistamente
+        if (!showInactive) {
+          setProducts(prev => prev.filter(p => p.id !== id));
         } else {
-          const { error } = await supabase.from('products').delete().eq('id', id);
-          if (error) throw error;
-          toast.success('Producto eliminado permanentemente');
+          setProducts(prev => prev.map(p => p.id === id ? { ...p, is_active: false } as any : p));
         }
-        load();
-      } catch (e: any) { toast.error(e.message); }
-    });
-  };
+        toast.success('Producto desactivado (tiene historial asociado)');
+      } else {
+        const { error } = await supabase.from('products').delete().eq('id', id);
+        if (error) throw error;
+        // Eliminar optimistamente del estado
+        setProducts(prev => prev.filter(p => p.id !== id));
+        toast.success('Producto eliminado permanentemente');
+      }
+      // Recarga silenciosa en background (sin mostrar spinner)
+      load(true);
+    } catch (e: any) { toast.error(e.message); }
+  });
+};
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -1401,8 +1470,6 @@ const Inventory: React.FC = () => {
     }
   };
 
-  // ─── ELIMINACIÓN MASIVA ─────────────────────────────────────────
-  // Detecta si hay inactivos en la selección para decidir el tipo de operación
   const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
     requirePin(`eliminar ${selectedIds.size} producto(s)`, async () => {
@@ -1417,7 +1484,6 @@ const Inventory: React.FC = () => {
     });
 
     if (hasActive && !hasInactive) {
-      // Solo activos → verificar historial por cada uno
       if (!confirm(`¿Eliminar ${ids.length} producto${ids.length > 1 ? 's' : ''}? Los que tengan historial se desactivarán; los demás se borrarán permanentemente.`)) return;
       let softDeleted = 0; let hardDeleted = 0;
       for (const id of ids) {
@@ -1439,7 +1505,6 @@ const Inventory: React.FC = () => {
       if (hardDeleted > 0) toast.success(`${hardDeleted} producto${hardDeleted > 1 ? 's' : ''} eliminado${hardDeleted > 1 ? 's' : ''} permanentemente`);
       if (softDeleted > 0) toast.success(`${softDeleted} producto${softDeleted > 1 ? 's' : ''} desactivado${softDeleted > 1 ? 's' : ''} (tenían historial)`);
     } else {
-      // Hay inactivos → eliminación permanente directa
       if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n${ids.length} producto${ids.length > 1 ? 's' : ''} se borrarán definitivamente.\n\nLos que tengan facturas o movimientos asociados NO se eliminarán.\n\n¿Continuar?`)) return;
       let ok = 0; let skipped = 0;
       for (const id of ids) {
@@ -1460,7 +1525,7 @@ const Inventory: React.FC = () => {
 
     setSelectedIds(new Set());
     load();
-    }); // end requirePin
+    });
   };
 
   const filtered = products.filter(p => {
@@ -1497,6 +1562,7 @@ const Inventory: React.FC = () => {
     setForm((prev: any) => ({ ...prev, [key]: raw === '' ? 0 : parseFloat(raw) || 0 }));
   };
 
+  // ── PATCH 4: ProductRow con botón de historial (Clock) ────────────────────
   const ProductRow = ({ p }: { p: Product }) => {
     const supplier = suppliers.find(s => s.id === (p as any).supplier_id);
     const isChecked = selectedIds.has(p.id!);
@@ -1551,8 +1617,14 @@ const Inventory: React.FC = () => {
           <div className="flex gap-2 items-center">
             <button onClick={() => openEdit(p)} className="text-blue-600 hover:text-blue-800"><Edit2 size={15} /></button>
             <button onClick={() => setVariantProduct(p)} title="Variantes" className="text-indigo-500 hover:text-indigo-700"><Tag size={15} /></button>
+            {/* PATCH 4: botón historial */}
+            <button
+              onClick={() => setHistoryProduct(p)}
+              className="text-amber-500 hover:text-amber-700"
+              title="Ver historial de modificaciones">
+              <Clock size={15} />
+            </button>
             {isInactive ? (
-              // ── Producto INACTIVO: Activar o Borrar definitivamente ──
               <div className="flex gap-1">
                 <button
                   onClick={async () => {
@@ -1565,7 +1637,6 @@ const Inventory: React.FC = () => {
                 </button>
                 <button
                   onClick={() => requirePin(`eliminar "${p.name}"`, async () => {
-                    // Verificar historial antes de borrar
                     const [{ count: invoiceCount }, { count: movCount }] = await Promise.all([
                       supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
                       supabase.from('inventory_movements').select('id', { count: 'exact', head: true }).eq('product_id', p.id!),
@@ -1579,7 +1650,6 @@ const Inventory: React.FC = () => {
                       return;
                     }
                     if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n"${p.name}"\n\nEsta acción NO se puede deshacer. ¿Estás seguro?`)) return;
-                    // Hard delete directo — producto inactivo sin historial
                     const { error } = await supabase.from('products').delete().eq('id', p.id!);
                     if (error) { toast.error('Error al eliminar: ' + error.message); return; }
                     toast.success('Producto eliminado permanentemente');
@@ -1591,7 +1661,6 @@ const Inventory: React.FC = () => {
                 </button>
               </div>
             ) : (
-              // ── Producto ACTIVO: eliminar (con lógica automática) ──
               <button
                 onClick={() => handleDelete(p.id!)}
                 className="text-red-500 hover:text-red-700"
@@ -1638,6 +1707,7 @@ const Inventory: React.FC = () => {
         <div className="flex gap-2 pt-2 border-t border-slate-100">
           <button onClick={() => openEdit(p)} className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition-colors"><Edit2 size={14} /> Editar</button>
           <button onClick={() => setVariantProduct(p)} className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"><Tag size={14} /> Variantes</button>
+          <button onClick={() => setHistoryProduct(p)} className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm bg-amber-50 text-amber-600 hover:bg-amber-100 rounded transition-colors"><Clock size={14} /> Historial</button>
           <button onClick={() => handleDelete(p.id!)} className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-600 hover:bg-red-100 rounded transition-colors"><Trash2 size={14} /> Eliminar</button>
         </div>
       </div>
@@ -1674,51 +1744,302 @@ const Inventory: React.FC = () => {
             </button>
           )}
           {activeTab === 'products' && <>
-          <button onClick={() => {
-              const url = window.location.origin + window.location.pathname + '#/catalogo/' + companyId;
-              const msg = encodeURIComponent('🛍️ Mira nuestro catálogo:\n' + url);
-              window.open('https://wa.me/?text=' + msg, '_blank');
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-[#25D366] text-white rounded-lg hover:bg-[#1fba59] font-medium text-sm">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            Catálogo WhatsApp
-          </button>
-          <button onClick={() => {
-            const lowStock = products.filter((p: any) => p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
-            const now = new Date().toLocaleString('es-CO');
-            const rows = products.map((p: any) => `<tr><td>${p.name}</td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td>${p.brand || '—'}</td><td style="text-align:right">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td><td style="text-align:right">${formatMoney(p.cost)}</td><td>${p.type}</td><td>${p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO') : '—'}</td></tr>`).join('');
-            const lowRows = lowStock.map((p: any) => `<tr style="background:#fef2f2"><td><strong>${p.name}</strong></td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td style="text-align:right;color:#ef4444;font-weight:700">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td></tr>`).join('');
-            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Inventario</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}h1{font-size:18px;margin:0}h2{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin:18px 0 5px;border-bottom:2px solid #e2e8f0;padding-bottom:3px}table{width:100%;border-collapse:collapse;margin-top:4px}th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:5px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #f1f5f9}@page{size:A4 landscape;margin:12mm}@media print{button{display:none}}</style></head><body><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a"><div><h1>${company?.name || 'POSmaster'}</h1><p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p></div><div style="text-align:right"><p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">REPORTE DE INVENTARIO</p><p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${products.length} productos</p></div></div><h2>Todos los Productos</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th>Marca</th><th style="text-align:right">Stock</th><th style="text-align:right">Mín.</th><th style="text-align:right">Precio</th><th style="text-align:right">Costo</th><th>Tipo</th><th>Creado</th></tr></thead><tbody>${rows}</tbody></table>${lowStock.length > 0 ? `<h2 style="color:#ef4444">⚠️ Stock Bajo (${lowStock.length} productos)</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Mínimo</th><th style="text-align:right">Precio</th></tr></thead><tbody>${lowRows}</tbody></table>` : ''}<p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p></body></html>`;
-            const w = window.open('', '_blank', 'width=1200,height=800');
-            if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
-          }}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium text-sm">
-            📄 Exportar PDF
-          </button>
-          <button onClick={() => setShowDescuentos(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-sm">
-            <Tag size={16} /> Descuentos
-          </button>
-          <button onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
-            <FileSpreadsheet size={16} /> Importar Excel
-          </button>
-          <button onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
-            <Plus size={16} /> {
-              isRestaurante                      ? 'Nuevo Insumo' :
-              isZapateria || isSalon             ? 'Nuevo Material' :
-              isFarmacia                         ? 'Nuevo Insumo General' :
-              isVeterinaria || isOdontologia     ? 'Nuevo Insumo' :
-              'Nuevo Producto'
-            }
-          </button>
-          {scannedProduct && showBarcodeNotification && (
+  <button onClick={() => {
+      const url = window.location.origin + window.location.pathname + '#/catalogo/' + companyId;
+      const msg = encodeURIComponent('🛍️ Mira nuestro catálogo:\n' + url);
+      window.open('https://wa.me/?text=' + msg, '_blank');
+    }}
+    className="flex items-center gap-2 px-4 py-2 bg-[#25D366] text-white rounded-lg hover:bg-[#1fba59] font-medium text-sm">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    Catálogo WhatsApp
+  </button>
+  <button onClick={() => {
+    const lowStock = products.filter((p: any) => p.type !== 'SERVICE' && p.type !== 'WEIGHABLE' && (p.stock_quantity ?? 0) <= (p.stock_min ?? 5));
+    const now = new Date().toLocaleString('es-CO');
+    const rows = products.map((p: any) => `<tr><td>${p.name}</td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td>${p.brand || '—'}</td><td style="text-align:right">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td><td style="text-align:right">${formatMoney(p.cost)}</td><td>${p.type}</td><td>${p.created_at ? new Date(p.created_at).toLocaleDateString('es-CO') : '—'}</td></tr>`).join('');
+    const lowRows = lowStock.map((p: any) => `<tr style="background:#fef2f2"><td><strong>${p.name}</strong></td><td>${p.sku || '—'}</td><td>${p.category || '—'}</td><td style="text-align:right;color:#ef4444;font-weight:700">${p.stock_quantity ?? 0}</td><td style="text-align:right">${p.stock_min ?? 5}</td><td style="text-align:right">${formatMoney(p.price)}</td></tr>`).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Inventario</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}h1{font-size:18px;margin:0}h2{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin:18px 0 5px;border-bottom:2px solid #e2e8f0;padding-bottom:3px}table{width:100%;border-collapse:collapse;margin-top:4px}th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:5px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #f1f5f9}@page{size:A4 landscape;margin:12mm}@media print{button{display:none}}</style></head><body><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:12px;border-bottom:3px solid #0f172a"><div><h1>${company?.name || 'POSmaster'}</h1><p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p></div><div style="text-align:right"><p style="font-weight:800;font-size:15px;color:#3b82f6;margin:0">REPORTE DE INVENTARIO</p><p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${products.length} productos</p></div></div><h2>Todos los Productos</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th>Marca</th><th style="text-align:right">Stock</th><th style="text-align:right">Mín.</th><th style="text-align:right">Precio</th><th style="text-align:right">Costo</th><th>Tipo</th><th>Creado</th></tr></thead><tbody>${rows}</tbody></table>${lowStock.length > 0 ? `<h2 style="color:#ef4444">⚠️ Stock Bajo (${lowStock.length} productos)</h2><table><thead><tr><th>Nombre</th><th>SKU</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Mínimo</th><th style="text-align:right">Precio</th></tr></thead><tbody>${lowRows}</tbody></table>` : ''}<p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">Generado por POSmaster · ${now}</p></body></html>`;
+    const w = window.open('', '_blank', 'width=1200,height=800');
+    if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+  }}
+    className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-medium text-sm">
+    📄 Exportar PDF
+  </button>
+
+  {/* ── HISTORIAL GLOBAL DE MODIFICACIONES ── */}
+  <button
+    onClick={async () => {
+      const ACTION_LABELS: Record<string, string> = {
+        CREATION: 'Creación', EDIT: 'Edición', STOCK_UPDATE: 'Ajuste stock',
+        PRICE_UPDATE: 'Cambio precio', PURCHASE_ORDER: 'OC recibida',
+        SALE: 'Venta', RETURN: 'Devolución', ADJUSTMENT: 'Ajuste manual', DELETE: 'Eliminación',
+      };
+      const SOURCE_LABELS: Record<string, string> = {
+        edit_modal: 'Modal edición', creation: 'Creación manual',
+        purchase_order: 'Orden de compra', excel_import: 'Importación Excel',
+        pos: 'Punto de venta', api: 'API',
+      };
+      const FIELD_LABELS: Record<string, string> = {
+        stock_quantity: 'Stock', price: 'Precio', cost: 'Costo',
+        name: 'Nombre', sku: 'SKU', category: 'Categoría',
+        is_active: 'Activo', supplier_id: 'Proveedor',
+      };
+
+      toast.loading('Consultando historial global...', { id: 'global-hist' });
+
+      let history: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from('product_audit_log')
+          .select('*')
+          .eq('company_id', companyId!)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        history = data || [];
+      } catch (err: any) {
+        toast.error('Error al consultar historial: ' + err.message, { id: 'global-hist' });
+        return;
+      }
+
+      if (history.length === 0) {
+        toast.error('No hay registros de historial aún', { id: 'global-hist' });
+        return;
+      }
+
+      toast.loading('Generando archivos...', { id: 'global-hist' });
+
+      // ── KPIs ──────────────────────────────────────────────────────
+      const totalIn        = history.filter(e => (e.quantity_delta ?? 0) > 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+      const totalOut       = history.filter(e => (e.quantity_delta ?? 0) < 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+      const uniqueProds    = new Set(history.map((e: any) => e.product_id)).size;
+      const uniqueUsers    = new Set(history.map((e: any) => e.user_name).filter(Boolean)).size;
+      const totalCreations = history.filter((e: any) => e.action === 'CREATION').length;
+      const totalEdits     = history.filter((e: any) => e.action === 'EDIT').length;
+      const totalStock     = history.filter((e: any) => e.action === 'STOCK_UPDATE').length;
+      const totalPrices    = history.filter((e: any) => e.action === 'PRICE_UPDATE').length;
+      const totalPOs       = history.filter((e: any) => e.action === 'PURCHASE_ORDER').length;
+
+      // ── Agrupar por producto ──────────────────────────────────────
+      const byProduct: Record<string, any[]> = {};
+      history.forEach((e: any) => {
+        const k = e.product_id || 'unknown';
+        if (!byProduct[k]) byProduct[k] = [];
+        byProduct[k].push(e);
+      });
+
+      // ── EXCEL ─────────────────────────────────────────────────────
+      try {
+        const wb = XLSX.utils.book_new();
+
+        // Hoja 1: Métricas globales
+        const kpiRows = [
+          { 'Métrica': 'Total de registros en historial',      'Valor': history.length },
+          { 'Métrica': 'Productos con historial',              'Valor': uniqueProds },
+          { 'Métrica': 'Usuarios que realizaron cambios',      'Valor': uniqueUsers },
+          { 'Métrica': 'Productos creados',                    'Valor': totalCreations },
+          { 'Métrica': 'Ediciones generales',                  'Valor': totalEdits },
+          { 'Métrica': 'Ajustes de stock',                     'Valor': totalStock },
+          { 'Métrica': 'Cambios de precio/costo',              'Valor': totalPrices },
+          { 'Métrica': 'Recepciones de orden de compra',       'Valor': totalPOs },
+          { 'Métrica': 'Total unidades ingresadas (entradas)', 'Valor': totalIn },
+          { 'Métrica': 'Total unidades egresadas (salidas)',   'Valor': Math.abs(totalOut) },
+          { 'Métrica': 'Primer registro',                      'Valor': history.length ? new Date(history[history.length - 1].created_at).toLocaleString('es-CO') : '—' },
+          { 'Métrica': 'Último registro',                      'Valor': history.length ? new Date(history[0].created_at).toLocaleString('es-CO') : '—' },
+        ];
+        const ws1 = XLSX.utils.json_to_sheet(kpiRows);
+        ws1['!cols'] = [{ wch: 38 }, { wch: 22 }];
+        XLSX.utils.book_append_sheet(wb, ws1, 'Métricas Globales');
+
+        // Hoja 2: Resumen por producto
+        const summaryRows = Object.entries(byProduct).map(([, entries]: [string, any[]]) => {
+          const oldest = entries[entries.length - 1];
+          const newest = entries[0];
+          const ins    = entries.filter((e: any) => (e.quantity_delta ?? 0) > 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+          const outs   = entries.filter((e: any) => (e.quantity_delta ?? 0) < 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+          const lastCost  = entries.find((e: any) => e.cost_after  != null)?.cost_after;
+          const lastPrice = entries.find((e: any) => e.price_after != null)?.price_after;
+          return {
+            'Producto':                  oldest.product_name  || 'Desconocido',
+            'SKU':                       oldest.product_sku   || '—',
+            'Total modificaciones':      entries.length,
+            'Entradas de stock':         ins > 0 ? ins : 0,
+            'Salidas de stock':          outs,
+            'Último stock registrado':   newest.quantity_after ?? '',
+            'Último costo registrado':   lastCost  ?? '',
+            'Último precio registrado':  lastPrice ?? '',
+            'Primera modificación':      oldest.created_at ? new Date(oldest.created_at).toLocaleString('es-CO') : '',
+            'Última modificación':       newest.created_at ? new Date(newest.created_at).toLocaleString('es-CO') : '',
+            'Último usuario':            newest.user_name || '',
+          };
+        });
+        const ws2 = XLSX.utils.json_to_sheet(summaryRows);
+        ws2['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 24 }, { wch: 24 }, { wch: 22 }];
+        XLSX.utils.book_append_sheet(wb, ws2, 'Resumen por Producto');
+
+        // Hoja 3: Detalle completo
+        const detailRows = history.map((e: any) => {
+          const changedFields = e.changed_fields
+            ? Object.entries(e.changed_fields)
+                .map(([k, v]: any) => `${FIELD_LABELS[k] || k}: ${v.before} → ${v.after}`)
+                .join(' | ')
+            : '';
+          return {
+            'Fecha':            e.created_at ? new Date(e.created_at).toLocaleString('es-CO') : '—',
+            'Producto':         e.product_name || '',
+            'SKU':              e.product_sku  || '',
+            'Acción':           ACTION_LABELS[e.action] || e.action,
+            'Fuente':           SOURCE_LABELS[e.source] || e.source,
+            'Stock anterior':   e.quantity_before ?? '',
+            'Stock nuevo':      e.quantity_after  ?? '',
+            'Diferencia':       e.quantity_delta  ?? '',
+            'Precio anterior':  e.price_before ?? '',
+            'Precio nuevo':     e.price_after  ?? '',
+            'Costo anterior':   e.cost_before  ?? '',
+            'Costo nuevo':      e.cost_after   ?? '',
+            'Campos cambiados': changedFields,
+            'Referencia':       e.reference_label || '',
+            'Notas':            e.notes     || '',
+            'Usuario':          e.user_name || '',
+          };
+        });
+        const ws3 = XLSX.utils.json_to_sheet(detailRows);
+        ws3['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 50 }, { wch: 28 }, { wch: 28 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, ws3, 'Detalle Completo');
+
+        XLSX.writeFile(wb, `historial_global_inventario_${new Date().toISOString().split('T')[0]}.xlsx`);
+      } catch (err: any) {
+        toast.error('Error generando Excel: ' + err.message, { id: 'global-hist' });
+        return;
+      }
+
+      // ── PDF ───────────────────────────────────────────────────────
+      try {
+        const now = new Date().toLocaleString('es-CO');
+
+        const summaryTableRows = Object.entries(byProduct).map(([, entries]: [string, any[]]) => {
+          const oldest = entries[entries.length - 1];
+          const newest = entries[0];
+          const ins  = entries.filter((e: any) => (e.quantity_delta ?? 0) > 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+          const outs = entries.filter((e: any) => (e.quantity_delta ?? 0) < 0).reduce((s: number, e: any) => s + (e.quantity_delta ?? 0), 0);
+          return `<tr>
+            <td>${oldest.product_name || 'Desconocido'}</td>
+            <td style="font-family:monospace;font-size:9px">${oldest.product_sku || '—'}</td>
+            <td style="text-align:center">${entries.length}</td>
+            <td style="text-align:right;color:#16a34a;font-weight:700">${ins > 0 ? '+' + ins : '—'}</td>
+            <td style="text-align:right;color:#dc2626">${outs < 0 ? outs : '—'}</td>
+            <td style="text-align:right">${newest.quantity_after ?? '—'}</td>
+            <td style="font-size:9px;color:#64748b">${newest.created_at ? new Date(newest.created_at).toLocaleDateString('es-CO') : '—'}</td>
+            <td style="font-size:9px;color:#64748b">${newest.user_name || '—'}</td>
+          </tr>`;
+        }).join('');
+
+        const detailSlice = history.slice(0, 300);
+        const detailTableRows = detailSlice.map((e: any, i: number) => {
+          const delta = e.quantity_delta ?? 0;
+          return `<tr ${i % 2 === 1 ? 'style="background:#f8fafc"' : ''}>
+            <td style="font-size:9px;color:#64748b">${e.created_at ? new Date(e.created_at).toLocaleString('es-CO') : '—'}</td>
+            <td style="font-size:9px">${e.product_name || '—'}</td>
+            <td style="font-family:monospace;font-size:9px;color:#64748b">${e.product_sku || '—'}</td>
+            <td style="font-size:9px;font-weight:700">${ACTION_LABELS[e.action] || e.action}</td>
+            <td style="text-align:right;font-size:9px;font-weight:700;color:${delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#94a3b8'}">${delta !== 0 ? (delta > 0 ? '+' + delta : delta) : '—'}</td>
+            <td style="text-align:right;font-size:9px">${e.quantity_before ?? '—'} → ${e.quantity_after ?? '—'}</td>
+            <td style="font-size:9px;color:#64748b">${e.user_name || '—'}</td>
+          </tr>`;
+        }).join('');
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Historial Global de Inventario</title>
+        <style>
+          body{font-family:Arial,sans-serif;margin:0;padding:24px 32px;color:#0f172a;font-size:11px}
+          h1{font-size:18px;margin:0}
+          h2{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 6px;border-bottom:2px solid #e2e8f0;padding-bottom:3px}
+          table{width:100%;border-collapse:collapse;margin-top:4px}
+          th{background:#f8fafc;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0}
+          td{padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+          .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0 20px}
+          .kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+          .kpi-val{font-size:22px;font-weight:800;color:#1e40af;margin:0}
+          .kpi-val.green{color:#16a34a}
+          .kpi-val.red{color:#dc2626}
+          .kpi-val.purple{color:#7c3aed}
+          .kpi-lbl{font-size:9px;color:#64748b;margin:2px 0 0;text-transform:uppercase;letter-spacing:.04em}
+          @page{size:A4 landscape;margin:10mm}
+          @media print{button{display:none}}
+        </style></head><body>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #0f172a">
+          <div>
+            <h1>${company?.name || 'POSmaster'}</h1>
+            <p style="margin:3px 0 0;color:#64748b;font-size:11px">NIT: ${company?.nit || '—'}</p>
+          </div>
+          <div style="text-align:right">
+            <p style="font-weight:800;font-size:15px;color:#7c3aed;margin:0">HISTORIAL GLOBAL DE INVENTARIO</p>
+            <p style="font-size:11px;color:#64748b;margin:3px 0">${now} · ${history.length} registros</p>
+          </div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><p class="kpi-val">${history.length.toLocaleString('es-CO')}</p><p class="kpi-lbl">Total registros</p></div>
+          <div class="kpi"><p class="kpi-val purple">${uniqueProds}</p><p class="kpi-lbl">Productos con historial</p></div>
+          <div class="kpi"><p class="kpi-val green">+${totalIn.toLocaleString('es-CO')}</p><p class="kpi-lbl">Unidades ingresadas</p></div>
+          <div class="kpi"><p class="kpi-val red">${Math.abs(totalOut).toLocaleString('es-CO')}</p><p class="kpi-lbl">Unidades egresadas</p></div>
+          <div class="kpi"><p class="kpi-val">${uniqueUsers}</p><p class="kpi-lbl">Usuarios activos</p></div>
+          <div class="kpi"><p class="kpi-val">${totalCreations}</p><p class="kpi-lbl">Productos creados</p></div>
+          <div class="kpi"><p class="kpi-val">${totalPOs}</p><p class="kpi-lbl">Recepciones de OC</p></div>
+          <div class="kpi"><p class="kpi-val">${totalPrices}</p><p class="kpi-lbl">Cambios de precio</p></div>
+        </div>
+        <h2>Resumen por producto (${Object.keys(byProduct).length} productos)</h2>
+        <table><thead><tr>
+          <th>Producto</th><th>SKU</th><th style="text-align:center">Registros</th>
+          <th style="text-align:right">Entradas</th><th style="text-align:right">Salidas</th>
+          <th style="text-align:right">Último stock</th><th>Última modif.</th><th>Último usuario</th>
+        </tr></thead><tbody>${summaryTableRows}</tbody></table>
+        <h2 style="margin-top:24px">Detalle de modificaciones ${history.length > 300 ? `(mostrando últimas 300 de ${history.length.toLocaleString('es-CO')})` : `(${history.length} registros)`}</h2>
+        <table><thead><tr>
+          <th>Fecha</th><th>Producto</th><th>SKU</th><th>Acción</th>
+          <th style="text-align:right">Δ Stock</th><th style="text-align:right">Antes → Después</th><th>Usuario</th>
+        </tr></thead><tbody>${detailTableRows}</tbody></table>
+        <p style="margin-top:24px;text-align:center;font-size:10px;color:#94a3b8">
+          Historial Global de Inventario · ${company?.name || 'POSmaster'} · Generado el ${now}
+        </p>
+        </body></html>`;
+
+        const w = window.open('', '_blank', 'width=1200,height=800');
+        if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 600); }
+      } catch (err: any) {
+        toast.error('Error generando PDF: ' + err.message, { id: 'global-hist' });
+        return;
+      }
+
+      toast.success(`Historial generado — ${history.length} registros exportados`, { id: 'global-hist' });
+    }}
+    className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium text-sm"
+  >
+    <BarChart3 size={16} /> Historial Global
+  </button>
+  {/* ── FIN HISTORIAL GLOBAL ── */}
+
+  <button onClick={() => setShowDescuentos(true)}
+    className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-sm">
+    <Tag size={16} /> Descuentos
+  </button>
+  <button onClick={() => setShowImport(true)}
+    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm">
+    <FileSpreadsheet size={16} /> Importar Excel
+  </button>
+  <button onClick={openCreate}
+    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+    <Plus size={16} /> {
+      isRestaurante                      ? 'Nuevo Insumo' :
+      isZapateria || isSalon             ? 'Nuevo Material' :
+      isFarmacia                         ? 'Nuevo Insumo General' :
+      isVeterinaria || isOdontologia     ? 'Nuevo Insumo' :
+      'Nuevo Producto'
+    }
+  </button>
+  {scannedProduct && showBarcodeNotification && (
             <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-2 border-green-400 rounded-lg">
               <span className="text-sm font-medium text-green-700">✓ {scannedProduct.name}</span>
             </div>
           )}
-          </>}
+        </>}
         </div>
       </div>
 
@@ -1814,7 +2135,7 @@ const Inventory: React.FC = () => {
         </label>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200">
         {loading ? (
           <div className="p-12 text-center text-slate-400">Cargando productos...</div>
         ) : filtered.length === 0 ? (
@@ -1856,24 +2177,26 @@ const Inventory: React.FC = () => {
                 </div>
               </div>
             )}
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-3 py-4">
-                    <input type="checkbox"
-                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
-                  </th>
-                  {['Foto','Producto','SKU','Cód. Barras','IMEI','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
-                    <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map(p => <ProductRow key={p.id} p={p} />)}
-              </tbody>
-            </table>
+                        <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-3 py-4">
+                      <input type="checkbox"
+                        checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                    </th>
+                    {['Foto','Producto','SKU','Cód. Barras','IMEI','Categoría','Precio','Costo','Stock','Tipo','Proveedor','Creado',''].map(h => (
+                      <th key={h} className="px-4 py-4 font-semibold text-slate-700">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filtered.map(p => <ProductRow key={p.id} p={p} />)}
+                </tbody>
+              </table>
+            </div>
           </>
         ) : selectedCategory ? (
           <div className="p-6 space-y-6">
@@ -1976,6 +2299,16 @@ const Inventory: React.FC = () => {
         <DescuentosModal
           companyId={companyId}
           onClose={() => setShowDescuentos(false)}
+        />
+      )}
+
+      {/* PATCH 6: Modal de historial de producto */}
+      {historyProduct && (
+        <ProductHistoryModal
+          productId={historyProduct.id!}
+          productName={historyProduct.name}
+          productSku={historyProduct.sku}
+          onClose={() => setHistoryProduct(null)}
         />
       )}
 
